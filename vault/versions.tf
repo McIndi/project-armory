@@ -1,10 +1,10 @@
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.8.0"
 
   required_providers {
     local = {
       source  = "hashicorp/local"
-      version = "~> 2.5"
+      version = "~> 2.8"
     }
     null = {
       source  = "hashicorp/null"
@@ -12,11 +12,11 @@ terraform {
     }
     tls = {
       source  = "hashicorp/tls"
-      version = "~> 4.0"
+      version = "~> 4.2"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.6"
+      version = "~> 3.8"
     }
   }
 }

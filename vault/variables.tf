@@ -33,7 +33,7 @@ variable "image_name" {
 variable "image_tag" {
   description = "Image tag / version to deploy."
   type        = string
-  default     = "2.2.0"
+  default     = "2.5.2"
 }
 
 variable "container_name" {
