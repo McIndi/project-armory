@@ -22,6 +22,15 @@ run "operator_policy_name" {
   }
 }
 
+run "operator_policy_allows_password_change" {
+  command = plan
+
+  assert {
+    condition     = strcontains(vault_policy.operator.policy, "auth/userpass/users/operator/password")
+    error_message = "Operator policy must allow self-service password change"
+  }
+}
+
 run "operator_policy_denies_cert_issuance" {
   command = plan
 
@@ -68,20 +77,6 @@ run "userpass_mount_path" {
   }
 }
 
-run "audit_device_type" {
-  command = plan
-
-  assert {
-    condition     = vault_audit.file.type == "file"
-    error_message = "Audit device must be of type file"
-  }
-}
-
-run "audit_log_path" {
-  command = plan
-
-  assert {
-    condition     = vault_audit.file.options["file_path"] == "/vault/logs/audit.log"
-    error_message = "Audit log must write to /vault/logs/audit.log (the bind-mounted logs volume)"
-  }
-}
+# Audit device is declared in vault/templates/vault.hcl.tpl (OpenBao 2.x
+# blocked runtime API management). Tests for the audit stanza live in
+# vault/tests/outputs.tftest.hcl.

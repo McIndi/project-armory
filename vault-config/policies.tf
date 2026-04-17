@@ -15,6 +15,9 @@ resource "vault_policy" "operator" {
     path "auth/token/renew-self"  { capabilities = ["update"] }
     path "auth/token/revoke-self" { capabilities = ["update"] }
 
+    # Self-service password change — own account only
+    path "auth/userpass/users/operator/password" { capabilities = ["update"] }
+
     # System introspection — sys/ paths require sudo in addition to read
     path "sys/health"   { capabilities = ["read", "sudo"] }
     path "sys/mounts"   { capabilities = ["read", "sudo"] }
