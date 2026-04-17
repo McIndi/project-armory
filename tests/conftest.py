@@ -2,7 +2,8 @@
 Session fixtures: full lifecycle management for Armory integration tests.
 
 vault_env sequence:
-  destroy (vault-config/) → destroy (vault/) → apply (vault/) →
+  destroy (vault-config/) → destroy (vault/) →
+  init (vault/) → init (vault-config/) → apply (vault/) →
   wait → init → unseal → wait → apply (vault-config/) →
   [ tests ] →
   collect logs → teardown (unless ARMORY_NO_TEARDOWN=1)
@@ -130,6 +131,26 @@ def _collect_webserver_logs():
                 f.write(r.stderr)
 
 
+def _check_prerequisites():
+    for name, cmd in [("tofu", ["tofu", "version"]), ("podman", ["podman", "--version"])]:
+        try:
+            r = subprocess.run(cmd, capture_output=True)
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"'{name}' exited with code {r.returncode}. "
+                    "Ensure it is installed and working before running integration tests."
+                )
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"'{name}' not found on PATH — install it before running integration tests."
+            )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def check_prerequisites():
+    _check_prerequisites()
+
+
 # ---------------------------------------------------------------------------
 # Vault session fixture
 # ---------------------------------------------------------------------------
@@ -159,24 +180,28 @@ def vault_env():
         _run(f"podman unshare rm -rf {d} 2>/dev/null || rm -rf {d} 2>/dev/null || true",
              check=False)
 
-    # 2. Deploy Vault
+    # 2. Init modules (idempotent; required on fresh checkout / CI)
+    _run("tofu init -upgrade", cwd=VAULT_MODULE)
+    _run("tofu init -upgrade", cwd=VAULT_CONFIG_MODULE, env=base_env)
+
+    # 3. Deploy Vault
     _run("tofu apply -auto-approve", cwd=VAULT_MODULE)
 
-    # 3. Wait for container API
+    # 4. Wait for container API
     _wait_for_vault_ready()
 
-    # 4. Init
+    # 5. Init
     result = _run("podman exec armory-vault bao operator init -key-shares=1 -key-threshold=1")
     unseal_key = re.search(r"Unseal Key 1:\s+(\S+)", result.stdout).group(1)
     root_token = re.search(r"Initial Root Token:\s+(\S+)", result.stdout).group(1)
 
-    # 5. Unseal
+    # 6. Unseal
     _run(f"podman exec armory-vault bao operator unseal {unseal_key}")
 
-    # 6. Wait for active
+    # 7. Wait for active
     _wait_for_active()
 
-    # 7. Configure Vault
+    # 8. Configure Vault
     config_env = base_env.copy()
     config_env["TF_VAR_vault_token"] = root_token
     _run("tofu apply -auto-approve", cwd=VAULT_CONFIG_MODULE, env=config_env)
@@ -189,11 +214,11 @@ def vault_env():
         "config_env": config_env,
     }
 
-    # 8. Always collect logs
+    # 9. Always collect logs
     log_path = _collect_logs()
     print(f"\nVault logs saved to: {log_path}")
 
-    # 9. Teardown
+    # 10. Teardown
     if NO_TEARDOWN:
         print(f"\nARMORY_NO_TEARDOWN is set — environment left running.")
         print(f"Root token: {root_token}")
