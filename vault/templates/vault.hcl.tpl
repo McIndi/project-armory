@@ -43,3 +43,15 @@ listener "tcp" {
 
 api_addr     = "https://${api_addr}:8200"
 cluster_addr = "https://${api_addr}:8201"
+
+# ---------------------------------------------------------------------------
+# Audit logging — declarative config required by OpenBao 2.x (API path blocked)
+# Log is written inside the container at /vault/logs, bind-mounted to
+# deploy_dir/logs on the host.
+# ---------------------------------------------------------------------------
+
+audit "file" "default" {
+  options {
+    file_path = "/vault/logs/audit.log"
+  }
+}

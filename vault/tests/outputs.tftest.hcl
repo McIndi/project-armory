@@ -51,3 +51,17 @@ run "ui_disabled_returns_null_url" {
     error_message = "vault_ui_url must be null when ui_enabled is false"
   }
 }
+
+run "vault_config_includes_audit_stanza" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.vault_config.content, "audit \"file\"")
+    error_message = "vault.hcl must contain a file audit device declaration"
+  }
+
+  assert {
+    condition     = strcontains(local_file.vault_config.content, "/vault/logs/audit.log")
+    error_message = "audit device must write to /vault/logs/audit.log"
+  }
+}

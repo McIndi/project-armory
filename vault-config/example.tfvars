@@ -15,3 +15,7 @@ pki_base_url = "https://armory-vault:8200/v1"
 # Set to a comma-separated list to constrain the external role:
 # pki_ext_allowed_domains = "example.com,api.example.com"
 pki_ext_allowed_domains = ""
+
+# Password for the 'operator' userpass account.
+# Override this before any non-demo use. Stored in tfstate — see ADR-012.
+# operator_password = "change-me"

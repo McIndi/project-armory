@@ -35,3 +35,14 @@ variable "pki_ext_allowed_domains" {
   type        = string
   default     = ""
 }
+
+# ---------------------------------------------------------------------------
+# Human operator credentials
+# ---------------------------------------------------------------------------
+
+variable "operator_password" {
+  description = "Password for the 'operator' userpass account. Override before any non-demo use."
+  type        = string
+  sensitive   = true
+  default     = "armory-demo-2026"
+}
