@@ -24,6 +24,8 @@ consequences — including trade-offs accepted.
 | [ADR-014](ADR-014-conditional-mlock.md) | Conditional mlock for OpenBao compatibility | Accepted |
 | [ADR-015](ADR-015-pytest-integration-testing.md) | pytest + hvac for end-to-end integration testing | Accepted |
 | [ADR-016](ADR-016-webserver-vault-agent-sidecar.md) | Webserver service — Vault Agent sidecar for certificate delivery | Accepted |
+| [ADR-017](ADR-017-postgres-vault-database-engine.md) | PostgreSQL with Vault Database secrets engine | Accepted |
+| [ADR-018](ADR-018-keycloak-oidc-human-identity.md) | Keycloak for human identity and Vault OIDC auth method | Accepted |
 
 ## Format
 
