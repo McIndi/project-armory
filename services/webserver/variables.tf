@@ -110,6 +110,18 @@ variable "cert_ttl" {
   default     = "720h"
 }
 
+variable "cert_ip_sans" {
+  description = "Extra IP SANs for the certificate beyond 127.0.0.1, which is always included."
+  type        = list(string)
+  default     = []
+}
+
+variable "cert_dns_sans" {
+  description = "DNS SANs (alt_names) for the certificate."
+  type        = list(string)
+  default     = []
+}
+
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------

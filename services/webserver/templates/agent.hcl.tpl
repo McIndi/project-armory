@@ -30,7 +30,7 @@ auto_auth {
 
 template {
   contents = <<EOT
-{{- with pkiCert "${pki_ext_mount}/issue/${pki_ext_role}" "common_name=${server_name}" "ttl=${cert_ttl}" "ip_sans=127.0.0.1" -}}
+{{- with pkiCert "${pki_ext_mount}/issue/${pki_ext_role}" "common_name=${server_name}" "ttl=${cert_ttl}" "ip_sans=${ip_sans_str}"%{ if alt_names_str != "" } "alt_names=${alt_names_str}"%{ endif } -}}
 {{ .Cert }}{{ .CA }}{{ .Key }}
 {{- end }}
 EOT

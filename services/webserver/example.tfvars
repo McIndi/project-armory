@@ -21,3 +21,10 @@ cert_ttl    = "720h"
 
 host_ip   = "127.0.0.1"
 host_port = 8443
+
+# Optional: extra IP SANs beyond 127.0.0.1 (always included).
+# Useful when nginx must be reachable from a LAN IP.
+# cert_ip_sans = ["192.168.1.50"]
+
+# Optional: DNS SANs. The Vault PKI role must allow these names.
+# cert_dns_sans = ["nginx.local"]

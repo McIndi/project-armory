@@ -9,6 +9,9 @@ locals {
     certs        = "${var.deploy_dir}/certs"
     nginx        = "${var.deploy_dir}/nginx"
   }
+
+  ip_sans_str   = join(",", concat(["127.0.0.1"], var.cert_ip_sans))
+  alt_names_str = join(",", var.cert_dns_sans)
 }
 
 # ===========================================================================
@@ -86,6 +89,8 @@ resource "local_file" "agent_config" {
     pki_ext_role       = var.pki_ext_role
     server_name        = var.server_name
     cert_ttl           = var.cert_ttl
+    ip_sans_str        = local.ip_sans_str
+    alt_names_str      = local.alt_names_str
   })
 }
 

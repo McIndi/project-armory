@@ -71,3 +71,16 @@ def test_nginx_cert_validates_against_ca_bundle(webserver_env):
         with ctx.wrap_socket(sock, server_hostname="127.0.0.1") as ssock:
             # If we get here without an exception, chain validation passed
             assert ssock.getpeercert() is not None
+
+
+# ---------------------------------------------------------------------------
+# SANs
+# ---------------------------------------------------------------------------
+
+def test_nginx_cert_has_localhost_ip_san(webserver_env):
+    """127.0.0.1 must always be present as an IP SAN (hardcoded default)."""
+    import ipaddress
+    cert = _get_server_cert("127.0.0.1", 8443, webserver_env["cacert"])
+    san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+    ip_sans = san_ext.value.get_values_for_type(x509.IPAddress)
+    assert ipaddress.IPv4Address("127.0.0.1") in ip_sans

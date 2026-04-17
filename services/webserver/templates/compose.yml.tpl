@@ -27,7 +27,7 @@ services:
       - ${certs_dir}:/vault/certs:z
 
     healthcheck:
-      test: ["CMD-SHELL", "test -f /vault/certs/nginx.pem"]
+      test: ["CMD-SHELL", "test -f /vault/certs/nginx.pem && grep -q 'BEGIN CERTIFICATE' /vault/certs/nginx.pem"]
       interval: 5s
       timeout: 2s
       retries: 24
