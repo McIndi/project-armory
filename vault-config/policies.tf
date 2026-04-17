@@ -44,5 +44,63 @@ resource "vault_policy" "operator" {
     # AppRole — list and inspect roles, no secret_id generation
     path "auth/approle/role"   { capabilities = ["list"] }
     path "auth/approle/role/+" { capabilities = ["read"] }
+
+    # KV v2 — list metadata (discover what secrets exist) and read values
+    path "kv/metadata/*" { capabilities = ["list"] }
+    path "kv/data/*"     { capabilities = ["read"] }
+  EOT
+}
+
+# ---------------------------------------------------------------------------
+# keycloak_db — read static credentials and request rotation
+# ---------------------------------------------------------------------------
+
+resource "vault_policy" "keycloak_db" {
+  name = "keycloak_db"
+
+  policy = <<-EOT
+    path "database/static-creds/keycloak"  { capabilities = ["read"] }
+    path "database/rotate-role/keycloak"   { capabilities = ["update"] }
+  EOT
+}
+
+# ---------------------------------------------------------------------------
+# app_db — generate dynamic credentials for the app database
+# ---------------------------------------------------------------------------
+
+resource "vault_policy" "app_db" {
+  name = "app_db"
+
+  policy = <<-EOT
+    path "database/creds/app" { capabilities = ["read"] }
+  EOT
+}
+
+# ---------------------------------------------------------------------------
+# kv_admin — full lifecycle management of KV v2 secrets (bootstrap/rotation)
+# ---------------------------------------------------------------------------
+
+resource "vault_policy" "kv_admin" {
+  name = "kv_admin"
+
+  policy = <<-EOT
+    path "kv/metadata/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+    path "kv/data/*"     { capabilities = ["create", "read", "update", "delete"] }
+    path "kv/delete/*"   { capabilities = ["update"] }
+    path "kv/undelete/*" { capabilities = ["update"] }
+    path "kv/destroy/*"  { capabilities = ["update"] }
+  EOT
+}
+
+# ---------------------------------------------------------------------------
+# kv_reader_keycloak — scoped read-only access for Keycloak Vault Agent
+# ---------------------------------------------------------------------------
+
+resource "vault_policy" "kv_reader_keycloak" {
+  name = "kv_reader_keycloak"
+
+  policy = <<-EOT
+    path "kv/metadata/keycloak/*" { capabilities = ["read", "list"] }
+    path "kv/data/keycloak/*"     { capabilities = ["read"] }
   EOT
 }

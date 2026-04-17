@@ -13,17 +13,19 @@ resource "vault_auth_backend" "approle" {
 # ===========================================================================
 
 resource "vault_auth_backend" "userpass" {
+  count       = var.userpass_enabled ? 1 : 0
   type        = "userpass"
   path        = "userpass"
   description = "Username/password authentication for human operators"
 }
 
 resource "vault_generic_endpoint" "operator_user" {
-  path                 = "auth/${vault_auth_backend.userpass.path}/users/operator"
+  count                = var.userpass_enabled ? 1 : 0
+  path                 = "auth/${vault_auth_backend.userpass[0].path}/users/operator"
   ignore_absent_fields = true
 
   data_json = jsonencode({
-    password      = var.operator_password
+    password       = var.operator_password
     token_policies = [vault_policy.operator.name]
   })
 

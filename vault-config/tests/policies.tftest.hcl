@@ -63,7 +63,7 @@ run "userpass_mount_type" {
   command = plan
 
   assert {
-    condition     = vault_auth_backend.userpass.type == "userpass"
+    condition     = vault_auth_backend.userpass[0].type == "userpass"
     error_message = "Userpass auth backend must be of type userpass"
   }
 }
@@ -72,7 +72,7 @@ run "userpass_mount_path" {
   command = plan
 
   assert {
-    condition     = vault_auth_backend.userpass.path == "userpass"
+    condition     = vault_auth_backend.userpass[0].path == "userpass"
     error_message = "Userpass auth backend must be mounted at userpass/"
   }
 }

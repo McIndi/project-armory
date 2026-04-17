@@ -46,3 +46,66 @@ variable "operator_password" {
   sensitive   = true
   default     = "armory-demo-2026"
 }
+
+# ---------------------------------------------------------------------------
+# Database secrets engine
+# ---------------------------------------------------------------------------
+
+variable "postgres_host" {
+  description = "PostgreSQL container hostname on armory-net. Must match services/postgres container_name."
+  type        = string
+  default     = "armory-postgres"
+}
+
+variable "vault_mgmt_password" {
+  description = "Password for the vault_mgmt PostgreSQL role. Must match services/postgres vault_mgmt_password."
+  type        = string
+  sensitive   = true
+  default     = "vault-mgmt-demo-2026"
+}
+
+# ---------------------------------------------------------------------------
+# Keycloak
+# ---------------------------------------------------------------------------
+
+variable "keycloak_admin_password" {
+  description = "Bootstrap password for the Keycloak admin account, stored in KV v2."
+  type        = string
+  sensitive   = true
+  default     = "armory-demo-2026"
+}
+
+# ---------------------------------------------------------------------------
+# OIDC auth method
+# ---------------------------------------------------------------------------
+
+variable "oidc_enabled" {
+  description = "Enable the OIDC auth method backed by Keycloak. Set to true only after Keycloak is running."
+  type        = bool
+  default     = false
+}
+
+variable "keycloak_url" {
+  description = "Base URL of the Keycloak server, reachable from the host (e.g. https://127.0.0.1:8444)."
+  type        = string
+  default     = "https://127.0.0.1:8444"
+}
+
+variable "oidc_client_id" {
+  description = "OIDC client ID registered in the Keycloak 'armory' realm."
+  type        = string
+  default     = "vault"
+}
+
+variable "oidc_client_secret" {
+  description = "OIDC client secret from the Keycloak 'vault' client."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "userpass_enabled" {
+  description = "Keep userpass auth method active. Set to false only after OIDC login is verified working."
+  type        = bool
+  default     = true
+}
