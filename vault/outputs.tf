@@ -3,13 +3,13 @@
 # ---------------------------------------------------------------------------
 
 output "vault_addr" {
-  description = "VAULT_ADDR / BAO_ADDR value to use from the host."
-  value       = "https://${var.api_addr}:${var.api_port}"
+  description = "Vault API address from the host (localhost-only). Use https://armory-vault:8200 from within the compose network."
+  value       = "https://127.0.0.1:8200"
 }
 
 output "vault_ui_url" {
-  description = "URL for the Vault web UI (if ui_enabled = true)."
-  value       = var.ui_enabled ? "https://${var.api_addr}:${var.api_port}/ui" : null
+  description = "Web UI URL, accessible from the host browser via the localhost-only port binding."
+  value       = var.ui_enabled ? "https://127.0.0.1:8200/ui" : null
 }
 
 output "vault_cacert_path" {
@@ -23,22 +23,12 @@ output "vault_cacert_path" {
 
 output "init_command" {
   description = "Run this command to initialise a brand-new Vault cluster (single unseal key, single key share — adjust -key-shares/-key-threshold for production)."
-  value = join(" \\\n  ", [
-    "VAULT_ADDR=https://${var.api_addr}:${var.api_port}",
-    "VAULT_CACERT=${var.deploy_dir}/tls/ca.crt",
-    "${var.vault_binary} operator init",
-    "-key-shares=1",
-    "-key-threshold=1",
-  ])
+  value       = "podman exec ${var.container_name} ${var.vault_binary} operator init -key-shares=1 -key-threshold=1"
 }
 
 output "unseal_command_example" {
   description = "Template for the unseal command — substitute the unseal key from operator init output."
-  value = join(" \\\n  ", [
-    "VAULT_ADDR=https://${var.api_addr}:${var.api_port}",
-    "VAULT_CACERT=${var.deploy_dir}/tls/ca.crt",
-    "${var.vault_binary} operator unseal <UNSEAL_KEY>",
-  ])
+  value       = "podman exec ${var.container_name} ${var.vault_binary} operator unseal <UNSEAL_KEY>"
 }
 
 # ---------------------------------------------------------------------------
@@ -56,6 +46,11 @@ output "server_cert_pem" {
   value       = "${tls_locally_signed_cert.server.cert_pem}${tls_self_signed_cert.ca.cert_pem}"
   sensitive   = true
 }
+
+# ---------------------------------------------------------------------------
+# PKI helpers
+# ---------------------------------------------------------------------------
+
 
 # ---------------------------------------------------------------------------
 # Deployment metadata

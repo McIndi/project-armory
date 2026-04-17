@@ -23,9 +23,7 @@ vault_binary   = "bao"
 deploy_dir     = "/opt/armory/vault"
 node_id        = "vault-node-0"
 container_name = "armory-vault"
-api_addr       = "127.0.0.1"   # Change to host IP/hostname for network access
-api_port       = 8200
-cluster_port   = 8201
+api_addr       = "127.0.0.1"
 
 # ---------------------------------------------------------------------------
 # TLS
@@ -33,7 +31,7 @@ cluster_port   = 8201
 tls_org       = "Project Armory"
 tls_ca_cn     = "Armory Vault CA"
 tls_server_cn = "armory-vault"
-tls_san_dns   = ["localhost", "armory-vault"]
+tls_san_dns   = []   # localhost and tls_server_cn are always included
 tls_san_ip    = []
 
 # ---------------------------------------------------------------------------

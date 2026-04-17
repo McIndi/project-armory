@@ -12,12 +12,23 @@ locals {
     logs   = "${var.deploy_dir}/logs"
   }
 
-  # Merge caller-supplied SANs with the always-required entries
-  san_dns = distinct(concat(["localhost", var.tls_server_cn], var.tls_san_dns, [var.api_addr]))
-  san_ip  = distinct(concat(["127.0.0.1"], var.tls_san_ip, [var.api_addr == "127.0.0.1" ? "" : var.api_addr]))
+  # Determine whether api_addr is an IP or a hostname
+  api_addr_is_ip = can(cidrhost("${var.api_addr}/32", 0))
 
-  # Strip empty strings that sneak in when api_addr == 127.0.0.1
-  san_ip_clean = [for ip in local.san_ip : ip if ip != ""]
+  # Merge caller-supplied SANs with the always-required entries
+  # api_addr is added to DNS SANs only when it is a hostname, not an IP
+  san_dns = distinct(concat(
+    ["localhost", var.tls_server_cn],
+    var.tls_san_dns,
+    local.api_addr_is_ip ? [] : [var.api_addr],
+  ))
+
+  # api_addr is added to IP SANs only when it is an IP
+  san_ip_clean = distinct(concat(
+    ["127.0.0.1"],
+    var.tls_san_ip,
+    local.api_addr_is_ip && var.api_addr != "127.0.0.1" ? [var.api_addr] : [],
+  ))
 }
 
 # ===========================================================================
@@ -43,7 +54,6 @@ resource "tls_self_signed_cert" "ca" {
   allowed_uses = [
     "cert_signing",
     "crl_signing",
-    "key_encipherment",
     "digital_signature",
   ]
 }
@@ -85,21 +95,28 @@ resource "tls_locally_signed_cert" "server" {
 
 resource "null_resource" "create_dirs" {
   triggers = {
-    dirs = jsonencode(local.dirs)
+    dirs   = jsonencode(local.dirs)
+    script = sha256("chmod755-config-tls 777-data-logs")
   }
 
   provisioner "local-exec" {
     command = <<-EOT
       set -euo pipefail
-      for d in ${join(" ", values(local.dirs))}; do
-        mkdir -p "$d"
-        chmod 750 "$d"
-      done
-      # data and tls dirs need tighter permissions
-      chmod 700 "${local.dirs.data}"
-      chmod 700 "${local.dirs.tls}"
+      mkdir -p "${local.dirs.config}" "${local.dirs.tls}" "${local.dirs.data}" "${local.dirs.logs}"
+      chmod 755 "${local.dirs.config}" "${local.dirs.tls}"
+      chmod 777 "${local.dirs.data}" "${local.dirs.logs}"
     EOT
     interpreter = ["bash", "-c"]
+  }
+
+  provisioner "local-exec" {
+    when = destroy
+    # Container-created files are owned by subuid-mapped UIDs the host user cannot
+    # delete directly. Use podman unshare to run the removal inside the user namespace,
+    # falling back to a plain rm for any host-owned files that remain.
+    command     = "D=$(echo '${self.triggers.dirs}' | python3 -c \"import json,sys,os; d=json.load(sys.stdin); print(os.path.dirname(d['config']))\") && podman unshare rm -rf \"$D\" 2>/dev/null || rm -rf \"$D\" 2>/dev/null || true"
+    interpreter = ["bash", "-c"]
+    on_failure  = continue
   }
 }
 
@@ -125,7 +142,7 @@ resource "local_sensitive_file" "server_key" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${local.dirs.tls}/vault.key"
   content         = tls_private_key.server.private_key_pem
-  file_permission = "0400"
+  file_permission = "0444"
 }
 
 # ===========================================================================
@@ -135,14 +152,12 @@ resource "local_sensitive_file" "server_key" {
 resource "local_file" "vault_config" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${local.dirs.config}/vault.hcl"
-  file_permission = "0640"
+  file_permission = "0644"
   content         = templatefile("${path.module}/templates/vault.hcl.tpl", {
-    node_id      = var.node_id
-    api_addr     = var.api_addr
-    api_port     = var.api_port
-    cluster_port = var.cluster_port
-    ui_enabled   = var.ui_enabled
-    log_level    = var.log_level
+    node_id       = var.node_id
+    api_addr      = var.api_addr
+    ui_enabled    = var.ui_enabled
+    log_level     = var.log_level
     disable_mlock = var.disable_mlock
   })
 }
@@ -152,16 +167,14 @@ resource "local_file" "vault_config" {
 # ===========================================================================
 
 resource "local_file" "compose" {
+  depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
-  file_permission = "0640"
+  file_permission = "0644"
   content         = templatefile("${path.module}/templates/compose.yml.tpl", {
     project_name   = var.compose_project_name
     image          = local.image
     container_name = var.container_name
     restart_policy = var.restart_policy
-    api_port       = var.api_port
-    cluster_port   = var.cluster_port
-    api_addr       = var.api_addr
     vault_binary   = var.vault_binary
     network_name   = var.podman_network_name
     config_dir     = local.dirs.config
@@ -194,7 +207,7 @@ resource "null_resource" "deploy" {
   }
 
   provisioner "local-exec" {
-    command     = "podman compose --project-name ${var.compose_project_name} -f ${var.deploy_dir}/compose.yml up -d --pull=always"
+    command     = "podman compose --project-name ${var.compose_project_name} -f ${var.deploy_dir}/compose.yml up -d --pull-always"
     interpreter = ["bash", "-c"]
   }
 

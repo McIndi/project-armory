@@ -59,18 +59,6 @@ variable "api_addr" {
   default     = "127.0.0.1"
 }
 
-variable "api_port" {
-  description = "Host port bound to Vault's API/UI listener (8200 inside the container)."
-  type        = number
-  default     = 8200
-}
-
-variable "cluster_port" {
-  description = "Host port bound to Vault's cluster listener (8201 inside the container)."
-  type        = number
-  default     = 8201
-}
-
 variable "podman_network_name" {
   description = "Name of the podman network created for this deployment."
   type        = string
@@ -106,9 +94,9 @@ variable "tls_server_cn" {
 }
 
 variable "tls_san_dns" {
-  description = "Additional DNS SANs for the server cert (the api_addr value is always included)."
+  description = "Additional DNS SANs for the server cert. localhost and tls_server_cn are always included."
   type        = list(string)
-  default     = ["localhost", "armory-vault"]
+  default     = []
 }
 
 variable "tls_san_ip" {

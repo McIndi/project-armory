@@ -13,14 +13,13 @@ services:
     restart: ${restart_policy}
 
     ports:
-      - "${api_port}:8200"
-      - "${cluster_port}:8201"
+      - "127.0.0.1:8200:8200"
 
     volumes:
-      - ${config_dir}:/vault/config:ro,Z
-      - ${data_dir}:/vault/data:Z
-      - ${tls_dir}:/vault/tls:ro,Z
-      - ${logs_dir}:/vault/logs:Z
+      - ${config_dir}:/vault/config:ro,z
+      - ${data_dir}:/vault/data:z
+      - ${tls_dir}:/vault/tls:ro,z
+      - ${logs_dir}:/vault/logs:z
 
     environment:
       # Used by the vault/bao CLI inside the container for health-check commands
@@ -29,12 +28,9 @@ services:
       BAO_ADDR: "https://127.0.0.1:8200"
       BAO_CACERT: "/vault/tls/ca.crt"
 
-    cap_add:
-      # Required for mlock (prevents secrets from being swapped to disk)
 %{ if !disable_mlock ~}
+    cap_add:
       - IPC_LOCK
-%{ else ~}
-      # IPC_LOCK omitted — disable_mlock = true in vault config
 %{ endif ~}
 
     command: ["${vault_binary}", "server", "-config=/vault/config/vault.hcl"]
