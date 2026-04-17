@@ -36,11 +36,11 @@ Key design choices:
 
 **External PKI (`pki_ext`).** The webserver serves external users. Its certificate is issued from the external intermediate CA (`pki_ext/issue/armory-external`), consistent with the PKI hierarchy design in ADR-002.
 
-**`pkiCert` template function.** Vault Agent's `pkiCert` function issues and caches the cert+key atomically, renewing before expiry. Two separate `template` stanzas (one for cert, one for key) reference the same cached secret, avoiding the non-idempotency of the PKI issue endpoint.
+**`pkiCert` template function with combined PEM.** Vault Agent's `pkiCert` function issues cert, CA chain, and private key in a single API call. A single `template` stanza writes all three concatenated into one PEM bundle (`nginx.pem`). nginx is configured to use this file for both `ssl_certificate` and `ssl_certificate_key`. Using two separate template stanzas would cause each to issue an independent certificate, producing a cert/key mismatch.
 
 **Host-path volume for certs.** Consistent with the rest of the project (ADR-012), a host directory (`deploy_dir/certs/`) is used rather than a named Docker volume. This makes cert files inspectable on the host without entering a container.
 
-**Localhost-only port binding.** Port 443 is published as `127.0.0.1:443:443`, consistent with ADR-007. Configurable via `host_ip` variable for environments that require external access.
+**Port 8443 for rootless Podman.** Rootless Podman cannot bind to privileged ports (< 1024). The webserver publishes HTTPS as `127.0.0.1:8443:443`, consistent with ADR-007's localhost-only principle. Configurable via `host_ip` and `host_port` variables.
 
 **Separate OpenTofu module with its own state.** `services/webserver/` follows the same pattern as `vault-config/` — independent module, independent state, applied after vault-config/. The module is responsible for its own Vault policy, AppRole role, file rendering, and container lifecycle.
 

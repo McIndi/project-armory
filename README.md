@@ -26,11 +26,23 @@ project-armory/
 │   ├── auth.tf             # AppRole auth method
 │   ├── outputs.tf
 │   └── example.tfvars
+├── services/
+│   └── webserver/          # OpenTofu module — nginx + Vault Agent sidecar
+│       ├── versions.tf
+│       ├── variables.tf
+│       ├── main.tf         # Vault policy, AppRole role, dir scaffolding, compose deploy
+│       ├── outputs.tf
+│       ├── example.tfvars
+│       └── templates/
+│           ├── agent.hcl.tpl     # Vault Agent config (AppRole + pkiCert)
+│           ├── nginx.conf.tpl    # nginx HTTPS config
+│           └── compose.yml.tpl   # Podman Compose: vault-agent + nginx services
 ├── tests/                  # End-to-end integration test suite
-│   ├── conftest.py         # Session fixture: full lifecycle management
+│   ├── conftest.py         # Session fixtures: full lifecycle management
 │   ├── test_tls.py         # Bootstrap TLS certificate assertions
 │   ├── test_pki.py         # PKI issuance, chain, AIA/CRL validation
 │   ├── test_auth.py        # Auth method assertions
+│   ├── test_webserver.py   # Webserver connectivity and certificate assertions
 │   └── requirements.txt    # pytest, hvac, cryptography
 └── docs/
     ├── ADR/                # Architecture Decision Records
@@ -145,7 +157,21 @@ tofu init
 tofu apply
 ```
 
-This configures the PKI hierarchy (replacing the former `pki-setup.sh`) and enables AppRole auth. A `ca-bundle.pem` is written to `vault/` for trust store import.
+This configures the PKI hierarchy and enables AppRole auth. A `ca-bundle.pem` is written to `vault/` for trust store import.
+
+### Phase 4 — Deploy the webserver (`services/webserver/`)
+
+```bash
+cd services/webserver/
+cp example.tfvars terraform.tfvars   # first time only — no token in this file
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu init
+tofu apply
+```
+
+This provisions the Vault policy and AppRole role for the webserver, then starts nginx (port 8443) with a Vault Agent sidecar that handles TLS certificate issuance and renewal. The webserver is reachable at `https://127.0.0.1:8443`.
+
+> **Note:** rootless Podman cannot bind to privileged ports (< 1024). Port 8443 is used instead of 443.
 
 ---
 
@@ -246,12 +272,13 @@ python3 -m venv .venv
 ```
 
 This will:
-1. Destroy any existing state
+1. Destroy any existing state (containers, deploy dirs, stale tfstate)
 2. Apply `vault/`, init, and unseal
 3. Apply `vault-config/`
-4. Run 24 tests across TLS, PKI, and auth
-5. Collect container logs to `tests/logs/`
-6. Tear down everything
+4. Apply `services/webserver/` and wait for nginx
+5. Run 30 tests across TLS, PKI, auth, and webserver
+6. Collect container logs to `tests/logs/`
+7. Tear down everything
 
 The root token is captured from `operator init` stdout and passed via `TF_VAR_vault_token` — it is never written to disk.
 
@@ -268,8 +295,9 @@ See [ADR-015](docs/ADR/ADR-015-pytest-integration-testing.md) for the rationale 
 Fast, no infrastructure required. Run from each module directory:
 
 ```bash
-cd vault/        && tofu test   # 12 tests — TLS SANs, key algorithm, outputs
-cd vault-config/ && tofu test   # 12 tests — PKI config, role settings, auth
+cd vault/             && tofu test   # 12 tests — TLS SANs, key algorithm, outputs
+cd vault-config/      && tofu test   # 12 tests — PKI config, role settings, auth
+cd services/webserver && tofu test   #  7 tests — policy, AppRole, outputs
 ```
 
 These use mocked providers — no containers start and no files are written.

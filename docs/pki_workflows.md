@@ -117,13 +117,61 @@ sequenceDiagram
 
 ---
 
-## 4. Summary: Key Custody at a Glance
+## 4. Vault Agent Sidecar Certificate Delivery (services/webserver/)
+
+Vault Agent handles certificate lifecycle automatically. nginx is entirely Vault-unaware.
+
+```mermaid
+sequenceDiagram
+    participant T as OpenTofu (host)
+    participant V as Vault
+    participant A as armory-vault-agent
+    participant N as armory-webserver (nginx)
+
+    T->>V: Create AppRole role + policy
+    T->>V: Generate response-wrapped secret_id
+    T->>T: Write role_id + wrapped_secret_id to /opt/armory/webserver/approle/
+    T->>T: Start containers (podman compose up)
+
+    A->>V: POST /v1/sys/wrapping/unwrap (with wrapped token)
+    V-->>A: Actual secret_id (single-use)
+    A->>A: Delete wrapped_secret_id file
+    A->>V: POST /v1/auth/approle/login (role_id + secret_id)
+    V-->>A: Vault token (short-lived, renewable)
+    A->>V: POST pki_ext/issue/armory-external (pkiCert)
+    V->>V: Generate key + cert internally
+    V-->>A: cert + CA chain + private key
+    A->>A: Write combined PEM to /opt/armory/webserver/certs/nginx.pem
+
+    Note over N: Starts only after vault-agent healthcheck passes (cert file exists)
+    N->>N: Load nginx.pem as ssl_certificate + ssl_certificate_key
+    N->>N: Serve HTTPS on :443 (published as 127.0.0.1:8443)
+
+    Note over A,N: Before cert expiry, vault-agent re-issues and rewrites nginx.pem
+```
+
+### Where the material lives
+
+| Artifact | Location | Protection |
+|---|---|---|
+| AppRole role_id | `/opt/armory/webserver/approle/role_id` | Not sensitive — role ID is public |
+| Wrapped secret_id token | `/opt/armory/webserver/approle/wrapped_secret_id` (deleted after unwrap) | Single-use; 24h TTL |
+| Issued private key (nginx) | `/opt/armory/webserver/certs/nginx.pem` | Plaintext on disk; host-path volume |
+| Issued certificate | `/opt/armory/webserver/certs/nginx.pem` + Vault CRL serial | Public material |
+| services/webserver tfstate | `services/webserver/terraform.tfstate` | Contains wrapping token; gitignored |
+
+**Key property:** The combined PEM (`nginx.pem`) contains cert + CA chain + private key written by a single `pkiCert` call. Two separate calls would issue two different certificates, producing a key mismatch. The file is rewritten atomically on each renewal.
+
+---
+
+## 5. Summary: Key Custody at a Glance
 
 ```mermaid
 flowchart LR
     subgraph host_fs [Host Filesystem]
         TS[terraform.tfstate\nCA key + server key PLAINTEXT]
         TLS[/opt/armory/vault/tls/\nvault.key PLAINTEXT]
+        NX[/opt/armory/webserver/certs/\nnginx.pem PLAINTEXT\ncert + key]
     end
 
     subgraph vault_container [Vault Container - Encrypted at Rest]
@@ -131,11 +179,12 @@ flowchart LR
     end
 
     subgraph ephemeral [Ephemeral - In Transit Only]
-        IK[Issued service private keys\nHTTPS API response only]
+        IK[Manually issued service keys\nHTTPS API response only]
     end
 
     TS -.->|risk: plaintext on disk| host_fs
     TLS -.->|risk: plaintext on disk| host_fs
+    NX -.->|risk: plaintext on disk\nVault Agent manages rotation| host_fs
     RA -->|AES-256-GCM| vault_container
     IK -->|TLS 1.2+ in flight| ephemeral
 ```
@@ -146,4 +195,5 @@ flowchart LR
 | Bootstrap server key | Yes (`tfstate` + `tls/`) | Yes | No (volume mount) |
 | Root CA key | No | No | Yes (encrypted) |
 | Intermediate CA keys | No | No | Yes (encrypted) |
-| Issued service keys | No | No | No (ephemeral) |
+| Issued service keys (manual) | No | No | No (ephemeral) |
+| Nginx service key (Vault Agent) | Yes (`webserver/certs/nginx.pem`) | No | No (host-path volume) |
