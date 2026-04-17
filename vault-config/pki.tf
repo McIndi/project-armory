@@ -171,6 +171,7 @@ resource "vault_pki_secret_backend_role" "armory_external" {
   allowed_domains    = var.pki_ext_allowed_domains == "" ? [] : split(",", trimspace(var.pki_ext_allowed_domains))
   allow_subdomains   = true
   allow_bare_domains = true
+  allow_ip_sans      = true
   key_type           = "ec"
   key_bits           = 384
   max_ttl            = "2160h"

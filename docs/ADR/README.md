@@ -23,6 +23,7 @@ consequences — including trade-offs accepted.
 | [ADR-013](ADR-013-raft-integrated-storage.md) | Raft integrated storage | Accepted |
 | [ADR-014](ADR-014-conditional-mlock.md) | Conditional mlock for OpenBao compatibility | Accepted |
 | [ADR-015](ADR-015-pytest-integration-testing.md) | pytest + hvac for end-to-end integration testing | Accepted |
+| [ADR-016](ADR-016-webserver-vault-agent-sidecar.md) | Webserver service — Vault Agent sidecar for certificate delivery | Accepted |
 
 ## Format
 

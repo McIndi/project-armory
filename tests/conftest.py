@@ -1,11 +1,14 @@
 """
-Session fixture: full lifecycle management for Armory integration tests.
+Session fixtures: full lifecycle management for Armory integration tests.
 
-Sequence:
+vault_env sequence:
   destroy (vault-config/) → destroy (vault/) → apply (vault/) →
   wait → init → unseal → wait → apply (vault-config/) →
   [ tests ] →
   collect logs → teardown (unless ARMORY_NO_TEARDOWN=1)
+
+webserver_env sequence (builds on vault_env):
+  apply (services/webserver/) → wait for nginx → [ tests ] → destroy
 """
 import json
 import os
@@ -20,6 +23,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent
 VAULT_MODULE = PROJECT_ROOT / "vault"
 VAULT_CONFIG_MODULE = PROJECT_ROOT / "vault-config"
+WEBSERVER_MODULE = PROJECT_ROOT / "services" / "webserver"
 LOGS_DIR = Path(__file__).parent / "logs"
 
 VAULT_ADDR = "https://127.0.0.1:8200"
@@ -81,6 +85,19 @@ def _wait_for_active(timeout=60, interval=3):
     raise TimeoutError("Vault did not reach active state within timeout")
 
 
+def _wait_for_nginx(timeout=60, interval=3):
+    """Wait until nginx accepts TCP connections on port 8443."""
+    import socket
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", 8443), timeout=2):
+                return
+        except (ConnectionRefusedError, OSError):
+            time.sleep(interval)
+    raise TimeoutError("nginx did not become reachable on port 8443 within timeout")
+
+
 def _collect_logs():
     LOGS_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -97,8 +114,24 @@ def _collect_logs():
     return log_path
 
 
+def _collect_webserver_logs():
+    LOGS_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for name in ("armory-webserver", "armory-vault-agent"):
+        log_path = LOGS_DIR / f"{name}_{timestamp}.log"
+        r = subprocess.run(
+            f"podman logs {name}",
+            shell=True, capture_output=True, text=True,
+        )
+        with open(log_path, "w") as f:
+            f.write(r.stdout)
+            if r.stderr:
+                f.write("\n--- STDERR ---\n")
+                f.write(r.stderr)
+
+
 # ---------------------------------------------------------------------------
-# Session fixture
+# Vault session fixture
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
@@ -106,8 +139,25 @@ def vault_env():
     base_env = os.environ.copy()
 
     # 1. Destroy any existing state (best-effort)
+    #    Webserver tofu destroy requires Vault to be running, so also stop containers directly.
+    _run("podman rm -f armory-webserver armory-vault-agent 2>/dev/null || true",
+         check=False)
+    _run("tofu destroy -auto-approve", cwd=WEBSERVER_MODULE, env=base_env, check=False)
     _run("tofu destroy -auto-approve", cwd=VAULT_CONFIG_MODULE, env=base_env, check=False)
     _run("tofu destroy -auto-approve", cwd=VAULT_MODULE, check=False)
+
+    # Clear stale tfstate — vault is about to be recreated fresh so all vault-side
+    # resource IDs are invalid regardless of whether the destroys above succeeded.
+    for module in (WEBSERVER_MODULE, VAULT_CONFIG_MODULE):
+        for fname in ("terraform.tfstate", "terraform.tfstate.backup"):
+            (module / fname).unlink(missing_ok=True)
+
+    # Remove deploy directories — previous runs leave read-only files (0444)
+    # that block fresh writes by local_sensitive_file resources.
+    # Use podman unshare in case container-user-owned files exist.
+    for d in ("/opt/armory/webserver", "/opt/armory/vault"):
+        _run(f"podman unshare rm -rf {d} 2>/dev/null || rm -rf {d} 2>/dev/null || true",
+             check=False)
 
     # 2. Deploy Vault
     _run("tofu apply -auto-approve", cwd=VAULT_MODULE)
@@ -136,6 +186,7 @@ def vault_env():
         "cacert": VAULT_CACERT,
         "token": root_token,
         "unseal_key": unseal_key,
+        "config_env": config_env,
     }
 
     # 8. Always collect logs
@@ -161,3 +212,34 @@ def vault_client(vault_env):
     )
     assert client.is_authenticated(), "Vault client failed to authenticate"
     return client
+
+
+# ---------------------------------------------------------------------------
+# Webserver session fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def webserver_env(vault_env):
+    config_env = vault_env["config_env"]
+
+    # Apply webserver module
+    _run("tofu init", cwd=WEBSERVER_MODULE, env=config_env)
+    _run("tofu apply -auto-approve", cwd=WEBSERVER_MODULE, env=config_env)
+
+    # Wait for nginx to be reachable (vault-agent must auth + write certs first)
+    _wait_for_nginx(timeout=180)
+
+    # The nginx cert is issued by pki_ext (Armory External Intermediate CA).
+    # Use the PKI CA bundle (written by vault-config) to verify the chain.
+    pki_ca_bundle = str(PROJECT_ROOT / "vault" / "ca-bundle.pem")
+
+    yield {
+        "cacert": pki_ca_bundle,
+        "url": "https://127.0.0.1:8443",
+    }
+
+    # Always collect webserver logs
+    _collect_webserver_logs()
+
+    if not NO_TEARDOWN:
+        _run("tofu destroy -auto-approve", cwd=WEBSERVER_MODULE, env=config_env, check=False)
