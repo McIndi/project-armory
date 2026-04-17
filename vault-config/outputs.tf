@@ -1,3 +1,8 @@
+output "pki_root_mount" {
+  description = "Mount path for the root CA. Used only for signing intermediates — no leaf cert role is defined here."
+  value       = vault_mount.pki_root.path
+}
+
 output "approle_mount_path" {
   description = "Mount path for the AppRole auth method. Pass to service modules as var.approle_mount_path."
   value       = vault_auth_backend.approle.path

@@ -1,7 +1,7 @@
 # Vault Capabilities — Current Deployment
 
-This document describes what the current single-node OpenBao deployment provides
-out of the box, what is available to enable, and what it intentionally lacks.
+This document describes what the current single-node OpenBao deployment provides,
+what is available to enable, and what it intentionally lacks.
 
 ---
 
@@ -10,9 +10,11 @@ out of the box, what is available to enable, and what it intentionally lacks.
 | Capability | Detail |
 |---|---|
 | **Storage** | Raft integrated storage (single node). Data persisted to `deploy_dir/data` on the host. No external backend required. |
-| **TLS** | ECDSA P-384 cert on the API listener. All traffic encrypted in transit. |
+| **TLS** | ECDSA P-384 cert on the API listener. All traffic encrypted in transit. TLS 1.2 minimum. |
 | **Token auth** | Always-on. Root token is the only credential until additional auth methods are mounted. |
-| **Web UI** | `https://127.0.0.1:8200/ui` — log in with the root token. |
+| **Web UI** | `https://127.0.0.1:8200/ui` — accessible on localhost only. Log in with the root token. |
+| **PKI** | Three-tier CA hierarchy deployed by `vault-config/`. See PKI Engine section below. |
+| **AppRole** | Machine-to-machine auth mounted at `approle/`. Deployed by `vault-config/`. |
 
 ---
 
@@ -20,14 +22,12 @@ out of the box, what is available to enable, and what it intentionally lacks.
 
 ### Auth Methods
 - **Userpass** — username/password for human operators
-- **AppRole** — machine-to-machine auth (services, CI pipelines)
 - **LDAP / GitHub / OIDC / JWT** — federated identity
 - **Kubernetes** — pod-level auth for in-cluster workloads
 - **TLS cert** — mutual TLS client auth
 
 ### Secret Engines
-- **KV v2** — versioned key/value secrets (natural first mount)
-- **PKI** — internal CA hierarchy; issue and revoke X.509 certs (primary goal for Project Armory)
+- **KV v2** — versioned key/value secrets
 - **Transit** — encryption-as-a-service: encrypt/decrypt, sign/verify, HMAC without exposing keys
 - **SSH** — signed SSH certificates or one-time passwords
 - **Database** — dynamic, short-lived credentials for Postgres, MySQL, etc.
@@ -49,35 +49,24 @@ out of the box, what is available to enable, and what it intentionally lacks.
 
 ## PKI Engine
 
-Project Armory uses a three-mount PKI hierarchy. Run `vault/scripts/pki-setup.sh`
-once after init and unseal to bootstrap it.
+Project Armory uses a three-mount PKI hierarchy deployed by the `vault-config/`
+OpenTofu module. Run `tofu apply` in `vault-config/` once after the Vault key
+ceremony to bootstrap it.
 
 ### Hierarchy
 
 ```
-pki/          Root CA  (armory.internal, 10-year validity)
-              └─ signs intermediates only, no leaf certs
+pki/          Root CA  (Armory Root CA, 10-year validity)
+              └─ signs intermediates only — no role defined, leaf issuance blocked
 pki_int/      Internal Intermediate CA  (*.armory.internal, 5-year)
-              └─ role: armory-server  (leaf certs, max 90 days)
+              └─ role: armory-server  (leaf certs, EC P-384, max 90 days)
 pki_ext/      External Intermediate CA  (configurable domain, 5-year)
-              └─ role: armory-external  (leaf certs, max 90 days)
+              └─ role: armory-external  (leaf certs, EC P-384, max 90 days)
 ```
 
-### Running the setup script
-
-```bash
-cd vault/
-VAULT_TOKEN=<root-token> ./scripts/pki-setup.sh
-```
-
-To constrain the external role to specific domains:
-
-```bash
-PKI_EXT_ALLOWED_DOMAINS="example.com,api.example.com" \
-  VAULT_TOKEN=<root-token> ./scripts/pki-setup.sh
-```
-
-The script is idempotent — safe to re-run. It skips anything already configured.
+The root CA has no role configured, which prevents leaf certificate issuance
+via the `pki/issue/<role>` endpoint. Intermediate signing uses `pki/root/sign-intermediate`,
+which is restricted by ACL policy when policies are defined.
 
 ### Issuing certificates
 
@@ -95,7 +84,7 @@ podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault \
 
 ### CA bundle — trusting issued certificates
 
-After running `pki-setup.sh`, a CA bundle is written to `vault/ca-bundle.pem`
+After `vault-config/` apply, a CA bundle is written to `vault/ca-bundle.pem`
 containing the root CA and both intermediates. Import it into your OS or browser
 trust store so that all certificates issued by this Vault instance are trusted.
 
@@ -126,7 +115,8 @@ Authorities → Import → select `ca-bundle.pem` → trust for websites.
 ## Roadmap (Project Armory)
 
 1. Mount KV v2 for general secrets storage
-2. ~~Mount PKI engine~~ ✓ Done — see PKI Engine section above
-3. Enable audit logging to `/vault/logs/audit.log`
-4. Define operator and service ACL policies; retire direct root token use
-5. Evaluate auto-unseal options for the target environment
+2. ~~Mount PKI engine~~ ✓ Done — three-tier hierarchy via `vault-config/`
+3. ~~Enable AppRole~~ ✓ Done — mounted at `approle/` via `vault-config/`
+4. Enable audit logging to `/vault/logs/audit.log`
+5. Define operator and service ACL policies; retire direct root token use
+6. Evaluate auto-unseal options for the target environment
