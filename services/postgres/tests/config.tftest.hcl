@@ -1,12 +1,14 @@
 # Unit tests for services/postgres/ module configuration.
-# local and null providers are mocked — no running containers needed.
+# local, null, and vault providers are mocked — no running containers needed.
 
 mock_provider "local" {}
 mock_provider "null" {}
+mock_provider "vault" {}
 
 variables {
   postgres_password   = "test-postgres-pw"
   vault_mgmt_password = "test-vault-mgmt-pw"
+  vault_token         = "test-token"
 }
 
 run "postgres_host_output_is_container_name" {
@@ -105,5 +107,68 @@ run "init_sql_grants_admin_option_on_template_roles" {
   assert {
     condition     = strcontains(local_file.init_sql.content, "WITH ADMIN OPTION")
     error_message = "init.sql must grant template roles to vault_mgmt WITH ADMIN OPTION"
+  }
+}
+
+run "vault_agent_service_in_compose" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.compose.content, "vault-agent")
+    error_message = "compose.yml must include a vault-agent service"
+  }
+}
+
+run "postgres_depends_on_vault_agent_healthy" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.compose.content, "service_healthy")
+    error_message = "postgres service must depend on vault-agent being healthy"
+  }
+}
+
+run "postgres_ssl_on_flag" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.compose.content, "ssl=on")
+    error_message = "postgres startup command must pass -c ssl=on"
+  }
+}
+
+run "postgres_mounts_certs_volume" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.compose.content, "/vault/certs")
+    error_message = "compose.yml must mount the certs volume into the postgres container"
+  }
+}
+
+run "agent_config_has_cert_stanza" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.agent_config.content, "postgres.crt")
+    error_message = "agent.hcl must include a template stanza writing postgres.crt"
+  }
+}
+
+run "agent_config_has_key_stanza" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.agent_config.content, "postgres.key")
+    error_message = "agent.hcl must include a template stanza writing postgres.key"
+  }
+}
+
+run "approle_role_name" {
+  command = plan
+
+  assert {
+    condition     = vault_approle_auth_backend_role.postgres.role_name == "postgres"
+    error_message = "AppRole role name must be 'postgres'"
   }
 }

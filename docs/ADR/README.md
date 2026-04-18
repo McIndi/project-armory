@@ -26,6 +26,7 @@ consequences — including trade-offs accepted.
 | [ADR-016](ADR-016-webserver-vault-agent-sidecar.md) | Webserver service — Vault Agent sidecar for certificate delivery | Accepted |
 | [ADR-017](ADR-017-postgres-vault-database-engine.md) | PostgreSQL with Vault Database secrets engine | Accepted |
 | [ADR-018](ADR-018-keycloak-oidc-human-identity.md) | Keycloak for human identity and Vault OIDC auth method | Accepted |
+| [ADR-019](ADR-019-postgres-tls-vault-agent-sidecar.md) | PostgreSQL TLS via Vault Agent sidecar | Accepted |
 
 ## Format
 

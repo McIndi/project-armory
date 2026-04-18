@@ -10,8 +10,9 @@ mock_provider "vault" {
 mock_provider "local" {}
 
 variables {
-  vault_token         = "test-token"
-  vault_mgmt_password = "test-mgmt-pw"
+  vault_token            = "test-token"
+  vault_mgmt_password    = "test-mgmt-pw"
+  database_roles_enabled = true
 }
 
 run "database_mount_type" {
@@ -50,7 +51,7 @@ run "keycloak_static_role_username" {
   command = plan
 
   assert {
-    condition     = vault_database_secret_backend_static_role.keycloak.username == "keycloak"
+    condition     = vault_database_secret_backend_static_role.keycloak[0].username == "keycloak"
     error_message = "Keycloak static role must manage the 'keycloak' PostgreSQL user"
   }
 }
@@ -59,7 +60,7 @@ run "keycloak_static_role_rotation_period_is_86400" {
   command = plan
 
   assert {
-    condition     = vault_database_secret_backend_static_role.keycloak.rotation_period == 86400
+    condition     = vault_database_secret_backend_static_role.keycloak[0].rotation_period == 86400
     error_message = "Keycloak static role rotation period must be 86400 seconds (24h)"
   }
 }
@@ -68,7 +69,7 @@ run "app_dynamic_role_default_ttl" {
   command = plan
 
   assert {
-    condition     = vault_database_secret_backend_role.app.default_ttl == 3600
+    condition     = vault_database_secret_backend_role.app[0].default_ttl == 3600
     error_message = "App dynamic role default TTL must be 3600 seconds (1h)"
   }
 }
@@ -77,8 +78,26 @@ run "app_dynamic_role_max_ttl" {
   command = plan
 
   assert {
-    condition     = vault_database_secret_backend_role.app.max_ttl == 86400
+    condition     = vault_database_secret_backend_role.app[0].max_ttl == 86400
     error_message = "App dynamic role max TTL must be 86400 seconds (24h)"
+  }
+}
+
+run "roles_not_created_when_disabled" {
+  command = plan
+
+  variables {
+    database_roles_enabled = false
+  }
+
+  assert {
+    condition     = length(vault_database_secret_backend_static_role.keycloak) == 0
+    error_message = "Static role must not be created when database_roles_enabled is false"
+  }
+
+  assert {
+    condition     = length(vault_database_secret_backend_role.app) == 0
+    error_message = "Dynamic role must not be created when database_roles_enabled is false"
   }
 }
 

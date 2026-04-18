@@ -20,16 +20,21 @@ resource "vault_database_secret_backend_connection" "postgres" {
   verify_connection = false
 
   postgresql {
-    connection_url = "postgresql://vault_mgmt:${var.vault_mgmt_password}@${var.postgres_host}:5432/postgres"
+    connection_url = "postgresql://vault_mgmt:${var.vault_mgmt_password}@${var.postgres_host}:5432/postgres?sslmode=require"
   }
 }
 
 # ---------------------------------------------------------------------------
 # Static role — Keycloak (connection pool, no mid-session rotation)
 # Vault manages the keycloak PG role's password; Keycloak reads it via agent.
+#
+# Requires Postgres to be running — Vault connects immediately on role creation
+# to set the initial credential. Apply with database_roles_enabled=true only
+# after services/postgres/ has been applied and the container is healthy.
 # ---------------------------------------------------------------------------
 
 resource "vault_database_secret_backend_static_role" "keycloak" {
+  count    = var.database_roles_enabled ? 1 : 0
   backend  = vault_mount.database.path
   name     = "keycloak"
   db_name  = vault_database_secret_backend_connection.postgres.name
@@ -47,6 +52,7 @@ resource "vault_database_secret_backend_static_role" "keycloak" {
 # ---------------------------------------------------------------------------
 
 resource "vault_database_secret_backend_role" "app" {
+  count   = var.database_roles_enabled ? 1 : 0
   backend = vault_mount.database.path
   name    = "app"
   db_name = vault_database_secret_backend_connection.postgres.name

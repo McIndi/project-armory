@@ -52,7 +52,7 @@ services:
 
     environment:
       KC_DB: postgres
-      KC_DB_URL: "jdbc:postgresql://${postgres_host}:5432/keycloak"
+      KC_DB_URL: "jdbc:postgresql://${postgres_host}:5432/keycloak?ssl=true&sslmode=require"
       KC_DB_USERNAME: keycloak
       KC_HTTPS_CERTIFICATE_FILE: /vault/certs/keycloak.pem
       KC_HTTPS_CERTIFICATE_KEY_FILE: /vault/certs/keycloak.pem

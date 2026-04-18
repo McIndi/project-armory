@@ -132,11 +132,12 @@ tofu init
 tofu apply
 ```
 
-Configures PKI hierarchy, AppRole auth, userpass operator account, KV v2 engine (with Keycloak admin credential), Database secrets engine (Postgres connection pre-configured but not yet verified), and all ACL policies. A `vault/ca-bundle.pem` is written for trust store import.
+Configures PKI hierarchy, AppRole auth, userpass operator account, KV v2 engine (with Keycloak admin credential), Database secrets engine connection (Postgres pre-configured but not yet connected), and all ACL policies. A `vault/ca-bundle.pem` is written for trust store import.
 
-> The Database engine connection has `verify_connection = false` — Vault accepts the
-> configuration without contacting Postgres. The connection is validated the first time
-> a credential is actually requested (when Keycloak starts).
+> Database **roles** (static + dynamic) are not created yet — `database_roles_enabled`
+> defaults to `false`. Creating a static role requires Postgres to be running because
+> Vault immediately sets the initial credential. Roles are added in a re-apply after
+> Postgres is up (Phase 5b).
 
 ---
 
@@ -173,6 +174,18 @@ Verify:
 podman exec armory-postgres psql -U postgres -c "\du"   # vault_mgmt role present
 podman exec armory-postgres psql -U postgres -c "\l"    # keycloak + app databases
 ```
+
+---
+
+### Phase 5b — Enable database roles (re-apply vault-config)
+
+```bash
+cd ~/projects/project-armory/vault-config
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu apply -var database_roles_enabled=true -auto-approve
+```
+
+This creates the Keycloak static role and the app dynamic role. Vault connects to Postgres immediately — the container must be healthy before running this step.
 
 ---
 

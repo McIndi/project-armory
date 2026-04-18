@@ -8,10 +8,52 @@ name: ${project_name}
 
 services:
 
+  vault-agent:
+    image: ${agent_image}
+    container_name: ${agent_container_name}
+    restart: unless-stopped
+    command: ["bao", "agent", "-config=/vault/agent/agent.hcl"]
+
+    environment:
+      VAULT_ADDR: "https://armory-vault:8200"
+      VAULT_CACERT: "/vault/tls/ca.crt"
+      BAO_ADDR: "https://armory-vault:8200"
+      BAO_CACERT: "/vault/tls/ca.crt"
+
+    volumes:
+      - ${agent_config_dir}:/vault/agent:ro,z
+      - ${approle_dir}:/vault/approle:z
+      - ${vault_tls_dir}:/vault/tls:ro,z
+      - ${certs_dir}:/vault/certs:z
+
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /vault/certs/postgres.crt && grep -q 'BEGIN CERTIFICATE' /vault/certs/postgres.crt && test -s /vault/certs/postgres.key"]
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 5s
+
+    networks:
+      - postgres-net
+
   postgres:
     image: ${postgres_image}
     container_name: ${container_name}
     restart: unless-stopped
+    depends_on:
+      vault-agent:
+        condition: service_healthy
+
+    # Copy key to a postgres-owned path with mode 0600 before starting.
+    # PostgreSQL rejects ssl_key_file unless it is 0600 owned by the server process.
+    # Vault Agent writes as uid 0; this wrapper satisfies the constraint without chown.
+    command: >
+      sh -c "cp /vault/certs/postgres.key /tmp/server.key &&
+             chmod 600 /tmp/server.key &&
+             exec docker-entrypoint.sh postgres
+               -c ssl=on
+               -c ssl_cert_file=/vault/certs/postgres.crt
+               -c ssl_key_file=/tmp/server.key"
 
     environment:
       POSTGRES_PASSWORD: "${postgres_password}"
@@ -20,6 +62,7 @@ services:
     volumes:
       - ${pgdata_dir}:/var/lib/postgresql/data:z
       - ${init_sql_path}:/docker-entrypoint-initdb.d/init.sql:ro,z
+      - ${certs_dir}:/vault/certs:ro,z
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]

@@ -64,6 +64,12 @@ variable "vault_mgmt_password" {
   default     = "vault-mgmt-demo-2026"
 }
 
+variable "database_roles_enabled" {
+  description = "Create database roles (static + dynamic). Set true only after services/postgres/ is applied and healthy."
+  type        = bool
+  default     = false
+}
+
 # ---------------------------------------------------------------------------
 # Keycloak
 # ---------------------------------------------------------------------------
