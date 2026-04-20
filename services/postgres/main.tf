@@ -114,7 +114,7 @@ resource "local_sensitive_file" "wrapped_secret_id" {
 resource "local_file" "init_sql" {
   depends_on      = [null_resource.create_dirs]
   filename        = local.init_sql_path
-  file_permission = "0640"
+  file_permission = "0644"
   content = templatefile("${path.module}/templates/init.sql.tpl", {
     vault_mgmt_password = var.vault_mgmt_password
   })

@@ -47,21 +47,34 @@ project-armory/
 │   │   │   ├── compose.yml.tpl     # pg_isready healthcheck, armory-net
 │   │   │   └── init.sql.tpl        # Creates databases, vault_mgmt role, template roles
 │   │   └── ...
-│   └── keycloak/             # OpenTofu module — Keycloak + Vault Agent sidecar
-│       ├── main.tf           # Vault policy, AppRole (PKI + DB + KV policies), compose deploy
-│       ├── templates/
-│       │   ├── agent.hcl.tpl       # Vault Agent: pkiCert + DB static-creds + KV admin
-│       │   └── compose.yml.tpl     # vault-agent + keycloak services
-│       └── ...
+│   ├── keycloak/             # OpenTofu module — Keycloak + Vault Agent sidecar
+│   │   ├── main.tf           # Vault policy, AppRole (PKI + DB + KV policies), compose deploy
+│   │   ├── templates/
+│   │   │   ├── agent.hcl.tpl       # Vault Agent: pkiCert + DB static-creds + KV admin
+│   │   │   └── compose.yml.tpl     # vault-agent + keycloak services
+│   │   └── ...
+│   └── agent/                # OpenTofu module + Python service — agentic layer
+│       ├── main.tf           # AppRole secret_id issuance, credential files on disk
+│       ├── example.tfvars
+│       ├── tests/
+│       │   └── config.tftest.hcl   # Module-level unit tests (mocked providers)
+│       └── agent/            # Python FastAPI service
+│           ├── api.py        # FastAPI endpoint — Keycloak JWT validation, task dispatch
+│           ├── agent.py      # Task runner — per-task Vault auth, request_id, audit trail
+│           ├── vault_client.py  # Vault AppRole auth + dynamic DB credential helpers
+│           ├── oidc.py       # Keycloak JWKS validation (authlib, TTL cache, azp check)
+│           ├── tools.py      # Tool implementations (SELECT-only DB query)
+│           └── requirements.txt
 ├── tests/                    # End-to-end integration test suite
 │   ├── conftest.py           # Session fixtures: full lifecycle management
 │   ├── test_tls.py
 │   ├── test_pki.py
 │   ├── test_auth.py
 │   ├── test_webserver.py
+│   ├── test_agent.py         # Agent AppRole policy + credential lifecycle tests
 │   └── requirements.txt
 └── docs/
-    ├── ADR/                  # Architecture Decision Records (ADR-001 through ADR-018)
+    ├── ADR/                  # Architecture Decision Records (ADR-001 through ADR-020)
     └── pki_workflows.md      # Cryptographic material custody reference
 ```
 
@@ -216,9 +229,86 @@ Before enabling OIDC in Vault, set up the Keycloak side:
 
 1. Log in to `https://127.0.0.1:8444/admin`
 2. Create realm **`armory`**
-3. Create OIDC client **`vault`** (Client authentication: ON, note the client secret)
-4. Create group **`vault-operators`**, add the operator user
-5. Add a **Group Membership** protocol mapper on the `vault` client, token claim name `groups`
+3. Create group **`vault-operators`**, add the operator user
+
+**Client: `vault`** — confidential client used by the Vault OIDC auth method:
+
+4. Create OIDC client **`vault`** with Client authentication: ON (note the client secret)
+5. Add a **Group Membership** protocol mapper, token claim name `groups`
+
+**Client: `agent-cli`** — public client used by the agent CLI (`cli.py`):
+
+6. Create OIDC client **`agent-cli`** with Client authentication: OFF (public client, no secret)
+7. Standard Flow: enabled; Direct Access Grants: **disabled** (blocks password grant at the server)
+8. Under **Advanced** → **Proof Key for Code Exchange Code Challenge Method**: set to `S256`
+9. Valid Redirect URIs: `http://127.0.0.1:18080/callback`
+10. Web Origins: `http://127.0.0.1:18080`
+11. Add the same **Group Membership** protocol mapper as the `vault` client, token claim name `groups`
+
+---
+
+### Phase 9 — Deploy the agentic layer
+
+**Prerequisites:** Keycloak realm configured (Phase 7) and OIDC enabled (Phase 8).
+
+**Step 1:** Enable the agent AppRole in `vault-config/`:
+
+```bash
+cd vault-config/
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu apply -var agent_enabled=true -var database_roles_enabled=true
+```
+
+**Step 2:** Issue credentials and scaffold host directories:
+
+```bash
+cd services/agent/
+cp example.tfvars terraform.tfvars
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu init
+tofu apply
+```
+
+This writes `role_id` and `wrapped_secret_id` to `/opt/armory/agent/approle/`.
+
+**Step 3:** Start the agent API:
+
+```bash
+cd services/agent/agent/
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+export VAULT_ADDR=https://127.0.0.1:8200
+export ARMORY_CACERT=/opt/armory/vault/tls/ca.crt
+export APPROLE_DIR=/opt/armory/agent/approle
+export KEYCLOAK_URL=https://127.0.0.1:8444
+export OIDC_CLIENT_ID=agent-cli
+export POSTGRES_HOST=armory-postgres
+export POSTGRES_DB=app
+
+.venv/bin/python api.py
+```
+
+**Step 4:** Submit a task:
+
+```bash
+cd services/agent/agent/
+.venv/bin/python cli.py --query "SELECT current_user, now() AS ts"
+```
+
+`cli.py` opens a browser to the Keycloak login page, completes Authorization Code +
+PKCE, and submits the task in one step. The response includes a `request_id` for
+correlating the API log with the Vault audit log.
+
+> **Same env vars:** `cli.py` reads `KEYCLOAK_URL`, `ARMORY_CACERT`, `OIDC_CLIENT_ID`,
+> and `AGENT_API_URL` from the environment — the same variables set for the API above.
+
+> **Single-use secret_id:** The `wrapped_secret_id` is consumed on first agent startup.
+> Re-run `tofu apply` in `services/agent/` to issue a new one before the next run.
+
+> **Postgres hostname:** `armory-postgres` only resolves on `armory-net`. If running
+> the agent on the host, either add a `/etc/hosts` entry or run it inside a container
+> on `armory-net` (Phase 2).
 
 ---
 
@@ -356,6 +446,7 @@ cd vault-config/       && tofu test   # PKI config, policies, auth, KV, Database
 cd services/webserver/ && tofu test   # Vault policy, AppRole, compose healthcheck
 cd services/postgres/  && tofu test   # Compose healthcheck, init.sql correctness
 cd services/keycloak/  && tofu test   # Vault policy, AppRole (3 policies), compose healthchecks, agent templates
+cd services/agent/     && tofu test   # AppRole secret_id, credential file paths and permissions, outputs
 ```
 
 All use mocked providers — no containers start and no files are written.
@@ -383,14 +474,18 @@ All use mocked providers — no containers start and no files are written.
 │   ├── approle/            # role_id, wrapped_secret_id
 │   ├── certs/nginx.pem     # TLS cert rendered by Vault Agent
 │   └── nginx/nginx.conf
-└── keycloak/
-    ├── compose.yml
-    ├── agent/agent.hcl
-    ├── approle/            # role_id, wrapped_secret_id
-    ├── certs/keycloak.pem  # TLS cert (cert + CA + key)
-    └── secrets/
-        ├── keycloak.env          # KC_DB_PASSWORD (rotated by Vault)
-        └── keycloak-admin.env    # KC_BOOTSTRAP_ADMIN_* (from KV v2)
+├── keycloak/
+│   ├── compose.yml
+│   ├── agent/agent.hcl
+│   ├── approle/            # role_id, wrapped_secret_id
+│   ├── certs/keycloak.pem  # TLS cert (cert + CA + key)
+│   └── secrets/
+│       ├── keycloak.env          # KC_DB_PASSWORD (rotated by Vault)
+│       └── keycloak-admin.env    # KC_BOOTSTRAP_ADMIN_* (from KV v2)
+└── agent/
+    ├── approle/            # role_id, wrapped_secret_id (written by services/agent/ module)
+    ├── logs/               # Agent process logs
+    └── data/               # Reserved for future use
 ```
 
 ---
@@ -414,7 +509,7 @@ Two intentional trade-offs exist at the host level:
 
 ## Architecture Decisions
 
-See [`docs/ADR/`](docs/ADR/) for all 18 Architecture Decision Records, including:
+See [`docs/ADR/`](docs/ADR/) for all 20 Architecture Decision Records, including:
 
 - [ADR-002](docs/ADR/ADR-002-three-tier-pki-hierarchy.md) — Three-tier PKI hierarchy
 - [ADR-009](docs/ADR/ADR-009-vault-agent-sidecar.md) — Vault Agent sidecar pattern
@@ -422,6 +517,7 @@ See [`docs/ADR/`](docs/ADR/) for all 18 Architecture Decision Records, including
 - [ADR-016](docs/ADR/ADR-016-webserver-vault-agent-sidecar.md) — Vault Agent combined PEM pattern
 - [ADR-017](docs/ADR/ADR-017-postgres-vault-database-engine.md) — PostgreSQL + Vault Database secrets engine
 - [ADR-018](docs/ADR/ADR-018-keycloak-oidc-human-identity.md) — Keycloak for human identity + OIDC auth
+- [ADR-020](docs/ADR/ADR-020-agent-agentic-layer.md) — Agentic layer security-first design
 
 ---
 
@@ -480,3 +576,24 @@ See [`docs/ADR/`](docs/ADR/) for all 18 Architecture Decision Records, including
 | `server_name` | `armory-keycloak` | TLS certificate common name |
 | `cert_ip_sans` | `[]` | Extra IP SANs for Keycloak TLS cert |
 | `cert_dns_sans` | `[]` | DNS SANs for Keycloak TLS cert |
+
+### `services/agent/` module
+
+| Variable | Default | Description |
+|---|---|---|
+| `deploy_dir` | `/opt/armory/agent` | Host path for runtime artefacts |
+| `approle_mount_path` | `approle` | AppRole auth method mount path |
+
+### Agent environment variables
+
+| Variable | Description |
+|---|---|
+| `VAULT_ADDR` | Vault API address (e.g. `https://127.0.0.1:8200`) |
+| `ARMORY_CACERT` | Path to the Armory CA cert — used for Vault, Keycloak, and Postgres TLS |
+| `APPROLE_DIR` | Path containing `role_id` and `wrapped_secret_id` (written by `services/agent/`) |
+| `KEYCLOAK_URL` | Keycloak base URL (e.g. `https://127.0.0.1:8444`) |
+| `KEYCLOAK_REALM` | Keycloak realm name (default: `armory`) |
+| `OIDC_CLIENT_ID` | OIDC client ID — `azp` claim must match this value (default: `vault`) |
+| `REQUIRED_GROUP` | Keycloak group membership required to submit tasks (default: `vault-operators`) |
+| `POSTGRES_HOST` | PostgreSQL container hostname (e.g. `armory-postgres`) |
+| `POSTGRES_DB` | Database name (default: `app`) |

@@ -27,7 +27,7 @@ services:
       - ${certs_dir}:/vault/certs:z
 
     healthcheck:
-      test: ["CMD-SHELL", "test -f /vault/certs/postgres.crt && grep -q 'BEGIN CERTIFICATE' /vault/certs/postgres.crt && test -s /vault/certs/postgres.key"]
+      test: ["CMD-SHELL", "grep -q 'BEGIN CERTIFICATE' /vault/certs/postgres.pem && grep -q 'PRIVATE KEY' /vault/certs/postgres.pem"]
       interval: 5s
       timeout: 2s
       retries: 24
@@ -44,20 +44,25 @@ services:
       vault-agent:
         condition: service_healthy
 
-    # Copy key to a postgres-owned path with mode 0600 before starting.
-    # PostgreSQL rejects ssl_key_file unless it is 0600 owned by the server process.
-    # Vault Agent writes as uid 0; this wrapper satisfies the constraint without chown.
+    # Split the combined PEM (cert+CA+key) into separate files for postgres.
+    # Vault Agent writes both as a single template to guarantee cert/key atomicity.
+    # The key must be owned by the postgres user (uid 70 in Alpine) with mode 0600.
     command: >
-      sh -c "cp /vault/certs/postgres.key /tmp/server.key &&
+      sh -c "awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' /vault/certs/postgres.pem > /tmp/server.crt &&
+             awk '/BEGIN.*PRIVATE KEY/,/END.*PRIVATE KEY/{print}' /vault/certs/postgres.pem > /tmp/server.key &&
+             chown postgres /tmp/server.key &&
              chmod 600 /tmp/server.key &&
-             exec docker-entrypoint.sh postgres
-               -c ssl=on
-               -c ssl_cert_file=/vault/certs/postgres.crt
+             exec docker-entrypoint.sh postgres \
+               -c ssl=on \
+               -c ssl_cert_file=/tmp/server.crt \
                -c ssl_key_file=/tmp/server.key"
 
     environment:
       POSTGRES_PASSWORD: "${postgres_password}"
       PGDATA: /var/lib/postgresql/data/pgdata
+
+    ports:
+      - "127.0.0.1:5432:5432"
 
     volumes:
       - ${pgdata_dir}:/var/lib/postgresql/data:z

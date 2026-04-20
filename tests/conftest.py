@@ -25,6 +25,8 @@ PROJECT_ROOT = Path(__file__).parent.parent
 VAULT_MODULE = PROJECT_ROOT / "vault"
 VAULT_CONFIG_MODULE = PROJECT_ROOT / "vault-config"
 WEBSERVER_MODULE = PROJECT_ROOT / "services" / "webserver"
+AGENT_MODULE = PROJECT_ROOT / "services" / "agent"
+POSTGRES_MODULE = PROJECT_ROOT / "services" / "postgres"
 LOGS_DIR = Path(__file__).parent / "logs"
 
 VAULT_ADDR = "https://127.0.0.1:8200"
@@ -84,6 +86,39 @@ def _wait_for_active(timeout=60, interval=3):
             return
         time.sleep(interval)
     raise TimeoutError("Vault did not reach active state within timeout")
+
+
+def _wait_for_postgres(timeout=90, interval=3):
+    """Wait until PostgreSQL accepts TCP connections on 127.0.0.1:5432.
+
+    Uses -h 127.0.0.1 to force a TCP check (not the Unix socket), ensuring
+    vault-config can connect over the network before we proceed.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = _run(
+            "podman exec armory-postgres pg_isready -U postgres -h 127.0.0.1",
+            check=False,
+        )
+        if r.returncode == 0:
+            return
+        time.sleep(interval)
+    raise TimeoutError("PostgreSQL did not become ready within timeout")
+
+
+def _wait_for_agent_api(timeout=30, interval=2):
+    """Wait until the agent API returns 200 on /health."""
+    import httpx
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = httpx.get("http://127.0.0.1:8000/health", timeout=2)
+            if r.status_code == 200:
+                return
+        except Exception:
+            pass
+        time.sleep(interval)
+    raise TimeoutError("Agent API did not become reachable within timeout")
 
 
 def _wait_for_nginx(timeout=60, interval=3):
@@ -159,9 +194,15 @@ def check_prerequisites():
 def vault_env():
     base_env = os.environ.copy()
 
-    # 1. Destroy any existing state (best-effort)
-    #    Webserver tofu destroy requires Vault to be running, so also stop containers directly.
-    _run("podman rm -f armory-webserver armory-vault-agent 2>/dev/null || true",
+    # 1. Destroy any existing state (best-effort).
+    #    Use compose down before rm -f to avoid stale bind mounts on re-deploy:
+    #    podman rm -f alone can leave containers in zombie state with bind mounts
+    #    pointing to deleted directory inodes after rm -rf on the host path.
+    _run("podman compose --project-name armory-webserver -f /opt/armory/webserver/compose.yml down 2>/dev/null || true",
+         check=False)
+    _run("podman compose --project-name armory-postgres -f /opt/armory/postgres/compose.yml down 2>/dev/null || true",
+         check=False)
+    _run("podman rm -f armory-webserver armory-vault-agent armory-postgres armory-postgres-vault-agent 2>/dev/null || true",
          check=False)
     _run("tofu destroy -auto-approve", cwd=WEBSERVER_MODULE, env=base_env, check=False)
     _run("tofu destroy -auto-approve", cwd=VAULT_CONFIG_MODULE, env=base_env, check=False)
@@ -268,3 +309,163 @@ def webserver_env(vault_env):
 
     if not NO_TEARDOWN:
         _run("tofu destroy -auto-approve", cwd=WEBSERVER_MODULE, env=config_env, check=False)
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL session fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def postgres_env(vault_env):
+    """
+    Deploy services/postgres/ and enable database roles in vault-config.
+
+    Re-applies vault-config with database_roles_enabled=true after Postgres
+    is running so the database secrets engine can connect.
+    """
+    config_env = vault_env["config_env"]
+
+    # Stop any running postgres containers first.
+    # podman compose down guarantees containers are fully removed before we delete
+    # the host directory — podman rm -f alone can leave containers in a zombie
+    # state with bind mounts pointing to deleted directory inodes.
+    _run(
+        "podman compose --project-name armory-postgres -f /opt/armory/postgres/compose.yml down 2>/dev/null || true",
+        check=False,
+    )
+    _run(
+        "podman rm -f armory-postgres armory-postgres-vault-agent 2>/dev/null || true",
+        check=False,
+    )
+    _run(
+        "podman unshare rm -rf /opt/armory/postgres 2>/dev/null || rm -rf /opt/armory/postgres 2>/dev/null || true",
+        check=False,
+    )
+    for fname in ("terraform.tfstate", "terraform.tfstate.backup"):
+        (POSTGRES_MODULE / fname).unlink(missing_ok=True)
+
+    _run("tofu init", cwd=POSTGRES_MODULE, env=config_env)
+    _run("tofu apply -auto-approve", cwd=POSTGRES_MODULE, env=config_env)
+
+    _wait_for_postgres(timeout=90)
+
+    # Enable database roles now that Postgres is reachable
+    _run(
+        "tofu apply -auto-approve -var database_roles_enabled=true",
+        cwd=VAULT_CONFIG_MODULE,
+        env=config_env,
+    )
+
+    yield {
+        "postgres_host": "armory-postgres",
+        "vault_addr":    VAULT_ADDR,
+        "vault_cacert":  VAULT_CACERT,
+    }
+
+    if not NO_TEARDOWN:
+        _run("tofu destroy -auto-approve", cwd=POSTGRES_MODULE, env=config_env, check=False)
+
+
+# ---------------------------------------------------------------------------
+# Agent session fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def agent_env(vault_env, postgres_env):
+    """
+    Apply services/agent/ (requires vault-config applied with agent_enabled=true).
+
+    The wrapped_secret_id written here is single-use. Each test run must re-apply
+    services/agent/ to issue a fresh one — the fixture handles this automatically.
+    """
+    config_env = vault_env["config_env"].copy()
+    config_env["TF_VAR_agent_enabled"] = "true"
+
+    # Re-apply vault-config with both flags — must carry forward database_roles_enabled
+    # since postgres_env already enabled it (omitting it would revert to false).
+    _run(
+        "tofu apply -auto-approve -var agent_enabled=true -var database_roles_enabled=true",
+        cwd=VAULT_CONFIG_MODULE,
+        env=config_env,
+    )
+
+    # Clean up any stale agent credentials from a previous run so local_sensitive_file
+    # can write fresh files (0444 files are read-only for the owner on some systems).
+    _run(
+        "podman unshare rm -rf /opt/armory/agent 2>/dev/null || rm -rf /opt/armory/agent 2>/dev/null || true",
+        check=False,
+    )
+    for fname in ("terraform.tfstate", "terraform.tfstate.backup"):
+        (AGENT_MODULE / fname).unlink(missing_ok=True)
+
+    _run("tofu init", cwd=AGENT_MODULE, env=config_env)
+    _run("tofu apply -auto-approve", cwd=AGENT_MODULE, env=config_env)
+
+    approle_dir = "/opt/armory/agent/approle"
+
+    yield {
+        "vault_addr":   VAULT_ADDR,
+        "vault_cacert": VAULT_CACERT,
+        "approle_dir":  approle_dir,
+    }
+
+    if not NO_TEARDOWN:
+        _run("tofu destroy -auto-approve", cwd=AGENT_MODULE, env=config_env, check=False)
+
+
+@pytest.fixture(scope="session")
+def agent_api_env(agent_env, postgres_env, vault_client):
+    """
+    Start the agent API subprocess and yield its base URL.
+
+    Issues a fresh wrapped secret_id before starting — the agent_env fixture
+    may have already consumed the one on disk (single-use property).
+    """
+    import subprocess
+    import hvac
+
+    approle_dir = agent_env["approle_dir"]
+
+    # Issue a fresh wrapped secret_id so the subprocess can authenticate
+    response = vault_client.auth.approle.generate_secret_id(
+        role_name="agent",
+        wrap_ttl="10m",
+    )
+    wrap_token = response["wrap_info"]["token"]
+    wrap_path  = f"{approle_dir}/wrapped_secret_id"
+    # The file is 0444 — remove before rewriting
+    _run(f"podman unshare rm -f {wrap_path} 2>/dev/null || rm -f {wrap_path} 2>/dev/null || true", check=False)
+    Path(wrap_path).write_text(wrap_token)
+    Path(wrap_path).chmod(0o444)
+
+    agent_dir = AGENT_MODULE / "agent"
+    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python"
+
+    env = os.environ.copy()
+    env.update({
+        "VAULT_ADDR":      VAULT_ADDR,
+        "ARMORY_CACERT":   VAULT_CACERT,
+        "APPROLE_DIR":     approle_dir,
+        "KEYCLOAK_URL":    "https://127.0.0.1:8444",  # not used in integration tests
+        "OIDC_CLIENT_ID":  "agent-cli",
+        "POSTGRES_HOST":   "armory-postgres",
+        "POSTGRES_DB":     "app",
+    })
+
+    proc = subprocess.Popen(
+        [str(venv_python), "api.py"],
+        cwd=str(agent_dir),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    try:
+        _wait_for_agent_api(timeout=30)
+        yield {"url": "http://127.0.0.1:8000", "vault_client": vault_client}
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()

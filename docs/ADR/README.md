@@ -27,6 +27,7 @@ consequences — including trade-offs accepted.
 | [ADR-017](ADR-017-postgres-vault-database-engine.md) | PostgreSQL with Vault Database secrets engine | Accepted |
 | [ADR-018](ADR-018-keycloak-oidc-human-identity.md) | Keycloak for human identity and Vault OIDC auth method | Accepted |
 | [ADR-019](ADR-019-postgres-tls-vault-agent-sidecar.md) | PostgreSQL TLS via Vault Agent sidecar | Accepted |
+| [ADR-020](ADR-020-agent-agentic-layer.md) | Agentic layer — security-first design | Accepted |
 
 ## Format
 

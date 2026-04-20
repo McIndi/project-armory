@@ -27,30 +27,23 @@ auto_auth {
 # armory-net need to trust this cert, and they already trust the internal chain.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Combined PEM: cert + CA chain + private key in one file, one pkiCert call.
+# Writing cert and key from separate template blocks risks a render-cycle race
+# where one file is updated and the other isn't, producing a key/cert mismatch
+# that crashes postgres. A single template guarantees atomicity.
+#
+# The postgres startup wrapper splits this file into /tmp/server.crt and
+# /tmp/server.key using awk before exec-ing postgres.
+# ---------------------------------------------------------------------------
+
 template {
   contents = <<EOT
 {{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=${server_name}" "ttl=${cert_ttl}" "ip_sans=${ip_sans_str}"%{ if alt_names_str != "" } "alt_names=${alt_names_str}"%{ endif } -}}
 {{ .Cert }}{{ .CA }}
-{{- end }}
-EOT
-  destination = "/vault/certs/postgres.crt"
-  perms       = "0644"
-}
-
-# ---------------------------------------------------------------------------
-# Private key written separately to postgres.key (0644 here).
-# The PostgreSQL startup wrapper copies this to /tmp/server.key and chmod 600
-# before exec-ing postgres, satisfying PG's ssl_key_file ownership requirement.
-# Two identical pkiCert calls: Vault Agent caches by argument fingerprint within
-# a render cycle, so both stanzas receive the same cert/key — no second issuance.
-# ---------------------------------------------------------------------------
-
-template {
-  contents = <<EOT
-{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=${server_name}" "ttl=${cert_ttl}" "ip_sans=${ip_sans_str}"%{ if alt_names_str != "" } "alt_names=${alt_names_str}"%{ endif } -}}
 {{ .Key }}
 {{- end }}
 EOT
-  destination = "/vault/certs/postgres.key"
+  destination = "/vault/certs/postgres.pem"
   perms       = "0644"
 }

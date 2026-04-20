@@ -41,3 +41,7 @@ GRANT app_role TO vault_mgmt WITH ADMIN OPTION;
 
 CREATE ROLE keycloak WITH LOGIN PASSWORD 'placeholder-vault-will-rotate';
 GRANT keycloak_role TO keycloak;
+
+-- Allow vault_mgmt to rotate the keycloak login role's password (PG16+).
+-- CREATEROLE alone is insufficient; admin option on the target role is required.
+GRANT keycloak TO vault_mgmt WITH ADMIN OPTION;

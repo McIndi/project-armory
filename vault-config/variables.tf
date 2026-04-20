@@ -115,3 +115,13 @@ variable "userpass_enabled" {
   type        = bool
   default     = true
 }
+
+# ---------------------------------------------------------------------------
+# Agentic layer
+# ---------------------------------------------------------------------------
+
+variable "agent_enabled" {
+  description = "Create the agent AppRole and policy. Set true only after services/agent/ is ready to be applied."
+  type        = bool
+  default     = false
+}

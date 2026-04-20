@@ -104,3 +104,28 @@ resource "vault_policy" "kv_reader_keycloak" {
     path "kv/data/keycloak/*"     { capabilities = ["read"] }
   EOT
 }
+
+# ---------------------------------------------------------------------------
+# agent — scoped policy for the agentic layer service
+# Read dynamic DB credentials and agent-specific KV namespace only.
+# Cannot issue certificates, cannot touch other services' secrets.
+# ---------------------------------------------------------------------------
+
+resource "vault_policy" "agent" {
+  count = var.agent_enabled ? 1 : 0
+  name  = "agent"
+
+  policy = <<-EOT
+    # Dynamic credentials for the app database
+    path "database/creds/app" { capabilities = ["read"] }
+
+    # Agent-specific KV namespace (task config, no cross-namespace access)
+    path "kv/data/agent/*"     { capabilities = ["read"] }
+    path "kv/metadata/agent/*" { capabilities = ["read", "list"] }
+
+    # Token self-management
+    path "auth/token/lookup-self" { capabilities = ["read"] }
+    path "auth/token/renew-self"  { capabilities = ["update"] }
+    path "auth/token/revoke-self" { capabilities = ["update"] }
+  EOT
+}

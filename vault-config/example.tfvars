@@ -19,3 +19,6 @@ pki_ext_allowed_domains = ""
 # Password for the 'operator' userpass account.
 # Override this before any non-demo use. Stored in tfstate — see ADR-012.
 # operator_password = "change-me"
+
+# Enable the agent AppRole and policy. Set true when ready to apply services/agent/.
+# agent_enabled = false
