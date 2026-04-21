@@ -49,7 +49,7 @@ KC_DB_PASSWORD={{ .Data.password }}
 {{- end }}
 EOT
   destination = "/vault/secrets/keycloak.env"
-  perms       = "0640"
+  perms       = "0644"
 }
 
 # ---------------------------------------------------------------------------
@@ -64,5 +64,5 @@ KC_BOOTSTRAP_ADMIN_PASSWORD={{ .Data.data.password }}
 {{- end }}
 EOT
   destination = "/vault/secrets/keycloak-admin.env"
-  perms       = "0640"
+  perms       = "0644"
 }

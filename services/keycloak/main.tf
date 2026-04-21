@@ -109,6 +109,24 @@ resource "local_sensitive_file" "wrapped_secret_id" {
   content         = vault_approle_auth_backend_role_secret_id.keycloak.wrapping_token
 }
 
+# Placeholder env files must exist before podman-compose up — podman-compose
+# validates env_file paths before starting any container, including the
+# vault-agent that writes the real credentials. Vault-agent overwrites these;
+# the vault-agent healthcheck (test -s) blocks keycloak until they are non-empty.
+resource "local_file" "keycloak_env_placeholder" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.secrets}/keycloak.env"
+  file_permission = "0666"
+  content         = ""
+}
+
+resource "local_file" "keycloak_admin_env_placeholder" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.secrets}/keycloak-admin.env"
+  file_permission = "0666"
+  content         = ""
+}
+
 resource "local_file" "compose" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
@@ -139,6 +157,8 @@ resource "null_resource" "deploy" {
   depends_on = [
     local_file.agent_config,
     local_file.compose,
+    local_file.keycloak_env_placeholder,
+    local_file.keycloak_admin_env_placeholder,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,
   ]

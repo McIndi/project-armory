@@ -8,78 +8,6 @@ Currently using [OpenBao](https://openbao.org) and [OpenTofu](https://opentofu.o
 
 ---
 
-## Repository Layout
-
-```
-project-armory/
-├── vault/                    # OpenTofu module — deploys Vault via podman compose
-│   ├── versions.tf
-│   ├── variables.tf
-│   ├── main.tf               # TLS generation, config rendering, container lifecycle
-│   ├── outputs.tf
-│   ├── example.tfvars
-│   └── templates/
-│       ├── vault.hcl.tpl     # Vault server config (raft storage, TLS listener, audit)
-│       └── compose.yml.tpl
-├── vault-config/             # OpenTofu module — configures Vault (PKI, secrets engines, auth)
-│   ├── versions.tf
-│   ├── variables.tf
-│   ├── pki.tf                # Three-tier PKI hierarchy (root, internal, external CAs)
-│   ├── auth.tf               # AppRole + userpass auth methods (userpass toggleable)
-│   ├── policies.tf           # ACL policies: operator, kv_admin, kv_reader_keycloak, keycloak_db, app_db
-│   ├── audit.tf              # Audit device note (OpenBao 2.x: declared in vault.hcl, not API)
-│   ├── kv.tf                 # KV v2 mount + Keycloak admin bootstrap secret
-│   ├── database.tf           # Database secrets engine: Postgres connection, static + dynamic roles
-│   ├── oidc.tf               # OIDC auth method backed by Keycloak (toggled by oidc_enabled)
-│   ├── outputs.tf
-│   └── example.tfvars
-├── services/
-│   ├── webserver/            # OpenTofu module — nginx + Vault Agent sidecar
-│   │   ├── main.tf           # Vault policy, AppRole, dir scaffolding, compose deploy
-│   │   ├── templates/
-│   │   │   ├── agent.hcl.tpl       # Vault Agent: AppRole + pkiCert
-│   │   │   ├── nginx.conf.tpl
-│   │   │   └── compose.yml.tpl
-│   │   └── ...
-│   ├── postgres/             # OpenTofu module — PostgreSQL container
-│   │   ├── main.tf           # Dir scaffolding, config rendering, podman compose deploy
-│   │   ├── templates/
-│   │   │   ├── compose.yml.tpl     # pg_isready healthcheck, armory-net
-│   │   │   └── init.sql.tpl        # Creates databases, vault_mgmt role, template roles
-│   │   └── ...
-│   ├── keycloak/             # OpenTofu module — Keycloak + Vault Agent sidecar
-│   │   ├── main.tf           # Vault policy, AppRole (PKI + DB + KV policies), compose deploy
-│   │   ├── templates/
-│   │   │   ├── agent.hcl.tpl       # Vault Agent: pkiCert + DB static-creds + KV admin
-│   │   │   └── compose.yml.tpl     # vault-agent + keycloak services
-│   │   └── ...
-│   └── agent/                # OpenTofu module + Python service — agentic layer
-│       ├── main.tf           # AppRole secret_id issuance, credential files on disk
-│       ├── example.tfvars
-│       ├── tests/
-│       │   └── config.tftest.hcl   # Module-level unit tests (mocked providers)
-│       └── agent/            # Python FastAPI service
-│           ├── api.py        # FastAPI endpoint — Keycloak JWT validation, task dispatch
-│           ├── agent.py      # Task runner — per-task Vault auth, request_id, audit trail
-│           ├── vault_client.py  # Vault AppRole auth + dynamic DB credential helpers
-│           ├── oidc.py       # Keycloak JWKS validation (authlib, TTL cache, azp check)
-│           ├── tools.py      # Tool implementations (SELECT-only DB query)
-│           └── requirements.txt
-├── tests/                    # End-to-end integration test suite
-│   ├── conftest.py           # Session fixtures: full lifecycle management
-│   ├── test_tls.py
-│   ├── test_pki.py
-│   ├── test_auth.py
-│   ├── test_webserver.py
-│   ├── test_agent.py         # Agent AppRole policy + credential lifecycle tests
-│   └── requirements.txt
-└── docs/
-    ├── ADR/                  # Architecture Decision Records (ADR-001 through ADR-020)
-    └── pki_workflows.md      # Cryptographic material custody reference
-```
-
----
-
 ## Requirements
 
 | Tool | Minimum version | Notes |
@@ -152,6 +80,9 @@ Configures PKI hierarchy, AppRole auth, userpass operator account, KV v2 engine 
 > Vault immediately sets the initial credential. Roles are added in a re-apply after
 > Postgres is up (Phase 5b).
 
+**Note:**
+After completing Phase 5 (Postgres deployment), you must re-apply the vault-config module with `database_roles_enabled=true` to enable Vault to create the database roles. See Phase 5b below for the exact command.
+
 ---
 
 ### Phase 4 — Deploy the webserver (optional demo)
@@ -199,6 +130,40 @@ tofu apply -var database_roles_enabled=true -auto-approve
 ```
 
 This creates the Keycloak static role and the app dynamic role. Vault connects to Postgres immediately — the container must be healthy before running this step.
+
+**Summary of steps:**
+1. Deploy Postgres (Phase 5)
+2. Re-apply vault-config with:
+  ```bash
+  cd vault-config/
+  export TF_VAR_vault_token=<ROOT_TOKEN>
+  tofu apply -var database_roles_enabled=true -var agent_enabled=true -auto-approve
+  ```
+  This enables Vault to create the required database roles.
+**Validation:** Confirm Vault issued database credentials
+
+podman exec armory-vault bao list database/roles
+podman exec armory-vault bao read database/creds/keycloak
+podman exec armory-vault bao read database/creds/app
+**Note:** You must export the Vault root token (or a token with the correct database policy) before running these commands, or you will get 403 errors.
+
+```bash
+export VAULT_TOKEN=<ROOT_TOKEN>
+
+# List dynamic database roles (should show 'app')
+podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao list database/roles
+
+# List static database roles (should show 'keycloak')
+podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao list database/static-roles
+
+# Read credentials for the Keycloak static role (should show rotation info and username)
+podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao read database/static-roles/keycloak
+
+# Read credentials for the app dynamic role (should return a username and password)
+podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao read database/creds/app
+```
+
+If these commands return valid output for both roles, Phase 5b was successful and Vault is managing both dynamic and static database roles as intended.
 
 ---
 
@@ -258,6 +223,8 @@ cd vault-config/
 export TF_VAR_vault_token=<ROOT_TOKEN>
 tofu apply -var agent_enabled=true -var database_roles_enabled=true
 ```
+
+This command ensures both the agent AppRole and the database roles are enabled in Vault. Both variables must be set to `true` when deploying the agentic layer.
 
 **Step 2:** Issue credentials and scaffold host directories:
 
