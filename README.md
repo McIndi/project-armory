@@ -50,6 +50,29 @@ After `rebuild.sh` completes, two manual steps remain: **Phase 7** (Keycloak rea
 
 The sections below describe each phase individually. Use these if you need to apply a single phase in isolation, debug a failure, or understand what the script does.
 
+### Tear down everything (optional)
+cd services/agent    && tofu destroy -auto-approve && cd ../..
+cd services/webserver && tofu destroy -auto-approve && cd ../..
+cd services/keycloak && tofu destroy -auto-approve && cd ../..                                                                                    
+cd services/postgres && tofu destroy -auto-approve && cd ../..
+cd vault-config      && tofu destroy -auto-approve && cd ..                                                                                       
+cd vault             && tofu destroy -auto-approve && cd ..
+podman unshare rm -rf /opt/armory/vault /opt/armory/keycloak /opt/armory/webserver /opt/armory/postgres /opt/armory/agent 2>/dev/null || rm -rf /opt/armory/vault /opt/armory/keycloak /opt/armory/webserver /opt/armory/postgres /opt/armory/agent
+
+# If containers aren't being stopped and removed
+podman ps -aq | xargs -r podman stop
+podman ps -aq | xargs -r podman rm
+
+# Remove podman volumes
+podman volume ls -q | xargs -r podman volume rm
+
+# Remove podman networks
+podman network ls --format '{{.Name}}' | grep armory | xargs -r podman network rm
+
+# Clean up stale tfstate files
+find . -name 'terraform.tfstate*' -delete
+
+
 ### 0. One-time host prerequisite
 
 ```bash
