@@ -25,7 +25,7 @@ output "ca_bundle_path" {
 
 output "audit_log_path" {
   description = "Path to the audit log on the host (bind-mounted from /vault/logs inside the container)."
-  value       = "/opt/armory/vault/logs/audit.log"
+  value       = "${var.armory_base_dir}/vault/logs/audit.log"
 }
 
 output "operator_login_command" {

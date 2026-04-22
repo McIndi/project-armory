@@ -1,6 +1,8 @@
 # Copy to terraform.tfvars and fill in sensitive values.
 # terraform.tfvars is gitignored — never commit secrets.
 
+armory_base_dir = "/opt/armory"
+
 deploy_dir           = "/opt/armory/postgres"
 compose_project_name = "armory-postgres"
 container_name       = "armory-postgres"

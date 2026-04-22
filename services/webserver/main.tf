@@ -9,6 +9,7 @@ locals {
     certs        = "${var.deploy_dir}/certs"
     nginx        = "${var.deploy_dir}/nginx"
   }
+  vault_tls_dir = coalesce(var.vault_tls_dir, "${var.armory_base_dir}/vault/tls")
 
   ip_sans_str   = join(",", concat(["127.0.0.1"], var.cert_ip_sans))
   alt_names_str = join(",", var.cert_dns_sans)
@@ -132,7 +133,7 @@ resource "local_file" "compose" {
     network_name       = var.network_name
     agent_config_dir   = local.dirs.agent_config
     approle_dir        = local.dirs.approle
-    vault_tls_dir      = "/opt/armory/vault/tls"
+    vault_tls_dir      = local.vault_tls_dir
     certs_dir          = local.dirs.certs
     nginx_config_dir   = local.dirs.nginx
   })

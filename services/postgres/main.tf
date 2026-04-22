@@ -5,6 +5,7 @@
 locals {
   pgdata_dir    = "${var.deploy_dir}/pgdata"
   init_sql_path = "${var.deploy_dir}/init.sql"
+  vault_tls_dir = coalesce(var.vault_tls_dir, "${var.armory_base_dir}/vault/tls")
 
   dirs = {
     agent_config = "${var.deploy_dir}/agent"
@@ -134,7 +135,7 @@ resource "local_file" "compose" {
     network_name         = var.network_name
     agent_image          = var.agent_image
     agent_container_name = var.agent_container_name
-    vault_tls_dir        = var.vault_tls_dir
+    vault_tls_dir        = local.vault_tls_dir
     agent_config_dir     = local.dirs.agent_config
     approle_dir          = local.dirs.approle
     certs_dir            = local.dirs.certs

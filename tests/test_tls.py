@@ -1,4 +1,5 @@
 """Bootstrap TLS certificate validation (vault/ module output)."""
+import os
 import ssl
 import socket
 from pathlib import Path
@@ -6,7 +7,8 @@ from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 
-TLS_DIR = Path("/opt/armory/vault/tls")
+ARMORY_BASE_DIR = os.environ.get("ARMORY_BASE_DIR", "/opt/armory")
+TLS_DIR = Path(ARMORY_BASE_DIR) / "vault" / "tls"
 
 
 def _load_cert(path):

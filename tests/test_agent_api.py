@@ -18,11 +18,12 @@ import pytest
 
 # Several agent modules read env vars at import time — set all required defaults
 # before any import of api/oidc/vault_client/tools.
+_ARMORY_BASE_DIR = os.environ.get("ARMORY_BASE_DIR", "/opt/armory")
 os.environ.setdefault("KEYCLOAK_URL",   "https://127.0.0.1:8444")
-os.environ.setdefault("ARMORY_CACERT",  "/opt/armory/vault/tls/ca.crt")
+os.environ.setdefault("ARMORY_CACERT",  f"{_ARMORY_BASE_DIR}/vault/tls/ca.crt")
 os.environ.setdefault("OIDC_CLIENT_ID", "agent-cli")
 os.environ.setdefault("VAULT_ADDR",     "https://127.0.0.1:8200")
-os.environ.setdefault("APPROLE_DIR",    "/opt/armory/agent/approle")
+os.environ.setdefault("APPROLE_DIR",    f"{_ARMORY_BASE_DIR}/agent/approle")
 os.environ.setdefault("POSTGRES_HOST",  "armory-postgres")
 os.environ.setdefault("POSTGRES_DB",    "app")
 

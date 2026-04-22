@@ -10,5 +10,5 @@ terraform {
 provider "vault" {
   address      = var.vault_addr
   token        = var.vault_token
-  ca_cert_file = var.vault_cacert
+  ca_cert_file = coalesce(var.vault_cacert, "${var.armory_base_dir}/vault/tls/ca.crt")
 }

@@ -66,10 +66,16 @@ variable "vault_token" {
   sensitive   = true
 }
 
+variable "armory_base_dir" {
+  description = "Base host directory for Armory runtime artefacts."
+  type        = string
+  default     = "/opt/armory"
+}
+
 variable "vault_cacert" {
   description = "Path to Vault TLS CA certificate on the host."
   type        = string
-  default     = "/opt/armory/vault/tls/ca.crt"
+  default     = null
 }
 
 # ---------------------------------------------------------------------------
@@ -133,5 +139,5 @@ variable "agent_container_name" {
 variable "vault_tls_dir" {
   description = "Host path containing the Vault CA certificate."
   type        = string
-  default     = "/opt/armory/vault/tls"
+  default     = null
 }

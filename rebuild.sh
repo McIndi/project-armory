@@ -34,18 +34,27 @@
 #   --skip-agent       Skip Phase 9 (services/agent module only).
 #                      Keycloak is still deployed; only the agent AppRole and
 #                      services/agent tofu module are omitted.
+#   --base-dir PATH    Override the runtime artefact root directory.
+#                      Example: --base-dir /home/cliff/armory
 #   --destroy-only     Run the teardown phase but do not rebuild. Useful for
 #                      cleaning up a broken environment without rebuilding.
 #   --help / -h        Print this header and exit.
+#
+# BASE DIRECTORY OVERRIDES
+# ------------------------
+# The runtime artefact root defaults to /opt/armory, but can be overridden by:
+#   1) CLI flag:  ./rebuild.sh --base-dir /home/cliff/armory
+#   2) Env var:   export ARMORY_BASE_DIR=/home/cliff/armory
+#   3) One-shot:  ARMORY_BASE_DIR=/home/cliff/armory ./rebuild.sh
 #
 # PHASE SUMMARY
 # -------------
 #   Teardown  Destroy all modules in reverse dependency order, force-remove
 #             containers, remove the armory-net Podman network, purge
-#             /opt/armory, and wipe all terraform.tfstate files so the
+#             $DEPLOY_DIR (default /opt/armory), and wipe all terraform.tfstate files so the
 #             subsequent apply always starts from a completely clean slate.
 #
-#   Phase 0   Create /opt/armory and chown it to $USER (rootless Podman
+#   Phase 0   Create $DEPLOY_DIR and chown it to $USER (rootless Podman
 #             requires the deploy directory to be writable without sudo).
 #
 #   Phase 1   Apply vault/ — generates TLS certs, writes vault.hcl, and
@@ -87,7 +96,7 @@
 #
 #   Phase 9   Re-apply vault-config/ with agent_enabled=true, then apply
 #             services/agent/ — writes role_id and wrapped_secret_id to
-#             /opt/armory/agent/approle/ for the FastAPI agentic layer.
+#             $DEPLOY_DIR/agent/approle/ for the FastAPI agentic layer.
 #             (Skippable with --skip-agent or --skip-keycloak.)
 #
 # MANUAL STEPS NOT AUTOMATED BY THIS SCRIPT
@@ -182,7 +191,8 @@ CREDS_FILE="$SCRIPT_DIR/unseal_key-and-root_token.txt"
 # DEPLOY_DIR: the host-side runtime directory tree. Every module writes its
 # compose files, TLS certs, AppRole credentials, and other artefacts here.
 # It is created in Phase 0 and purged in teardown.
-DEPLOY_DIR="/opt/armory"
+ARMORY_BASE_DIR="${ARMORY_BASE_DIR:-/opt/armory}"
+DEPLOY_DIR="$ARMORY_BASE_DIR"
 
 # ── Feature flags (overridden by CLI arguments below) ────────────────────────
 
@@ -194,30 +204,48 @@ DESTROY_ONLY=false     # If true, teardown runs but build() does not
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # Simple positional flag parsing. No getopt dependency — keeps the script
 # self-contained on minimal Linux installs.
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --skip-webserver)
       SKIP_WEBSERVER=true
+      shift
       ;;
     --skip-keycloak)
       # Keycloak is a prerequisite for the agent (OIDC token validation).
       # Skipping Keycloak therefore forces --skip-agent as well.
       SKIP_KEYCLOAK=true
       SKIP_AGENT=true
+      shift
       ;;
     --skip-agent)
       SKIP_AGENT=true
+      shift
+      ;;
+    --base-dir)
+      if [[ $# -lt 2 ]]; then
+        error "--base-dir requires a path argument"
+        exit 1
+      fi
+      ARMORY_BASE_DIR="$2"
+      DEPLOY_DIR="$ARMORY_BASE_DIR"
+      shift 2
+      ;;
+    --base-dir=*)
+      ARMORY_BASE_DIR="${1#*=}"
+      DEPLOY_DIR="$ARMORY_BASE_DIR"
+      shift
       ;;
     --destroy-only)
       DESTROY_ONLY=true
+      shift
       ;;
     --help|-h)
       # Print the usage block at the top of this file and exit cleanly.
-      sed -n '2,14p' "$0" | sed 's/^# \?//'
+      sed -n '2,80p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *)
-      error "Unknown argument: $arg"
+      error "Unknown argument: $1"
       exit 1
       ;;
   esac
@@ -257,8 +285,8 @@ check_prereqs() {
 # The credential file is written in the exact format produced by
 # `bao operator init`, which looks like:
 #
-#   Unseal Key 1: Um8WLiFUChzPBLHieF7xpv5Jv8ewwF3XlUijgBd9/48=
-#   Initial Root Token: s.jL2U0OK18u6501pDrJov7hcI
+#   Unseal Key 1: *****************
+#   Initial Root Token: *****************
 #
 # grep -oP uses Perl-compatible regex with \K (lookbehind shorthand) to
 # return only the value after the prefix, not the prefix itself.
@@ -639,7 +667,9 @@ teardown() {
   # services/agent — AppRole credentials in Vault; Vault Agent sidecar config
   # on disk. Must be destroyed before vault-config removes the AppRole backend.
   if [[ "$SKIP_AGENT" == "false" ]]; then
-    destroy_module "services/agent"
+    destroy_module "services/agent" \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      -var deploy_dir="$DEPLOY_DIR/agent"
   else
     log "Skipping services/agent destroy (--skip-agent was passed)"
   fi
@@ -648,7 +678,9 @@ teardown() {
   # and static DB credentials via the database secrets engine. Must be
   # destroyed before vault-config removes those backends.
   if [[ "$SKIP_KEYCLOAK" == "false" ]]; then
-    destroy_module "services/keycloak"
+    destroy_module "services/keycloak" \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      -var deploy_dir="$DEPLOY_DIR/keycloak"
   else
     log "Skipping services/keycloak destroy (--skip-keycloak was passed)"
   fi
@@ -656,7 +688,9 @@ teardown() {
   # services/webserver — AppRole credentials and PKI certificate from pki_ext.
   # Same dependency on vault-config backends as keycloak.
   if [[ "$SKIP_WEBSERVER" == "false" ]]; then
-    destroy_module "services/webserver"
+    destroy_module "services/webserver" \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      -var deploy_dir="$DEPLOY_DIR/webserver"
   else
     log "Skipping services/webserver destroy (--skip-webserver was passed)"
   fi
@@ -668,6 +702,7 @@ teardown() {
   # resources exist in state and need to be deleted.
   if [[ "$vault_running" == "true" && -n "$vault_token" ]]; then
     destroy_module "vault-config" \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
       -var agent_enabled=true \
       -var database_roles_enabled=true
   else
@@ -679,13 +714,16 @@ teardown() {
   # vault_approle_auth_backend_role.postgres, and the wrapped secret_id.
   # These are destroyed here; the compose teardown also runs the destroy
   # provisioner to `podman compose down` the postgres containers.
-  destroy_module "services/postgres"
+  destroy_module "services/postgres" \
+    -var armory_base_dir="$ARMORY_BASE_DIR" \
+    -var deploy_dir="$DEPLOY_DIR/postgres"
 
   # vault — destroyed last because every other module's destroy provisioner
   # or Vault API call depends on it being available. The vault tofu module's
   # destroy provisioner runs `podman compose down` which stops and removes
   # the armory-vault container.
-  destroy_module "vault"
+  destroy_module "vault" \
+    -var deploy_dir="$DEPLOY_DIR/vault"
 
   # ── Step 6: Force-remove any lingering armory containers ──────────────────
   # Even after tofu destroy, containers may still be running if:
@@ -808,7 +846,9 @@ build() {
     log "Initialising OpenTofu providers for vault/..."
     tofu init -upgrade 2>&1 | sed 's/^/  [vault] /'
     log "Applying vault/ module..."
-    tofu apply -auto-approve 2>&1 | sed 's/^/  [vault] /'
+    tofu apply -auto-approve \
+      -var deploy_dir="$DEPLOY_DIR/vault" \
+      2>&1 | sed 's/^/  [vault] /'
   )
   success "Vault container deployed"
 
@@ -921,7 +961,9 @@ build() {
     log "Initialising OpenTofu providers for vault-config/..."
     tofu init -upgrade 2>&1 | sed 's/^/  [vault-config] /'
     log "Applying vault-config/ module (PKI, auth, policies, KV, DB connection)..."
-    tofu apply -auto-approve 2>&1 | sed 's/^/  [vault-config] /'
+    tofu apply -auto-approve \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      2>&1 | sed 's/^/  [vault-config] /'
   )
   success "Vault configured: PKI hierarchy, auth methods, policies, KV, and DB engine ready"
 
@@ -945,7 +987,10 @@ build() {
       log "Initialising OpenTofu providers for services/webserver/..."
       tofu init -upgrade 2>&1 | sed 's/^/  [webserver] /'
       log "Applying services/webserver/ module..."
-      tofu apply -auto-approve 2>&1 | sed 's/^/  [webserver] /'
+      tofu apply -auto-approve \
+        -var armory_base_dir="$ARMORY_BASE_DIR" \
+        -var deploy_dir="$DEPLOY_DIR/webserver" \
+        2>&1 | sed 's/^/  [webserver] /'
     )
     success "Webserver deployed — reachable at https://127.0.0.1:8443"
   else
@@ -979,7 +1024,10 @@ build() {
     log "Initialising OpenTofu providers for services/postgres/..."
     tofu init -upgrade 2>&1 | sed 's/^/  [postgres] /'
     log "Applying services/postgres/ module..."
-    tofu apply -auto-approve 2>&1 | sed 's/^/  [postgres] /'
+    tofu apply -auto-approve \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      -var deploy_dir="$DEPLOY_DIR/postgres" \
+      2>&1 | sed 's/^/  [postgres] /'
   )
   success "PostgreSQL deployed"
 
@@ -1012,6 +1060,7 @@ build() {
     cd "$SCRIPT_DIR/vault-config"
     log "Re-applying vault-config/ with database_roles_enabled=true..."
     tofu apply -auto-approve \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
       -var database_roles_enabled=true \
       2>&1 | sed 's/^/  [vault-config] /'
   )
@@ -1046,7 +1095,10 @@ build() {
       log "Initialising OpenTofu providers for services/keycloak/..."
       tofu init -upgrade 2>&1 | sed 's/^/  [keycloak] /'
       log "Applying services/keycloak/ module..."
-      tofu apply -auto-approve 2>&1 | sed 's/^/  [keycloak] /'
+      tofu apply -auto-approve \
+        -var armory_base_dir="$ARMORY_BASE_DIR" \
+        -var deploy_dir="$DEPLOY_DIR/keycloak" \
+        2>&1 | sed 's/^/  [keycloak] /'
     )
     success "Keycloak deployed — admin console at https://127.0.0.1:8444/admin"
   else
@@ -1087,6 +1139,7 @@ build() {
       # that were created in Phase 5b (omitting a var reverts it to its
       # default, which is false for both of these).
       tofu apply -auto-approve \
+        -var armory_base_dir="$ARMORY_BASE_DIR" \
         -var agent_enabled=true \
         -var database_roles_enabled=true \
         2>&1 | sed 's/^/  [vault-config] /'
@@ -1100,7 +1153,10 @@ build() {
       log "Initialising OpenTofu providers for services/agent/..."
       tofu init -upgrade 2>&1 | sed 's/^/  [agent] /'
       log "Applying services/agent/ module..."
-      tofu apply -auto-approve 2>&1 | sed 's/^/  [agent] /'
+      tofu apply -auto-approve \
+        -var armory_base_dir="$ARMORY_BASE_DIR" \
+        -var deploy_dir="$DEPLOY_DIR/agent" \
+        2>&1 | sed 's/^/  [agent] /'
     )
     success "Agent credentials written to $DEPLOY_DIR/agent/approle/"
     log "  role_id and wrapped_secret_id are ready for api.py"

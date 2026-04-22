@@ -30,7 +30,8 @@ POSTGRES_MODULE = PROJECT_ROOT / "services" / "postgres"
 LOGS_DIR = Path(__file__).parent / "logs"
 
 VAULT_ADDR = "https://127.0.0.1:8200"
-VAULT_CACERT = "/opt/armory/vault/tls/ca.crt"
+ARMORY_BASE_DIR = os.environ.get("ARMORY_BASE_DIR", "/opt/armory")
+VAULT_CACERT = f"{ARMORY_BASE_DIR}/vault/tls/ca.crt"
 
 NO_TEARDOWN = os.environ.get("ARMORY_NO_TEARDOWN", "").lower() in ("1", "true", "yes")
 
@@ -198,10 +199,10 @@ def vault_env():
     #    Use compose down before rm -f to avoid stale bind mounts on re-deploy:
     #    podman rm -f alone can leave containers in zombie state with bind mounts
     #    pointing to deleted directory inodes after rm -rf on the host path.
-    _run("podman compose --project-name armory-webserver -f /opt/armory/webserver/compose.yml down 2>/dev/null || true",
-         check=False)
-    _run("podman compose --project-name armory-postgres -f /opt/armory/postgres/compose.yml down 2>/dev/null || true",
-         check=False)
+        _run(f"podman compose --project-name armory-webserver -f {ARMORY_BASE_DIR}/webserver/compose.yml down 2>/dev/null || true",
+            check=False)
+        _run(f"podman compose --project-name armory-postgres -f {ARMORY_BASE_DIR}/postgres/compose.yml down 2>/dev/null || true",
+            check=False)
     _run("podman rm -f armory-webserver armory-vault-agent armory-postgres armory-postgres-vault-agent 2>/dev/null || true",
          check=False)
     _run("tofu destroy -auto-approve", cwd=WEBSERVER_MODULE, env=base_env, check=False)
@@ -217,7 +218,7 @@ def vault_env():
     # Remove deploy directories — previous runs leave read-only files (0444)
     # that block fresh writes by local_sensitive_file resources.
     # Use podman unshare in case container-user-owned files exist.
-    for d in ("/opt/armory/webserver", "/opt/armory/vault"):
+    for d in (f"{ARMORY_BASE_DIR}/webserver", f"{ARMORY_BASE_DIR}/vault"):
         _run(f"podman unshare rm -rf {d} 2>/dev/null || rm -rf {d} 2>/dev/null || true",
              check=False)
 
@@ -330,7 +331,7 @@ def postgres_env(vault_env):
     # the host directory — podman rm -f alone can leave containers in a zombie
     # state with bind mounts pointing to deleted directory inodes.
     _run(
-        "podman compose --project-name armory-postgres -f /opt/armory/postgres/compose.yml down 2>/dev/null || true",
+        f"podman compose --project-name armory-postgres -f {ARMORY_BASE_DIR}/postgres/compose.yml down 2>/dev/null || true",
         check=False,
     )
     _run(
@@ -338,7 +339,7 @@ def postgres_env(vault_env):
         check=False,
     )
     _run(
-        "podman unshare rm -rf /opt/armory/postgres 2>/dev/null || rm -rf /opt/armory/postgres 2>/dev/null || true",
+        f"podman unshare rm -rf {ARMORY_BASE_DIR}/postgres 2>/dev/null || rm -rf {ARMORY_BASE_DIR}/postgres 2>/dev/null || true",
         check=False,
     )
     for fname in ("terraform.tfstate", "terraform.tfstate.backup"):
@@ -392,7 +393,7 @@ def agent_env(vault_env, postgres_env):
     # Clean up any stale agent credentials from a previous run so local_sensitive_file
     # can write fresh files (0444 files are read-only for the owner on some systems).
     _run(
-        "podman unshare rm -rf /opt/armory/agent 2>/dev/null || rm -rf /opt/armory/agent 2>/dev/null || true",
+        f"podman unshare rm -rf {ARMORY_BASE_DIR}/agent 2>/dev/null || rm -rf {ARMORY_BASE_DIR}/agent 2>/dev/null || true",
         check=False,
     )
     for fname in ("terraform.tfstate", "terraform.tfstate.backup"):
@@ -401,7 +402,7 @@ def agent_env(vault_env, postgres_env):
     _run("tofu init", cwd=AGENT_MODULE, env=config_env)
     _run("tofu apply -auto-approve", cwd=AGENT_MODULE, env=config_env)
 
-    approle_dir = "/opt/armory/agent/approle"
+    approle_dir = f"{ARMORY_BASE_DIR}/agent/approle"
 
     yield {
         "vault_addr":   VAULT_ADDR,
