@@ -511,7 +511,7 @@ destroy_module() {
     # Prefix every line of tofu output with the module name so it is easy to
     # identify which module produced a given log line in a long terminal session.
     tofu destroy -auto-approve "${extra_vars[@]}" 2>&1 \
-      | sed "s/^/  [${dir}] /"
+      | sed "s|^|  [${dir}] |"
   ) || warn "tofu destroy for $dir reported errors (continuing with teardown)"
 
   success "Destroyed $dir"
