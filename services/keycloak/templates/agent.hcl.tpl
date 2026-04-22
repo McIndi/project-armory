@@ -22,10 +22,11 @@ auto_auth {
 }
 
 # ---------------------------------------------------------------------------
-# TLS certificate — cert + CA chain + private key in one PEM bundle.
-# KC_HTTPS_CERTIFICATE_FILE and KC_HTTPS_CERTIFICATE_KEY_FILE both reference
-# this file; Quarkus reads cert blocks from the cert path and key blocks from
-# the key path, so a combined bundle works for both.
+# TLS certificate — single pkiCert call renders cert+chain+key in one bundle.
+# The entrypoint splits this into separate cert and key files for Keycloak
+# because KC_HTTPS_CERTIFICATE_FILE and KC_HTTPS_CERTIFICATE_KEY_FILE must
+# be distinct files. Two separate pkiCert calls would issue two different
+# certificates whose keys would not match.
 # ---------------------------------------------------------------------------
 
 template {
@@ -35,7 +36,7 @@ template {
 {{- end }}
 EOT
   destination = "/vault/certs/keycloak.pem"
-  perms       = "0640"
+  perms       = "0644"
 }
 
 # ---------------------------------------------------------------------------
@@ -61,6 +62,8 @@ template {
 {{- with secret "${kv_admin_path}" -}}
 KC_BOOTSTRAP_ADMIN_USERNAME={{ .Data.data.username }}
 KC_BOOTSTRAP_ADMIN_PASSWORD={{ .Data.data.password }}
+KEYCLOAK_ADMIN={{ .Data.data.username }}
+KEYCLOAK_ADMIN_PASSWORD={{ .Data.data.password }}
 {{- end }}
 EOT
   destination = "/vault/secrets/keycloak-admin.env"

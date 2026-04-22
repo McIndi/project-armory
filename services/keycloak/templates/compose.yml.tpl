@@ -41,21 +41,56 @@ services:
     image: ${keycloak_image}
     container_name: ${keycloak_container_name}
     restart: unless-stopped
-    command: ["start"]
+    entrypoint:
+      - "sh"
+      - "-ec"
+      - |
+        set -a
+        . /vault/secrets/keycloak.env
+        . /vault/secrets/keycloak-admin.env
+        # Split the combined PEM into separate cert+chain and key files.
+        # A single pkiCert template call is used to ensure cert and key match.
+        : > /tmp/keycloak.crt
+        : > /tmp/keycloak.key
+        in_cert="0"
+        in_key="0"
+        while IFS= read -r line; do
+          case "$$line" in
+            "-----BEGIN CERTIFICATE-----") in_cert="1" ;;
+            "-----END CERTIFICATE-----")
+              printf '%s\n' "$$line" >> /tmp/keycloak.crt
+              in_cert="0"
+              continue
+              ;;
+            "-----BEGIN EC PRIVATE KEY-----"|"-----BEGIN PRIVATE KEY-----") in_key="1" ;;
+            "-----END EC PRIVATE KEY-----"|"-----END PRIVATE KEY-----")
+              printf '%s\n' "$$line" >> /tmp/keycloak.key
+              in_key="0"
+              continue
+              ;;
+          esac
+
+          if [ "$$in_cert" = "1" ]; then
+            printf '%s\n' "$$line" >> /tmp/keycloak.crt
+          fi
+          if [ "$$in_key" = "1" ]; then
+            printf '%s\n' "$$line" >> /tmp/keycloak.key
+          fi
+        done < /vault/certs/keycloak.pem
+
+        test -s /tmp/keycloak.crt
+        test -s /tmp/keycloak.key
+        exec /opt/keycloak/bin/kc.sh start
     depends_on:
       vault-agent:
         condition: service_healthy
-
-    env_file:
-      - ${secrets_dir}/keycloak.env
-      - ${secrets_dir}/keycloak-admin.env
 
     environment:
       KC_DB: postgres
       KC_DB_URL: "jdbc:postgresql://${postgres_host}:5432/keycloak?ssl=true&sslmode=require"
       KC_DB_USERNAME: keycloak
-      KC_HTTPS_CERTIFICATE_FILE: /vault/certs/keycloak.pem
-      KC_HTTPS_CERTIFICATE_KEY_FILE: /vault/certs/keycloak.pem
+      KC_HTTPS_CERTIFICATE_FILE: /tmp/keycloak.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /tmp/keycloak.key
       KC_HOSTNAME_STRICT: "false"
       KC_HEALTH_ENABLED: "true"
 
@@ -65,13 +100,6 @@ services:
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
       - ${secrets_dir}:/vault/secrets:ro,z
-
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/health/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 60s
 
     networks:
       - keycloak-net

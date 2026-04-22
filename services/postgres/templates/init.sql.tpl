@@ -35,6 +35,14 @@ CREATE ROLE app_role NOLOGIN;
 GRANT ALL PRIVILEGES ON DATABASE app TO app_role;
 GRANT app_role TO vault_mgmt WITH ADMIN OPTION;
 
+-- PostgreSQL 15+ revokes CREATE on public schema from PUBLIC by default.
+-- Restore schema-level privileges so Keycloak and app roles can create tables.
+\connect keycloak
+GRANT ALL ON SCHEMA public TO keycloak_role;
+\connect app
+GRANT ALL ON SCHEMA public TO app_role;
+\connect postgres
+
 -- Keycloak application account -----------------------------------------------
 -- Managed by Vault Database static role. Initial password is a placeholder;
 -- Vault rotates it to a random value when the static role is first read.
