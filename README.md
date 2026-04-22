@@ -25,6 +25,31 @@ The Vault/OpenBao CLI is **not** required on the host — `tofu output` prints r
 
 Deployment is a multi-phase process. Each phase has its own OpenTofu module and state file. **Modules must be applied in order** — later modules depend on earlier ones being in place.
 
+### Automated rebuild (recommended)
+
+`rebuild.sh` is the single entry point for a clean, reproducible rebuild of the entire stack. It runs teardown, then all phases in the correct order with health-check gates between phases.
+
+```bash
+./rebuild.sh
+```
+
+**Options:**
+
+| Flag | Effect |
+|------|--------|
+| `--skip-webserver` | Skip Phase 4 (nginx demo) — useful when you only need the core vault/db/auth stack |
+| `--skip-keycloak` | Skip Phases 6 and 9 (Keycloak and agent) |
+| `--skip-agent` | Skip Phase 9 only; Keycloak is still deployed |
+| `--destroy-only` | Tear everything down without rebuilding |
+
+After `rebuild.sh` completes, two manual steps remain: **Phase 7** (Keycloak realm setup, browser-based) and **Phase 8** (Vault OIDC auth). See the sections below and the summary banner printed by the script.
+
+---
+
+### Manual phase-by-phase deployment
+
+The sections below describe each phase individually. Use these if you need to apply a single phase in isolation, debug a failure, or understand what the script does.
+
 ### 0. One-time host prerequisite
 
 ```bash
@@ -106,11 +131,16 @@ nginx on port 8443 with a Vault Agent sidecar for TLS certificate issuance. Reac
 ```bash
 cd services/postgres/
 cp example.tfvars terraform.tfvars
+export TF_VAR_vault_token=<ROOT_TOKEN>
 tofu init
 tofu apply
 ```
 
-Creates `keycloak` and `app` databases, the `vault_mgmt` credential management account, and template roles with appropriate grants. No Vault token needed — this module has no Vault resources.
+Deploys PostgreSQL 16 with TLS enabled. This module has Vault resources (AppRole, policy, wrapped secret_id) and requires `TF_VAR_vault_token`. A Vault Agent sidecar authenticates to Vault via AppRole, issues a TLS certificate from `pki_int`, and renders it to disk before PostgreSQL starts.
+
+The `init.sql` script creates:
+- `keycloak` and `app` databases and their matching users
+- `vault_mgmt` superuser — used by the Vault Database secrets engine to rotate passwords and issue dynamic credentials
 
 Verify:
 
@@ -123,29 +153,20 @@ podman exec armory-postgres psql -U postgres -c "\l"    # keycloak + app databas
 
 ### Phase 5b — Enable database roles (re-apply vault-config)
 
+> **Wait for Phase 5 to be healthy first.** Vault immediately opens a TCP connection to `armory-postgres:5432` when the static role is created. If the container isn't reachable, the Vault API returns a 500 error and `tofu apply` fails.
+
 ```bash
-cd ~/projects/project-armory/vault-config
+cd vault-config/
 export TF_VAR_vault_token=<ROOT_TOKEN>
 tofu apply -var database_roles_enabled=true -auto-approve
 ```
 
-This creates the Keycloak static role and the app dynamic role. Vault connects to Postgres immediately — the container must be healthy before running this step.
+This creates two database roles:
 
-**Summary of steps:**
-1. Deploy Postgres (Phase 5)
-2. Re-apply vault-config with:
-  ```bash
-  cd vault-config/
-  export TF_VAR_vault_token=<ROOT_TOKEN>
-  tofu apply -var database_roles_enabled=true -var agent_enabled=true -auto-approve
-  ```
-  This enables Vault to create the required database roles.
-**Validation:** Confirm Vault issued database credentials
+- `database/static-roles/keycloak` — Vault manages the `keycloak` PostgreSQL user's password and rotates it on a schedule. Keycloak's Vault Agent sidecar reads this path to populate `KC_DB_PASSWORD`.
+- `database/roles/app` — Dynamic role that creates short-lived `app_*` users with SELECT/INSERT/UPDATE/DELETE privileges. The agentic layer issues and revokes these credentials per-task.
 
-podman exec armory-vault bao list database/roles
-podman exec armory-vault bao read database/creds/keycloak
-podman exec armory-vault bao read database/creds/app
-**Note:** You must export the Vault root token (or a token with the correct database policy) before running these commands, or you will get 403 errors.
+**Validation:** Confirm Vault issued database credentials:
 
 ```bash
 export VAULT_TOKEN=<ROOT_TOKEN>
@@ -156,14 +177,9 @@ podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao list database/roles
 # List static database roles (should show 'keycloak')
 podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao list database/static-roles
 
-# Read credentials for the Keycloak static role (should show rotation info and username)
-podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao read database/static-roles/keycloak
-
 # Read credentials for the app dynamic role (should return a username and password)
 podman exec -e VAULT_TOKEN=$VAULT_TOKEN armory-vault bao read database/creds/app
 ```
-
-If these commands return valid output for both roles, Phase 5b was successful and Vault is managing both dynamic and static database roles as intended.
 
 ---
 
@@ -317,35 +333,70 @@ tofu apply \
 
 ---
 
-## Connecting to Vault
+## Connecting to services
 
-### Via the container
+Project Armory uses **two separate trust anchors** — both must be trusted for full connectivity:
+
+| CA file | Covers | Location |
+|---------|--------|----------|
+| `/opt/armory/vault/tls/ca.crt` | Vault server TLS only (self-signed by OpenTofu `tls` provider) | Written by `vault/` module |
+| `vault/ca-bundle.pem` | Everything else: Keycloak, nginx, agent, Postgres — all PKI-issued certs | Written by `vault-config/` module to the project repo |
+
+### Trusting both CAs (Fedora / RHEL)
+
+```bash
+sudo cp /opt/armory/vault/tls/ca.crt /etc/pki/ca-trust/source/anchors/armory-vault-ca.crt
+sudo cp vault/ca-bundle.pem /etc/pki/ca-trust/source/anchors/armory-ca-bundle.crt
+sudo update-ca-trust
+```
+
+After this, `curl`, browsers, and the `bao` CLI will trust all Armory-issued certificates without extra flags.
+
+### Without modifying the system trust store
+
+```bash
+# Vault
+curl --cacert /opt/armory/vault/tls/ca.crt https://127.0.0.1:8200/v1/sys/health
+
+# Keycloak / nginx / any PKI-backed service
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/health/ready
+```
+
+### Connecting to Vault
+
+#### Via the container
 
 ```bash
 podman exec armory-vault bao status
 podman exec -e VAULT_TOKEN=<TOKEN> armory-vault bao <command>
 ```
 
-### From other services on armory-net
+#### From other services on armory-net
 
 Services on `armory-net` reach Vault at `https://armory-vault:8200`. Mount `/opt/armory/vault/tls/ca.crt` as `VAULT_CACERT`.
 
-### Web UI / host CLI
+#### Web UI / host CLI
 
-Port 8200 is bound to `127.0.0.1` only. Access the UI at `https://127.0.0.1:8200/ui`. Trust the CA:
+Port 8200 is bound to `127.0.0.1` only. Access the UI at `https://127.0.0.1:8200/ui`.
 
-```bash
-# Fedora / RHEL
-sudo cp /opt/armory/vault/tls/ca.crt /etc/pki/ca-trust/source/anchors/armory-vault-ca.crt
-sudo update-ca-trust
-```
-
-### Operator login (userpass, before OIDC)
+#### Operator login (userpass, before OIDC)
 
 ```bash
 export VAULT_ADDR=https://127.0.0.1:8200
 export VAULT_CACERT=/opt/armory/vault/tls/ca.crt
 bao login -method=userpass username=operator
+```
+
+### Connecting to Keycloak
+
+Keycloak's TLS cert is issued by the `pki_ext` intermediate CA — it is **not** covered by `/opt/armory/vault/tls/ca.crt`. Use `vault/ca-bundle.pem`:
+
+```bash
+# Verify Keycloak is healthy
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/health/ready
+
+# Access admin console (use credentials from kv/data/keycloak/admin)
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/admin
 ```
 
 ### Audit log
@@ -422,15 +473,16 @@ All use mocked providers — no containers start and no files are written.
 
 ## Runtime Directory Layout
 
+> **CA bundle note:** `vault/ca-bundle.pem` (all three PKI CAs) is written to the **project repo directory** by the `vault-config/` module, not to `/opt/armory/`. Use this file with `--cacert` or import it into the system trust store to connect to Keycloak, nginx, and any other PKI-backed service.
+
 ```
 /opt/armory/
 ├── vault/
 │   ├── compose.yml
 │   ├── config/vault.hcl
 │   ├── data/               # Raft storage
-│   ├── tls/                # ca.crt, vault.crt, vault.key
-│   ├── logs/audit.log      # Vault audit log
-│   └── ca-bundle.pem       # All three CA certs — import into OS trust store
+│   ├── tls/                # ca.crt (Vault TLS only), vault.crt, vault.key
+│   └── logs/audit.log      # Vault audit log
 ├── postgres/
 │   ├── compose.yml
 │   ├── pgdata/             # PostgreSQL data directory
