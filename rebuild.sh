@@ -758,6 +758,20 @@ teardown() {
     log "armory-net network not found — nothing to remove"
   fi
 
+  # ── Step 7b: Remove all Podman volumes ───────────────────────────────────
+  # Remove all local Podman-managed volumes to guarantee no leftover data
+  # survives between rebuilds.
+  log "Removing all Podman volumes..."
+  local volumes
+  volumes=$(podman volume ls -q 2>/dev/null || true)
+
+  if [[ -n "$volumes" ]]; then
+    echo "$volumes" | xargs -r podman volume rm -f 2>/dev/null || true
+    success "Removed Podman volumes"
+  else
+    log "No Podman volumes found — nothing to remove"
+  fi
+
   # ── Step 8: Purge /opt/armory ─────────────────────────────────────────────
   # This directory contains all runtime artefacts: Vault Raft storage, TLS
   # key material, PostgreSQL pgdata, rendered compose files, AppRole
@@ -796,6 +810,22 @@ teardown() {
   find "$SCRIPT_DIR" -maxdepth 3 -name "terraform.tfstate*" \
     -not -path "*/.terraform/*" -delete 2>/dev/null || true
   success "terraform.tfstate files removed"
+
+  # ── Step 10: Remove .terraform dirs and all terraform.tfvars files ─────────────────
+  # Aggressive local cleanup for a fully fresh init/apply:
+  #   - Removes provider/plugin/module caches under every .terraform directory
+  #   - Removes all terraform.tfvars files
+  log "Removing all .terraform directories..."
+  find "$SCRIPT_DIR" -type d -name ".terraform" -prune -exec rm -rf {} + 2>/dev/null || true
+  success ".terraform directories removed"
+
+  log "Removing all terraform.tfvars files..."
+  find "$SCRIPT_DIR" -type f -name "terraform.tfvars" -delete 2>/dev/null || true
+  success "terraform.tfvars files removed"
+
+  log "Removing all .terraform.tfstate.lock.info files..."
+  find "$SCRIPT_DIR" -type f -name ".terraform.tfstate.lock.info" -delete 2>/dev/null || true
+  success ".terraform.tfstate.lock.info files removed"
 
   success "Teardown complete"
 }
