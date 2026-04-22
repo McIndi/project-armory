@@ -1,3 +1,5 @@
+unseal_key-and-root_token.txt
+
 # OpenTofu / Terraform
 .terraform/
 *.tfstate
