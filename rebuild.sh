@@ -827,6 +827,23 @@ teardown() {
   find "$SCRIPT_DIR" -type f -name ".terraform.tfstate.lock.info" -delete 2>/dev/null || true
   success ".terraform.tfstate.lock.info files removed"
 
+  # ── Step 11: Remove saved Vault credentials when safe ────────────────────
+  # This file is required to unseal/authenticate Vault during teardown, so we
+  # only remove it after cleanup has completed and no armory containers remain.
+  # If any containers are still present, keep the file for recovery and reruns.
+  log "Evaluating whether to remove saved Vault credentials file..."
+  local remaining_containers
+  remaining_containers=$(podman ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^armory-' || true)
+
+  if [[ -n "$remaining_containers" ]]; then
+    warn "Keeping $CREDS_FILE because armory containers still exist: $(echo "$remaining_containers" | tr '\n' ' ')"
+  elif [[ -f "$CREDS_FILE" ]]; then
+    rm -f "$CREDS_FILE"
+    success "Removed $CREDS_FILE"
+  else
+    log "$CREDS_FILE not found — nothing to remove"
+  fi
+
   success "Teardown complete"
 }
 
