@@ -25,6 +25,93 @@ The Vault/OpenBao CLI is **not** required on the host — `tofu output` prints r
 
 Deployment is a multi-phase process. Each phase has its own OpenTofu module and state file. **Modules must be applied in order** — later modules depend on earlier ones being in place.
 
+### Deployment Phases & Dependencies
+
+```mermaid
+graph TD
+    Start["🚀 START<br/>Create /opt/armory"] --> Phase0["<b>Phase 0</b><br/>Setup host directory"]
+    
+    Phase0 --> Phase1["<b>Phase 1</b><br/>Deploy Vault<br/><code>vault/</code>"]
+    Phase1 --> HC1["✓ Health Check<br/>Port 8200 alive<br/>UI accessible"]
+    
+    HC1 --> Phase2["<b>Phase 2</b><br/>Key Ceremony<br/><code>bao operator init</code><br/><code>bao operator unseal</code>"]
+    Phase2 --> HC2["✓ Verify<br/><code>bao status</code><br/>Unsealed"]
+    
+    HC2 --> Phase3["<b>Phase 3</b><br/>Configure Vault<br/><code>vault-config/</code><br/><br/>Creates:<br/>• PKI hierarchy<br/>• AppRole auth<br/>• Database connection<br/>• Policies"]
+    Phase3 --> HC3["✓ Vault Ready<br/>PKI + AppRole<br/>configured"]
+    
+    HC3 --> Decision1{Deploy optional<br/>webserver?}
+    Decision1 -->|Yes| Phase4["<b>Phase 4</b><br/>Deploy Nginx<br/><code>services/webserver/</code><br/>Port 8443"]
+    Decision1 -->|No/Skip| SkipPhase4["⊘ Skip Phase 4"]
+    Phase4 --> HC4["✓ Nginx ready<br/>Certificate injected<br/>by Vault Agent"]
+    HC4 --> Phase5
+    SkipPhase4 --> Phase5
+    
+    Phase5["<b>Phase 5</b><br/>Deploy PostgreSQL<br/><code>services/postgres/</code><br/>Port 5432"] --> HC5A["✓ pg_isready<br/>Database healthy"]
+    HC5A --> HC5B["✓ DNS resolv check<br/><code>armory-postgres</code><br/>resolvable from<br/>Vault container"]
+    
+    HC5B --> Phase5b["<b>Phase 5b (RE-APPLY)</b><br/>Enable Database Roles<br/><code>vault-config/</code><br/>with<br/>database_roles_enabled=true<br/><br/>Creates:<br/>• Static role: keycloak<br/>• Dynamic role: app"]
+    Phase5b --> HC5b["✓ Database roles<br/>created + verified"]
+    
+    HC5b --> Decision2{Deploy Keycloak<br/>+ OIDC?}
+    Decision2 -->|Yes| Phase6["<b>Phase 6</b><br/>Deploy Keycloak<br/><code>services/keycloak/</code><br/>Port 8444"]
+    Decision2 -->|No/Skip| SkipPhase6["⊘ Skip Phases 6-9"]
+    
+    Phase6 --> HC6["✓ Keycloak ready<br/>• Cert injected<br/>• DB password ready<br/>• Admin creds ready"]
+    HC6 --> Phase7["<b>Phase 7 (MANUAL)</b><br/>Configure Keycloak Realm<br/>Browser: <code>:8444/admin</code><br/><br/>Create:<br/>• Realm: armory<br/>• Group: vault-operators<br/>• OIDC Client: vault<br/>• Public Client: agent-cli"]
+    
+    Phase7 --> Phase8["<b>Phase 8 (MANUAL)</b><br/>Enable OIDC Auth<br/>Re-apply: <code>vault-config/</code><br/>with oidc_enabled=true<br/>+ client_secret"]
+    Phase8 --> HC8["✓ OIDC auth ready<br/>Operators can login"]
+    
+    HC8 --> Decision3{Deploy agentic<br/>layer?}
+    Decision3 -->|Yes| Phase9["<b>Phase 9</b><br/>Deploy Agent Layer<br/>Re-apply: <code>vault-config/</code><br/>with agent_enabled=true<br/>Then: <code>services/agent/</code>"]
+    Decision3 -->|No/Skip| SkipPhase9["⊘ Skip Phase 9"]
+    
+    Phase9 --> HC9["✓ Agent ready<br/>AppRole credentials<br/>written to disk"]
+    HC9 --> AgentManual["<b>Agent API (MANUAL)</b><br/>Start FastAPI server<br/><code>cd services/agent/agent</code><br/><code>.venv/bin/python api.py</code><br/><br/>Wrapped secret_id<br/>is single-use"]
+    
+    SkipPhase6 --> End["✅ COMPLETE"]
+    SkipPhase9 --> End
+    AgentManual --> End
+    
+    classDef automated fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef manual fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef healthCheck fill:#bbdefb,stroke:#1976d2,stroke-width:1px,color:#000
+    classDef skip fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#666,stroke-dasharray: 5 5
+    classDef decision fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
+    
+    class Phase1,Phase2,Phase3,Phase4,Phase5,Phase5b,Phase6,Phase9 automated
+    class Phase7,Phase8,AgentManual manual
+    class HC1,HC2,HC3,HC4,HC5A,HC5B,HC5b,HC6,HC8,HC9 healthCheck
+    class SkipPhase4,SkipPhase6,SkipPhase9 skip
+    class Decision1,Decision2,Decision3 decision
+```
+
+### Legend
+
+| Style | Meaning |
+|-------|---------|
+| 🟢 Green boxes | Automated phases (run by `rebuild.sh`) |
+| 🟠 Orange boxes | Manual steps (require browser or CLI interaction) |
+| 🔵 Blue boxes | Health checks / readiness gates |
+| ⊘ Gray dashed boxes | Skippable phases |
+| 🔴 Pink diamonds | Branch points (optional deployments) |
+
+### Key Dependencies & Readiness Gates
+
+| Phase | Depends On | Health Check | Details |
+|-------|-----------|--------------|---------|
+| **Phase 2** | Phase 1 | Vault API responds | Port 8200, status endpoint |
+| **Phase 3** | Phase 2 | Vault unsealed | `bao status` shows `Sealed: false` |
+| **Phase 4** | Phase 3 | PKI hierarchy ready | Vault Agent can request certs from pki_ext |
+| **Phase 5** | Phase 3 | Database connection config ready | Vault knows how to connect to PostgreSQL (not running yet) |
+| **Phase 5b** | Phase 5 | PostgreSQL healthy + DNS resolvable | `pg_isready` + `nslookup armory-postgres` from Vault container |
+| **Phase 6** | Phase 5b | Database roles created | Vault can issue keycloak password + app dynamic creds |
+| **Phase 7** | Phase 6 | Keycloak admin console accessible | HTTPS at `127.0.0.1:8444/admin` |
+| **Phase 8** | Phase 7 | OIDC client secret obtained | From Keycloak admin console |
+| **Phase 9** | Phase 3, Phase 8 | OIDC auth enabled | Vault OIDC method configured |
+| **Agent API** | Phase 9 | AppRole credentials on disk | Wrapped secret_id written to `/opt/armory/agent/approle/` |
+
 ### Automated rebuild (recommended)
 
 `rebuild.sh` is the single entry point for a clean, reproducible rebuild of the entire stack. It runs teardown, then all phases in the correct order with health-check gates between phases.
@@ -46,11 +133,197 @@ After `rebuild.sh` completes, two manual steps remain: **Phase 7** (Keycloak rea
 
 ---
 
-### Manual phase-by-phase deployment
+### Filesystem & Secrets Architecture
+
+```mermaid
+graph LR
+    subgraph "VAULT (Container & In-Memory)"
+        direction TB
+        pki_root["<b>pki/</b><br/>Root CA<br/>ca.crt"]
+        pki_int["<b>pki_int/</b><br/>Internal CA<br/>Issues: *.armory.internal<br/>Used by: PostgreSQL"]
+        pki_ext["<b>pki_ext/</b><br/>External CA<br/>Issues: armory-*<br/>Used by: Nginx, Keycloak"]
+        approle["<b>approle/</b><br/>AppRole Auth<br/>• postgres<br/>• keycloak<br/>• webserver<br/>• agent"]
+        kv["<b>kv/data/</b><br/>KV v2 Engine<br/>keycloak/admin<br/>(bootstrap credentials)"]
+        database["<b>database/</b><br/>DB Secrets Engine<br/>• static-creds/keycloak<br/>• creds/app<br/>(dynamic)"]
+        oidc["<b>auth/oidc/</b><br/>OIDC Auth Method<br/>(Phase 8 only)"]
+    end
+
+    subgraph "HOST FILESYSTEM (/opt/armory)"
+        direction TB
+        
+        subgraph "vault/"
+            v_config["config/<br/>vault.hcl"]
+            v_data["data/<br/>raft storage"]
+            v_tls["<b>tls/</b><br/>ca.crt (self-signed)<br/>vault.crt<br/>vault.key"]
+            v_logs["logs/<br/>audit.log"]
+        end
+        
+        subgraph "postgres/"
+            pg_init["init.sql<br/>(created by Phase 5)"]
+            pg_data["data/pgdata/<br/>database files"]
+            pg_certs["<b>certs/</b><br/>postgres.pem<br/>(by Vault Agent)"]
+            pg_approle["approle/<br/>role_id<br/>wrapped_secret_id"]
+        end
+        
+        subgraph "keycloak/"
+            kc_certs["<b>certs/</b><br/>keycloak.pem<br/>(by Vault Agent)"]
+            kc_secrets["<b>secrets/</b><br/>keycloak.env<br/>keycloak-admin.env<br/>(by Vault Agent)"]
+            kc_approle["approle/<br/>role_id<br/>wrapped_secret_id"]
+        end
+        
+        subgraph "webserver/"
+            ws_certs["<b>certs/</b><br/>nginx.pem<br/>(by Vault Agent)"]
+            ws_nginx_config["nginx/<br/>nginx.conf"]
+            ws_approle["approle/<br/>role_id<br/>wrapped_secret_id"]
+        end
+        
+        subgraph "agent/"
+            agent_approle["<b>approle/</b><br/>role_id<br/>wrapped_secret_id"]
+            agent_data["data/<br/>task logs"]
+        end
+        
+        vault_ca_bundle["ca-bundle.pem<br/>(in project root)<br/>created by Phase 3"]
+        tfstate["terraform.tfstate*<br/>(all modules)<br/>⚠️ Contains<br/>plaintext keys"]
+    end
+
+    subgraph "CONTAINERS (Volumes Mounted Read-Only)"
+        direction TB
+        
+        subgraph "Vault Container"
+            vault_internal["internal volumes<br/>(vault, data, tls)"]
+        end
+        
+        subgraph "Vault Agent (in each service)"
+            agent_config["config:<br/>/vault/agent<br/>agent.hcl"]
+            agent_approle_ro["credentials (ro):<br/>/vault/approle<br/>role_id, secret_id"]
+            agent_tls_ro["ca cert (ro):<br/>/vault/tls<br/>ca.crt"]
+            agent_output["outputs (rw):<br/>/vault/certs<br/>/vault/secrets"]
+        end
+        
+        subgraph "PostgreSQL Container"
+            pg_container_certs["(ro):<br/>/vault/certs<br/>postgres.pem"]
+            pg_container_data["(rw):<br/>/var/lib/postgresql<br/>database files"]
+            pg_container_init["(ro):<br/>/docker-entrypoint<br/>init.sql"]
+        end
+        
+        subgraph "Keycloak Container"
+            kc_container_certs["(ro):<br/>/vault/certs<br/>keycloak.pem"]
+            kc_container_secrets["(ro):<br/>/vault/secrets<br/>*.env files"]
+        end
+        
+        subgraph "Nginx Container"
+            ws_container_certs["(ro):<br/>/vault/certs<br/>nginx.pem"]
+            ws_container_config["(ro):<br/>/etc/nginx<br/>nginx.conf"]
+        end
+    end
+
+    %% Vault PKI to Host
+    pki_root -.->|embedded in<br/>vault.crt| v_tls
+    pki_int -->|issues| pg_certs
+    pki_ext -->|issues| kc_certs
+    pki_ext -->|issues| ws_certs
+    
+    %% Vault AppRole to Host
+    approle -->|credentials| pg_approle
+    approle -->|credentials| kc_approle
+    approle -->|credentials| ws_approle
+    approle -->|credentials| agent_approle
+    
+    %% Vault KV & Database to Host
+    kv -->|read by<br/>Vault Agent| kc_secrets
+    database -->|keycloak<br/>password| kc_secrets
+    database -->|app<br/>dynamic creds| agent_data
+    
+    %% Host tls dir shared
+    v_tls -->|bind-mount (ro)| agent_tls_ro
+    v_tls -->|distributed to<br/>all services| pg_approle
+    
+    %% Vault Agent writes outputs
+    pg_certs -.->|Vault Agent<br/>template| pg_container_certs
+    kc_certs -.->|Vault Agent<br/>template| kc_container_certs
+    kc_secrets -.->|Vault Agent<br/>template| kc_container_secrets
+    ws_certs -.->|Vault Agent<br/>template| ws_container_certs
+    
+    %% Host config to container
+    pg_init -->|init script| pg_container_init
+    ws_nginx_config -->|config| ws_container_config
+    
+    %% Database to Vault
+    database -->|Vault connects to<br/>armory-postgres:5432| pg_container_data
+    
+    %% OIDC setup
+    kc_secrets -.->|admin login| oidc
+
+    classDef vault fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef host fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef container fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef cert fill:#ffccbc,stroke:#d84315,stroke-width:1px,color:#000
+    classDef secret fill:#f8bbd0,stroke:#c2185b,stroke-width:1px,color:#000
+    classDef config fill:#dcedc8,stroke:#558b2f,stroke-width:1px,color:#000
+    classDef warning fill:#ffcccc,stroke:#c62828,stroke-width:2px,color:#000
+    
+    class pki_root,pki_int,pki_ext,approle,kv,database,oidc vault
+    class v_config,v_data,v_tls,v_logs,pg_init,pg_data,pg_certs,kc_certs,ws_certs,vault_ca_bundle,agent_approle host
+    class pg_approle,kc_approle,ws_approle config
+    class vault_internal,agent_config,agent_approle_ro,agent_tls_ro,agent_output container
+    class tfstate warning
+```
+
+### Filesystem Legend & Notes
+
+| Directory | Created By | Purpose | Permissions |
+|-----------|-----------|---------|-------------|
+| `/opt/armory/vault/` | Phase 1 | Vault container storage, config, TLS, audit logs | Private (includes unseal key) |
+| `/opt/armory/vault/tls/` | Phase 1 (OpenTofu generates) | Self-signed CA + server cert/key | ⚠️ Private key on disk (ADR-005) |
+| `/opt/armory/postgres/` | Phase 5 | PostgreSQL storage, init script, injected certs | Shared with containers |
+| `/opt/armory/postgres/certs/` | Vault Agent (Phase 5) | TLS cert (pki_int) injected by sidecar | Read-only to PostgreSQL |
+| `/opt/armory/keycloak/` | Phase 6 | Keycloak runtime, injected certs & secrets | Shared with containers |
+| `/opt/armory/keycloak/certs/` | Vault Agent (Phase 6) | TLS cert (pki_ext) injected by sidecar | Read-only to Keycloak |
+| `/opt/armory/keycloak/secrets/` | Vault Agent (Phase 6) | DB password + admin creds from Vault | Read-only to Keycloak |
+| `/opt/armory/webserver/` | Phase 4 | Nginx config, injected certs | Shared with containers |
+| `/opt/armory/webserver/certs/` | Vault Agent (Phase 4) | TLS cert (pki_ext) injected by sidecar | Read-only to Nginx |
+| `/opt/armory/agent/` | Phase 9 | Agentic layer AppRole credentials | Private |
+| `./ca-bundle.pem` | Phase 3 (vault-config) | Public CA bundle for client trust | Inspectable, used by host CLI |
+| `./terraform.tfstate*` | All phases | OpenTofu state (⚠️ contains TLS private keys) | ⚠️ Keep secure |
+
+### Secret Sources & Flows
+
+**Vault Agent Template Engine** (runs in each sidecar):
+```
+1. Reads AppRole credentials from host volume (role_id + wrapped_secret_id)
+2. Authenticates to Vault (AppRole auth)
+3. Reads secret paths from Vault
+4. Renders templates → writes output files to /vault/{certs,secrets}
+5. Host volume mounts → make files available to main service container
+```
+
+**Certificate Injection Flow:**
+```
+Vault (PKI) 
+  → AppRole-authenticated Vault Agent
+  → Template rendering to PEM file
+  → Host-path volume mount (read-write)
+  → Container volume bind-mount (read-only)
+  → Service startup (health check waits for file)
+```
+
+**Database Credential Flow:**
+```
+Vault Database Engine (static role)
+  → AppRole-authenticated Vault Agent
+  → Template rendering to .env file
+  → Host-path volume mount
+  → Container volume bind-mount (read-only)
+  → Keycloak reads KC_DB_PASSWORD from .env
+```
+
+---
 
 The sections below describe each phase individually. Use these if you need to apply a single phase in isolation, debug a failure, or understand what the script does.
 
 ### Tear down everything (optional)
+
+```bash
 cd services/agent    && tofu destroy -auto-approve && cd ../..
 cd services/webserver && tofu destroy -auto-approve && cd ../..
 cd services/keycloak && tofu destroy -auto-approve && cd ../..                                                                                    
@@ -58,20 +331,32 @@ cd services/postgres && tofu destroy -auto-approve && cd ../..
 cd vault-config      && tofu destroy -auto-approve && cd ..                                                                                       
 cd vault             && tofu destroy -auto-approve && cd ..
 podman unshare rm -rf /opt/armory/vault /opt/armory/keycloak /opt/armory/webserver /opt/armory/postgres /opt/armory/agent 2>/dev/null || rm -rf /opt/armory/vault /opt/armory/keycloak /opt/armory/webserver /opt/armory/postgres /opt/armory/agent
+```
 
 # If containers aren't being stopped and removed
+
+```bash
 podman ps -aq | xargs -r podman stop
 podman ps -aq | xargs -r podman rm
+```
 
 # Remove podman volumes
+
+```bash
 podman volume ls -q | xargs -r podman volume rm
+```
 
 # Remove podman networks
+
+```bash
 podman network ls --format '{{.Name}}' | grep armory | xargs -r podman network rm
+```
 
 # Clean up stale tfstate files
-find . -name 'terraform.tfstate*' -delete
 
+```bash
+find . -name 'terraform.tfstate*' -delete
+```
 
 ### 0. One-time host prerequisite
 
