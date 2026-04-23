@@ -827,6 +827,10 @@ teardown() {
   find "$SCRIPT_DIR" -type f -name ".terraform.tfstate.lock.info" -delete 2>/dev/null || true
   success ".terraform.tfstate.lock.info files removed"
 
+  log "Removing all ca-bundle.PEM files..."
+  find "$SCRIPT_DIR" -type f -name "ca-bundle.PEM" -delete 2>/dev/null || true
+  success "ca-bundle.PEM files removed"
+
   # ── Step 11: Remove saved Vault credentials when safe ────────────────────
   # This file is required to unseal/authenticate Vault during teardown, so we
   # only remove it after cleanup has completed and no armory containers remain.
