@@ -229,29 +229,106 @@ Access the Keycloak admin console at `https://127.0.0.1:8444/admin` using the ad
 
 ### Phase 7 — Configure Keycloak realm (manual)
 
-Before enabling OIDC in Vault, set up the Keycloak side:
+#### Step 1 — Log in
 
-1. Log in to `https://127.0.0.1:8444/admin`
-2. Create realm **`armory`**
-3. Create group **`vault-operators`**, add the operator user
-
-**Client: `vault`** — confidential client used by the Vault OIDC auth method:
-
-4. Create OIDC client **`vault`** with Client authentication: ON (note the client secret)
-5. Add a **Group Membership** protocol mapper, token claim name `groups`
-
-**Client: `agent-cli`** — public client used by the agent CLI (`cli.py`):
-
-6. Create OIDC client **`agent-cli`** with Client authentication: OFF (public client, no secret)
-7. Standard Flow: enabled; Direct Access Grants: **disabled** (blocks password grant at the server)
-8. Under **Advanced** → **Proof Key for Code Exchange Code Challenge Method**: set to `S256`
-9. Valid Redirect URIs: `http://127.0.0.1:18080/callback`
-10. Web Origins: `http://127.0.0.1:18080`
-11. Add the same **Group Membership** protocol mapper as the `vault` client, token claim name `groups`
+Navigate to `https://127.0.0.1:8444/admin` and log in with your admin credentials. (In the host, the credentials should be available at /opt/armory/keycloak/secrets/keycloak-admin.env)
 
 ---
 
-### Phase 9 — Deploy the agentic layer
+#### Step 2 — Create the realm
+
+1. Click the realm dropdown in the top-left (defaults to **Keycloak**)
+2. Click **Create realm**
+3. Set **Realm name** to `armory`
+4. Click **Create**
+
+---
+
+#### Step 3 — Create the group and user
+
+1. In the left nav click **Groups** → **Create group**
+2. Name it `vault-operators` → **Create**
+3. In the left nav click **Users** → **Add user**
+4. Fill in a username (operator), click **Create**
+5. Go to the **Credentials** tab → **Set password**, uncheck **Temporary** → **Save**
+6. Go to the **Groups** tab → **Join Group** → select `vault-operators` → **Join**
+
+---
+
+#### Step 4 — Create the `vault` client
+
+1. Left nav → **Clients** → **Create client**
+2. **Client type**: `OpenID Connect`
+3. **Client ID**: `vault`
+4. Click **Next**
+5. **Client authentication**: ON
+6. **Authorization**: OFF
+7. **Authentication flow**: leave Standard Flow checked, uncheck everything else
+8. Click **Next**
+9. **Valid redirect URIs**: `https://127.0.0.1:8200/oidc/callback` and `https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback`
+10. Click **Save**
+11. Go to the **Credentials** tab and copy the **Client secret** — you'll need it for OpenBao's OIDC config
+
+---
+
+#### Step 5 — Add Group Membership mapper to `vault`
+
+1. With the `vault` client open, click the **Client scopes** tab
+2. Click the link named **`vault-dedicated`** (the first row, type will show as *Dedicated*)
+3. Click **Add mapper** → **By configuration**
+4. Click **Group Membership**
+5. Set **Name** to `groups`
+6. Set **Token Claim Name** to `groups`
+7. Turn **Full group path** OFF — this gives you `vault-operators` instead of `/vault-operators`
+8. Turn **Add to ID token** ON
+9. Turn **Add to access token** ON
+10. Click **Save**
+
+---
+
+#### Step 6 — Create the `agent-cli` client
+
+1. Left nav → **Clients** → **Create client**
+2. **Client type**: `OpenID Connect`
+3. **Client ID**: `agent-cli`
+4. Click **Next**
+5. **Client authentication**: OFF (this makes it a public client)
+6. **Authentication flow**: Standard Flow ON, Direct Access Grants **OFF**
+7. Click **Next**
+8. **Valid redirect URIs**: `http://127.0.0.1:18080/callback`
+9. **Web origins**: `http://127.0.0.1:18080`
+10. Click **Save**
+
+---
+
+#### Step 7 — Enable PKCE on `agent-cli`
+
+1. With the `agent-cli` client open, click the **Advanced** tab
+2. Scroll to **Advanced Settings**
+3. Set **Proof Key for Code Exchange Code Challenge Method** to `S256`
+4. Click **Save**
+
+---
+
+#### Step 8 — Add Group Membership mapper to `agent-cli`
+
+1. Click the **Client scopes** tab
+2. Click **`agent-cli-dedicated`**
+3. Click **Add mapper** → **By configuration**
+4. Click **Group Membership**
+5. Set **Name** to `groups`
+6. Set **Token Claim Name** to `groups`
+7. Turn **Full group path** OFF
+8. Turn **Add to ID token** ON
+9. Turn **Add to access token** ON
+10. Click **Save**
+
+---
+
+Once this is done you can verify the mapper is working before touching OpenBao — log in as your operator user and decode the resulting access token at `https://jwt.io` to confirm the `groups` claim contains `vault-operators`.
+---
+
+### Phase 8 — Deploy the agentic layer
 
 **Prerequisites:** Keycloak realm configured (Phase 7) and OIDC enabled (Phase 8).
 
@@ -318,7 +395,7 @@ correlating the API log with the Vault audit log.
 
 ---
 
-### Phase 8 — Enable OIDC auth (ceremony)
+### Phase 9 — Enable OIDC auth (ceremony)
 
 This is a three-step ceremony — do not skip steps:
 
