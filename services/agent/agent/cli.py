@@ -112,8 +112,16 @@ def _get_authorization_code() -> tuple[str, str]:
         "code_challenge_method": "S256",
     })
 
-    print("Opening browser for Keycloak login...", file=sys.stderr)
-    webbrowser.open(auth_url)
+    print("\nOpen the following URL in your browser to log in:\n", file=sys.stderr)
+    print(f"  {auth_url}\n", file=sys.stderr)
+    try:
+        if webbrowser.open(auth_url):
+            print("(Browser opened automatically.)", file=sys.stderr)
+        else:
+            print("(Could not open a browser — paste the URL above manually.)", file=sys.stderr)
+    except Exception:
+        print("(Could not open a browser — paste the URL above manually.)", file=sys.stderr)
+    print("Waiting for login callback on http://127.0.0.1:18080/callback ...\n", file=sys.stderr)
 
     thread.join(timeout=120)
 
