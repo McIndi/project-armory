@@ -199,10 +199,10 @@ def vault_env():
     #    Use compose down before rm -f to avoid stale bind mounts on re-deploy:
     #    podman rm -f alone can leave containers in zombie state with bind mounts
     #    pointing to deleted directory inodes after rm -rf on the host path.
-        _run(f"podman compose --project-name armory-webserver -f {ARMORY_BASE_DIR}/webserver/compose.yml down 2>/dev/null || true",
-            check=False)
-        _run(f"podman compose --project-name armory-postgres -f {ARMORY_BASE_DIR}/postgres/compose.yml down 2>/dev/null || true",
-            check=False)
+    _run(f"podman compose --project-name armory-webserver -f {ARMORY_BASE_DIR}/webserver/compose.yml down 2>/dev/null || true",
+         check=False)
+    _run(f"podman compose --project-name armory-postgres -f {ARMORY_BASE_DIR}/postgres/compose.yml down 2>/dev/null || true",
+         check=False)
     _run("podman rm -f armory-webserver armory-vault-agent armory-postgres armory-postgres-vault-agent 2>/dev/null || true",
          check=False)
     _run("tofu destroy -auto-approve", cwd=WEBSERVER_MODULE, env=base_env, check=False)
@@ -376,8 +376,9 @@ def agent_env(vault_env, postgres_env):
     """
     Apply services/agent/ (requires vault-config applied with agent_enabled=true).
 
-    The wrapped_secret_id written here is single-use. Each test run must re-apply
-    services/agent/ to issue a fresh one — the fixture handles this automatically.
+    The wrapped_secret_id written here is single-use and is consumed once when the
+    agent API process starts. This fixture re-applies services/agent/ per test
+    session to ensure fresh credentials are available.
     """
     config_env = vault_env["config_env"].copy()
     config_env["TF_VAR_agent_enabled"] = "true"
@@ -419,15 +420,15 @@ def agent_api_env(agent_env, postgres_env, vault_client):
     """
     Start the agent API subprocess and yield its base URL.
 
-    Issues a fresh wrapped secret_id before starting — the agent_env fixture
-    may have already consumed the one on disk (single-use property).
+    Issues a fresh wrapped secret_id immediately before startup — the running
+    API consumes it once during startup Vault authentication.
     """
     import subprocess
     import hvac
 
     approle_dir = agent_env["approle_dir"]
 
-    # Issue a fresh wrapped secret_id so the subprocess can authenticate
+    # Issue a fresh wrapped_secret_id for this API process startup.
     response = vault_client.auth.approle.generate_secret_id(
         role_name="agent",
         wrap_ttl="10m",

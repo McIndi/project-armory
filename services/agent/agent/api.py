@@ -2,6 +2,7 @@ import os
 import re
 import uvicorn
 import structlog
+from contextlib import asynccontextmanager
 
 structlog.configure(
     processors=[
@@ -15,9 +16,23 @@ from fastapi import FastAPI, Depends
 from pydantic import BaseModel, field_validator
 from oidc import validate_token
 from agent import run_task
+from vault_client import initialize_runtime_client, shutdown_runtime_client
 
 log = structlog.get_logger()
-app = FastAPI(title="Armory Agent API")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    log.info("api.startup.vault_auth")
+    initialize_runtime_client()
+    try:
+        yield
+    finally:
+        log.info("api.shutdown.vault_revoke")
+        shutdown_runtime_client()
+
+
+app = FastAPI(title="Armory Agent API", lifespan=lifespan)
 
 
 class TaskRequest(BaseModel):

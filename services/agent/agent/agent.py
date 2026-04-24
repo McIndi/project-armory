@@ -1,6 +1,6 @@
 import uuid
 import structlog
-from vault_client import authenticate, get_dynamic_db_credentials, revoke_token
+from vault_client import get_runtime_client, get_dynamic_db_credentials
 from tools import query_database
 
 log = structlog.get_logger()
@@ -28,9 +28,8 @@ def run_task(task: dict, operator: dict) -> dict:
 
     bound_log.info("agent.task.start")
 
-    client = None
     try:
-        client = authenticate()
+        client = get_runtime_client()
 
         if task["type"] == "db_query":
             db_creds = get_dynamic_db_credentials(client)
@@ -49,7 +48,3 @@ def run_task(task: dict, operator: dict) -> dict:
     except Exception as e:
         bound_log.error("agent.task.failed", error=str(e))
         return {"status": "error", "request_id": request_id, "message": str(e)}
-
-    finally:
-        if client is not None:
-            revoke_token(client)

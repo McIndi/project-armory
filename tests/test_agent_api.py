@@ -44,6 +44,9 @@ def test_client():
     import api as api_module
     from oidc import validate_token
 
+    api_module.initialize_runtime_client = lambda: None
+    api_module.shutdown_runtime_client = lambda: None
+
     fake_operator = {
         "sub": "test-sub",
         "preferred_username": "test-operator",
@@ -158,11 +161,39 @@ def test_run_task_executes_db_query(agent_env, postgres_env, vault_client):
     importlib.reload(vc_module)
     importlib.reload(agent_module)
 
+    vc_module.initialize_runtime_client()
+
     operator = {"sub": "test-sub", "preferred_username": "test-operator"}
     task     = {"type": "db_query", "query": "SELECT current_user, now() AS ts"}
 
-    result = agent_module.run_task(task, operator)
+    try:
+        result = agent_module.run_task(task, operator)
+    finally:
+        vc_module.shutdown_runtime_client()
 
     assert result["status"] == "ok", f"run_task failed: {result.get('message')}"
     assert "request_id" in result
     assert len(result["results"]) > 0
+
+
+def test_api_lifespan_invokes_runtime_auth(monkeypatch):
+    from fastapi.testclient import TestClient
+    import api as api_module
+
+    calls = {"init": 0, "shutdown": 0}
+
+    def _fake_init():
+        calls["init"] += 1
+
+    def _fake_shutdown():
+        calls["shutdown"] += 1
+
+    monkeypatch.setattr(api_module, "initialize_runtime_client", _fake_init)
+    monkeypatch.setattr(api_module, "shutdown_runtime_client", _fake_shutdown)
+
+    with TestClient(api_module.app, raise_server_exceptions=False) as client:
+        r = client.get("/health")
+        assert r.status_code == 200
+
+    assert calls["init"] == 1
+    assert calls["shutdown"] == 1

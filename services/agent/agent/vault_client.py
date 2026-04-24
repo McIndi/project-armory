@@ -1,4 +1,5 @@
 import os
+import threading
 import hvac
 import structlog
 
@@ -7,6 +8,10 @@ log = structlog.get_logger()
 VAULT_ADDR    = os.environ["VAULT_ADDR"]
 ARMORY_CACERT = os.environ["ARMORY_CACERT"]
 APPROLE_DIR   = os.environ["APPROLE_DIR"]
+
+_RENEW_THRESHOLD_SECONDS = 120
+_runtime_client: hvac.Client | None = None
+_runtime_lock = threading.Lock()
 
 
 def _load_approle_credentials() -> tuple[str, str]:
@@ -60,6 +65,60 @@ def authenticate() -> hvac.Client:
     return client
 
 
+def initialize_runtime_client() -> hvac.Client:
+    """
+    Authenticate once per API process and cache the resulting client.
+
+    This consumes wrapped_secret_id exactly once on startup. Subsequent task
+    executions reuse the authenticated client token.
+    """
+    global _runtime_client
+
+    with _runtime_lock:
+        if _runtime_client is not None:
+            return _runtime_client
+
+        _runtime_client = authenticate()
+        return _runtime_client
+
+
+def _renew_runtime_client_if_needed(client: hvac.Client) -> None:
+    """
+    Renew the cached token only when the remaining TTL is low.
+
+    If the token is no longer renewable, we allow downstream calls to fail with
+    a clear Vault error rather than masking the failure.
+    """
+    info = client.auth.token.lookup_self()
+    ttl = int(info["data"].get("ttl", 0))
+    renewable = bool(info["data"].get("renewable", False))
+
+    if ttl > _RENEW_THRESHOLD_SECONDS:
+        return
+
+    if not renewable:
+        log.warning("vault.token.not_renewable", ttl=ttl)
+        raise RuntimeError(
+            "Vault runtime token is not renewable and is near expiry; "
+            "restart the API with a fresh wrapped_secret_id"
+        )
+
+    log.info("vault.token.renew_self", ttl=ttl)
+    renewed = client.auth.token.renew_self()
+    renewed_ttl = int(renewed["auth"].get("lease_duration", 0))
+    log.info("vault.token.renewed", ttl=renewed_ttl)
+
+
+def get_runtime_client() -> hvac.Client:
+    """Return the cached runtime client, renewing token when needed."""
+    with _runtime_lock:
+        if _runtime_client is None:
+            raise RuntimeError("Vault runtime client is not initialized")
+
+        _renew_runtime_client_if_needed(_runtime_client)
+        return _runtime_client
+
+
 def get_dynamic_db_credentials(client: hvac.Client) -> dict:
     """
     Fetch short-lived dynamic credentials for the app database.
@@ -100,3 +159,15 @@ def revoke_token(client: hvac.Client) -> None:
         log.info("vault.token.revoked")
     except Exception as e:
         log.error("vault.token.revoke_failed", error=str(e))
+
+
+def shutdown_runtime_client() -> None:
+    """Revoke and clear the cached runtime token on API shutdown."""
+    global _runtime_client
+
+    with _runtime_lock:
+        if _runtime_client is None:
+            return
+
+        revoke_token(_runtime_client)
+        _runtime_client = None
