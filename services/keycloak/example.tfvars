@@ -38,3 +38,28 @@ keycloak_port = 8444
 
 # Optional: DNS SANs. The Vault PKI role must allow these names.
 # cert_dns_sans = ["keycloak.local"]
+
+# ---------------------------------------------------------------------------
+# Realm bootstrap — Keycloak first-boot import
+# ---------------------------------------------------------------------------
+# These values are baked into the realm JSON rendered at deploy time.
+# They must match vault-config oidc_client_secret and oidc_client_id.
+# Override before any non-demo use.
+
+keycloak_realm          = "armory"
+realm_required_group    = "vault-operators"
+realm_operator_username = "operator"
+# realm_operator_password = "armory-demo-2026"   # set via TF_VAR_realm_operator_password
+
+vault_oidc_client_id = "vault"
+# vault_oidc_client_secret = "armory-vault-oidc-secret-2026"  # set via TF_VAR_vault_oidc_client_secret
+
+agent_cli_client_id    = "agent-cli"
+agent_cli_redirect_uri = "http://127.0.0.1:18080/callback"
+agent_cli_web_origin   = "http://127.0.0.1:18080"
+
+vault_oidc_redirect_uris = [
+  "http://localhost:8250/oidc/callback",
+  "https://127.0.0.1:8200/oidc/callback",
+  "https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback",
+]

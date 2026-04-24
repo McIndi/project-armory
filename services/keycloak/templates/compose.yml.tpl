@@ -80,7 +80,7 @@ services:
 
         test -s /tmp/keycloak.crt
         test -s /tmp/keycloak.key
-        exec /opt/keycloak/bin/kc.sh start
+        exec /opt/keycloak/bin/kc.sh start --import-realm
     depends_on:
       vault-agent:
         condition: service_healthy
@@ -100,6 +100,7 @@ services:
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
       - ${secrets_dir}:/vault/secrets:ro,z
+      - ${import_dir}:/opt/keycloak/data/import:ro,z
 
     networks:
       - keycloak-net

@@ -59,12 +59,12 @@ graph TD
     Decision2 -->|No/Skip| SkipPhase6["⊘ Skip Phases 6-9"]
     
     Phase6 --> HC6["✓ Keycloak ready<br/>• Cert injected<br/>• DB password ready<br/>• Admin creds ready"]
-    HC6 --> Phase7["<b>Phase 7 (MANUAL)</b><br/>Configure Keycloak Realm<br/>Browser: <code>:8444/admin</code><br/><br/>Create:<br/>• Realm: armory<br/>• Group: vault-operators<br/>• OIDC Client: vault<br/>• Public Client: agent-cli"]
+    HC6 --> HC6b["✓ Realm import<br/>Keycloak started with<br/>--import-realm flag<br/><br/>Seeded:<br/>• Realm: armory<br/>• Group: vault-operators<br/>• OIDC Client: vault<br/>• Public Client: agent-cli"]
     
-    Phase7 --> Phase8["<b>Phase 8 (MANUAL)</b><br/>Enable OIDC Auth<br/>Re-apply: <code>vault-config/</code><br/>with oidc_enabled=true<br/>+ client_secret"]
-    Phase8 --> HC8["✓ OIDC auth ready<br/>Operators can login"]
+    HC6b --> Phase7["<b>Phase 7 (AUTOMATED)</b><br/>Enable Vault OIDC Auth<br/>Re-apply: <code>vault-config/</code><br/>with oidc_enabled=true<br/>+ client_secret"]
+    Phase7 --> HC7["✓ OIDC auth ready<br/>Operators can login<br/>via Keycloak"]
     
-    HC8 --> Decision3{Deploy agentic<br/>layer?}
+    HC7 --> Decision3{Deploy agentic<br/>layer?}
     Decision3 -->|Yes| Phase9["<b>Phase 9</b><br/>Deploy Agent Layer<br/>Re-apply: <code>vault-config/</code><br/>with agent_enabled=true<br/>Then: <code>services/agent/</code>"]
     Decision3 -->|No/Skip| SkipPhase9["⊘ Skip Phase 9"]
     
@@ -81,9 +81,9 @@ graph TD
     classDef skip fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#666,stroke-dasharray: 5 5
     classDef decision fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
     
-    class Phase1,Phase2,Phase3,Phase4,Phase5,Phase5b,Phase6,Phase9 automated
-    class Phase7,Phase8,AgentManual manual
-    class HC1,HC2,HC3,HC4,HC5A,HC5B,HC5b,HC6,HC8,HC9 healthCheck
+    class Phase1,Phase2,Phase3,Phase4,Phase5,Phase5b,Phase6,Phase7,Phase9 automated
+    class AgentManual manual
+    class HC1,HC2,HC3,HC4,HC5A,HC5B,HC5b,HC6,HC6b,HC7,HC9 healthCheck
     class SkipPhase4,SkipPhase6,SkipPhase9 skip
     class Decision1,Decision2,Decision3 decision
 ```
@@ -108,9 +108,8 @@ graph TD
 | **Phase 5** | Phase 3 | Database connection config ready | Vault knows how to connect to PostgreSQL (not running yet) |
 | **Phase 5b** | Phase 5 | PostgreSQL healthy + DNS resolvable | `pg_isready` + `nslookup armory-postgres` from Vault container |
 | **Phase 6** | Phase 5b | Database roles created | Vault can issue keycloak password + app dynamic creds |
-| **Phase 7** | Phase 6 | Keycloak admin console accessible | HTTPS at `127.0.0.1:8444/admin` |
-| **Phase 8** | Phase 7 | OIDC client secret obtained | From Keycloak admin console |
-| **Phase 9** | Phase 3, Phase 8 | OIDC auth enabled | Vault OIDC method configured |
+| **Phase 7** | Phase 6 | Keycloak ready + realm imported | Realm, group, clients seeded via `--import-realm`; OIDC backend enabled |
+| **Phase 9** | Phase 3, Phase 7 | OIDC auth enabled | Vault OIDC method configured |
 | **Agent API** | Phase 9 | AppRole credentials on disk | Wrapped secret_id written to `/opt/armory/agent/approle/` |
 
 ### Automated rebuild (recommended)
@@ -130,7 +129,7 @@ graph TD
 | `--skip-agent` | Skip Phase 9 only; Keycloak is still deployed |
 | `--destroy-only` | Tear everything down without rebuilding |
 
-After `rebuild.sh` completes, two manual steps remain: **Phase 7** (Keycloak realm setup, browser-based) and **Phase 8** (Vault OIDC auth). See the sections below and the summary banner printed by the script.
+After `rebuild.sh` completes, the stack is fully operational including OIDC. The 'armory' realm and both OIDC clients are seeded automatically. No browser-based manual steps are required.
 
 ---
 
@@ -513,158 +512,59 @@ Access the Keycloak admin console at `https://127.0.0.1:8444/admin` using the ad
 
 ---
 
-### Phase 7 — Configure Keycloak realm (manual)
+### Phase 7 — Keycloak realm and Vault OIDC auth (automated)
 
-#### Step 1 — Log in
+The 'armory' realm is now seeded automatically. When Keycloak starts, it reads realm JSON files from `/opt/keycloak/data/import/` (flag `--import-realm`). OpenTofu renders [services/keycloak/templates/realm-armory.json.tpl](services/keycloak/templates/realm-armory.json.tpl) into that directory before the container starts.
 
-Navigate to `https://127.0.0.1:8444/admin` and log in with your admin credentials. (In the host, the credentials should be available at /opt/armory/keycloak/secrets/keycloak-admin.env)
+**What gets created automatically:**
 
----
+| Object | Value |
+|--------|-------|
+| Realm | `armory` |
+| Group | `vault-operators` |
+| Demo operator | username `operator`, member of `vault-operators` |
+| OIDC client | `vault` — confidential, group membership mapper, redirect URIs for CLI + UI |
+| OIDC client | `agent-cli` — public, PKCE S256, group membership mapper |
 
-#### Step 2 — Create the realm
+**What rebuild.sh does after Keycloak is healthy:**
 
-1. Click the realm dropdown in the top-left (defaults to **Keycloak**)
-2. Click **Create realm**
-3. Set **Realm name** to `armory`
-4. Click **Create**
+```bash
+# Phase 7 — automated
+wait_for_keycloak   # polls /health/ready until HTTP 200
 
----
+tofu apply -auto-approve \
+  -var oidc_enabled=true \
+  -var oidc_client_secret="$OIDC_CLIENT_SECRET" \
+  -var database_roles_enabled=true \
+  -var userpass_enabled=true
+```
 
-#### Step 3 — Create the group and user
+The `OIDC_CLIENT_SECRET` env var defaults to `armory-vault-oidc-secret-2026` — the same value baked into the realm import JSON for the `vault` client. Override it before running `rebuild.sh` for non-demo use.
 
-1. In the left nav click **Groups** → **Create group**
-2. Name it `vault-operators` → **Create**
-3. In the left nav click **Users** → **Add user**
-4. Fill in a username (operator), click **Create**
-5. Go to the **Credentials** tab → **Set password**, uncheck **Temporary** → **Save**
-6. Go to the **Groups** tab → **Join Group** → select `vault-operators` → **Join**
+**Verify after rebuild:**
 
----
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_CACERT=/opt/armory/vault/tls/ca.crt
+bao login -method=oidc role=operator
+```
 
-#### Step 4 — Create the `vault` client
+**Optional hardening — retire userpass after verifying OIDC:**
 
-1. Left nav → **Clients** → **Create client**
-2. **Client type**: `OpenID Connect`
-3. **Client ID**: `vault`
-4. Click **Next**
-5. **Client authentication**: ON
-6. **Authorization**: OFF
-7. **Authentication flow**: leave Standard Flow checked, uncheck everything else
-8. Click **Next**
-9. **Valid redirect URIs**: `https://127.0.0.1:8200/oidc/callback` and `https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback`
-10. Click **Save**
-11. Go to the **Credentials** tab and copy the **Client secret** — you'll need it for OpenBao's OIDC config
+Once you've confirmed OIDC login works, disable the bootstrap userpass method:
 
----
-
-#### Step 5 — Add Group Membership mapper to `vault`
-
-1. With the `vault` client open, click the **Client scopes** tab
-2. Click the link named **`vault-dedicated`** (the first row, type will show as *Dedicated*)
-3. Click **Add mapper** → **Configure a New Mapper**
-4. Click **Group Membership**
-5. Set **Name** to `groups`
-6. Set **Token Claim Name** to `groups`
-7. Turn **Full group path** OFF — this gives you `vault-operators` instead of `/vault-operators`
-8. Turn **Add to ID token** ON
-9. Turn **Add to access token** ON
-10. Click **Save**
+```bash
+cd vault-config/
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu apply \
+  -var oidc_enabled=true \
+  -var 'oidc_client_secret=<OIDC_CLIENT_SECRET>' \
+  -var agent_enabled=true \
+  -var database_roles_enabled=true \
+  -var userpass_enabled=false
+```
 
 ---
-
-#### Step 6 — Create the `agent-cli` client
-
-1. Left nav → **Clients** → **Create client**
-2. **Client type**: `OpenID Connect`
-3. **Client ID**: `agent-cli`
-4. Click **Next**
-5. **Client authentication**: OFF (this makes it a public client)
-6. **Authentication flow**: Standard Flow ON, Direct Access Grants **OFF**
-7. Click **Next**
-8. **Valid redirect URIs**: `http://127.0.0.1:18080/callback`
-9. **Web origins**: `http://127.0.0.1:18080`
-10. Click **Save**
-
----
-
-#### Step 7 — Enable PKCE on `agent-cli`
-
-1. With the `agent-cli` client open, click the **Advanced** tab
-2. Scroll to **Advanced Settings**
-3. Set **Proof Key for Code Exchange Code Challenge Method** to `S256`
-4. Click **Save**
-
----
-
-#### Step 8 — Add Group Membership mapper to `agent-cli`
-
-1. Click the **Client scopes** tab
-2. Click **`agent-cli-dedicated`**
-3. Click **Add mapper** → **Configure a new Mapper**
-4. Click **Group Membership**
-5. Set **Name** to `groups`
-6. Set **Token Claim Name** to `groups`
-7. Turn **Full group path** OFF
-8. Turn **Add to ID token** ON
-9. Turn **Add to access token** ON
-10. Click **Save**
-
----
-
-Once this is done, verify the mapper before touching OpenBao (using the correct client token):
-
-1. In Keycloak admin, open **Clients** -> **vault** -> **Client scopes** -> **Evaluate**
-2. Select user **operator** and click **Generated access token**
-3. Keycloak shows the decoded JSON payload directly — confirm it includes `"groups": ["vault-operators"]`
-4. Repeat for **Clients** -> **agent-cli** -> **Client scopes** -> **Evaluate**, selecting the same **operator** user
-
-If `groups` is still missing, troubleshoot in this order:
-
-1. **Check user membership in the correct realm**
-    - Where: **Realm: armory** -> **Users** -> **operator** -> **Groups**
-    - Success: `vault-operators` is listed.
-    - Failure: No `vault-operators` membership.
-    - Meaning: Mapper is fine, but there is no source group data to emit.
-
-2. **Check mapper location for each client**
-    - Where: **Clients** -> **vault** -> **Client scopes** -> **vault-dedicated** -> **Mappers** and **Clients** -> **agent-cli** -> **Client scopes** -> **agent-cli-dedicated** -> **Mappers**
-    - Success: Group Membership mapper exists on both dedicated scopes.
-    - Failure: Mapper exists only on one client, wrong scope, or at realm level only.
-    - Meaning: Claim may appear for one client but not the other, or not appear at all.
-
-3. **Check mapper fields (exact values)**
-    - Expected: **Token Claim Name**=`groups`, **Add to access token**=ON, **Full group path**=OFF.
-    - Success: Values match exactly.
-    - Failure: Claim name differs (`group`, `Groups`, etc.), access token toggle OFF, or path format unexpected.
-    - Meaning: Vault expects `groups`; name/path mismatches can make the claim appear missing or unusable.
-
-4. **Regenerate token from Evaluate (do not reuse old token)**
-    - Success: New token now contains `groups`.
-    - Failure: Still missing in freshly generated token.
-    - Meaning: Not a stale-session issue; configuration is still not effective.
-
-5. **Clear active user sessions and test again**
-    - Where: **Realm: armory** -> **Sessions** -> logout user sessions, then log in again.
-    - Success: Claim appears after fresh login.
-    - Failure: No change.
-    - Meaning: If success, old session/token cache was the cause. If failure, continue below.
-
-6. **Validate OpenBao OIDC role expects the same claim name**
-    - Command: `podman exec -e VAULT_TOKEN=<ROOT_TOKEN> armory-vault bao read auth/oidc/role/operator`
-    - Success: Output shows `groups_claim` set to `groups`.
-    - Failure: `groups_claim` is different or missing.
-    - Meaning: Keycloak may emit `groups`, but OpenBao will ignore it unless claim names match.
-
-7. **Run one isolation test (temporary)**
-    - Action: Add the same Group Membership mapper at realm scope, generate token again, then remove it after testing.
-    - Success: Claim appears only with realm-level mapper.
-    - Failure: Claim still absent.
-    - Meaning: If success, dedicated scope attachment is the issue. If failure, check user/group assignment and mapper type again.
----
-
-### Phase 8 — Deploy the agentic layer
-
-**Prerequisites:** Keycloak realm configured (Phase 7) and OIDC enabled (Phase 8).
 
 **Step 1:** Enable the agent AppRole in `vault-config/`:
 
@@ -740,11 +640,9 @@ correlating the API log with the Vault audit log.
 
 ---
 
-### Phase 9 — Enable OIDC auth (ceremony)
+### Phase 9 — Retire userpass (optional hardening)
 
-This is a three-step ceremony — do not skip steps:
-
-**Step 1:** Apply Vault OIDC config (userpass stays active during transition):
+`rebuild.sh` leaves userpass enabled alongside OIDC so you can use either method. Once you have verified that OIDC login works (`bao login -method=oidc role=operator`), you can retire the bootstrap userpass method:
 
 ```bash
 cd vault-config/
@@ -752,29 +650,14 @@ export TF_VAR_vault_token=<ROOT_TOKEN>
 tofu apply \
   -var oidc_enabled=true \
   -var oidc_client_id=vault \
-  -var 'oidc_client_secret=<CLIENT_SECRET_FROM_KEYCLOAK>'
-```
-
-**Step 2:** Verify OIDC login works:
-
-```bash
-bao login -method=oidc role=operator
-# Must succeed and return the 'operator' policy
-```
-
-**Step 3:** Retire userpass (only after OIDC is confirmed working):
-
-```bash
-tofu apply \
-  -var oidc_enabled=true \
-  -var oidc_client_id=vault \
-  -var 'oidc_client_secret=<CLIENT_SECRET>' \
+  -var 'oidc_client_secret=<OIDC_CLIENT_SECRET>' \
+  -var agent_enabled=true \
+  -var database_roles_enabled=true \
   -var userpass_enabled=false
 ```
 
-> **Never run Step 3 before Step 2.** Removing userpass before OIDC is verified working
-> will lock you out of Vault. If that happens, restart Vault with a root token from the
-> key ceremony and re-enable userpass.
+> **Never disable userpass before confirming OIDC works.** If OIDC is broken and userpass
+> is gone, the only recovery path is using the root token from the key ceremony file.
 
 ---
 

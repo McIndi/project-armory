@@ -94,3 +94,34 @@ run "userpass_not_created_when_disabled" {
     error_message = "Userpass backend must not be created when userpass_enabled is false"
   }
 }
+
+# ---------------------------------------------------------------------------
+# Redirect URIs
+# ---------------------------------------------------------------------------
+
+run "operator_role_allows_cli_callback" {
+  command = plan
+
+  assert {
+    condition     = contains(vault_jwt_auth_backend_role.operator[0].allowed_redirect_uris, "http://localhost:8250/oidc/callback")
+    error_message = "Operator role must allow the bao CLI callback URI (localhost:8250)"
+  }
+}
+
+run "operator_role_allows_vault_api_callback" {
+  command = plan
+
+  assert {
+    condition     = contains(vault_jwt_auth_backend_role.operator[0].allowed_redirect_uris, "https://127.0.0.1:8200/oidc/callback")
+    error_message = "Operator role must allow the Vault API OIDC callback URI"
+  }
+}
+
+run "operator_role_allows_vault_ui_callback" {
+  command = plan
+
+  assert {
+    condition     = contains(vault_jwt_auth_backend_role.operator[0].allowed_redirect_uris, "https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback")
+    error_message = "Operator role must allow the Vault UI OIDC callback URI"
+  }
+}

@@ -104,9 +104,9 @@ variable "oidc_enabled" {
 }
 
 variable "keycloak_url" {
-  description = "Base URL of the Keycloak server, reachable from the host (e.g. https://127.0.0.1:8444)."
+  description = "Base URL of the Keycloak server as reachable from the Vault container (e.g. https://armory-keycloak:8443)."
   type        = string
-  default     = "https://127.0.0.1:8444"
+  default     = "https://armory-keycloak:8443"
 }
 
 variable "oidc_client_id" {
@@ -116,10 +116,20 @@ variable "oidc_client_id" {
 }
 
 variable "oidc_client_secret" {
-  description = "OIDC client secret from the Keycloak 'vault' client."
+  description = "OIDC client secret from the Keycloak 'vault' client. Must match vault_oidc_client_secret in services/keycloak."
   type        = string
   sensitive   = true
-  default     = ""
+  default     = "armory-vault-oidc-secret-2026"
+}
+
+variable "oidc_redirect_uris" {
+  description = "Allowed redirect URIs for the Vault OIDC role (CLI and UI callbacks). Must match Keycloak vault client."
+  type        = list(string)
+  default = [
+    "http://localhost:8250/oidc/callback",
+    "https://127.0.0.1:8200/oidc/callback",
+    "https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback",
+  ]
 }
 
 variable "userpass_enabled" {

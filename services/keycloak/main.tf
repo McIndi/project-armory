@@ -8,6 +8,7 @@ locals {
     approle      = "${var.deploy_dir}/approle"
     certs        = "${var.deploy_dir}/certs"
     secrets      = "${var.deploy_dir}/secrets"
+    import       = "${var.deploy_dir}/import"
   }
   vault_tls_dir = coalesce(var.vault_tls_dir, "${var.armory_base_dir}/vault/tls")
 
@@ -59,8 +60,8 @@ resource "null_resource" "create_dirs" {
   provisioner "local-exec" {
     command     = <<-EOT
       set -euo pipefail
-      mkdir -p "${local.dirs.agent_config}" "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}"
-      chmod 755 "${local.dirs.agent_config}"
+      mkdir -p "${local.dirs.agent_config}" "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}" "${local.dirs.import}"
+      chmod 755 "${local.dirs.agent_config}" "${local.dirs.import}"
       chmod 777 "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}"
     EOT
     interpreter = ["bash", "-c"]
@@ -128,6 +129,24 @@ resource "local_file" "keycloak_admin_env_placeholder" {
   content         = ""
 }
 
+resource "local_sensitive_file" "realm_import" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.import}/armory-realm.json"
+  file_permission = "0644"
+  content = templatefile("${path.module}/templates/realm-armory.json.tpl", {
+    keycloak_realm           = var.keycloak_realm
+    realm_required_group     = var.realm_required_group
+    realm_operator_username  = var.realm_operator_username
+    realm_operator_password  = var.realm_operator_password
+    vault_oidc_client_id     = var.vault_oidc_client_id
+    vault_oidc_client_secret = var.vault_oidc_client_secret
+    vault_oidc_redirect_uris = var.vault_oidc_redirect_uris
+    agent_cli_client_id      = var.agent_cli_client_id
+    agent_cli_redirect_uri   = var.agent_cli_redirect_uri
+    agent_cli_web_origin     = var.agent_cli_web_origin
+  })
+}
+
 resource "local_file" "compose" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
@@ -146,6 +165,7 @@ resource "local_file" "compose" {
     vault_tls_dir           = local.vault_tls_dir
     certs_dir               = local.dirs.certs
     secrets_dir             = local.dirs.secrets
+    import_dir              = local.dirs.import
     postgres_host           = var.postgres_host
   })
 }
@@ -162,11 +182,13 @@ resource "null_resource" "deploy" {
     local_file.keycloak_admin_env_placeholder,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,
+    local_sensitive_file.realm_import,
   ]
 
   triggers = {
     compose_hash = local_file.compose.content
     agent_hash   = local_file.agent_config.content
+    import_hash  = local_sensitive_file.realm_import.content_base64sha256
     compose_file = "${var.deploy_dir}/compose.yml"
     project_name = var.compose_project_name
   }

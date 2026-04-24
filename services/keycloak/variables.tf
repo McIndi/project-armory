@@ -179,3 +179,73 @@ variable "keycloak_port" {
   type        = number
   default     = 8444
 }
+
+# ---------------------------------------------------------------------------
+# Realm bootstrap (Keycloak import)
+# ---------------------------------------------------------------------------
+
+variable "keycloak_realm" {
+  description = "Keycloak realm name to create during first-boot import."
+  type        = string
+  default     = "armory"
+}
+
+variable "realm_operator_username" {
+  description = "Username for the seeded demo operator account in the Keycloak realm."
+  type        = string
+  default     = "operator"
+}
+
+variable "realm_operator_password" {
+  description = "Password for the seeded demo operator account. Override before any non-demo use."
+  type        = string
+  sensitive   = true
+  default     = "armory-demo-2026"
+}
+
+variable "realm_required_group" {
+  description = "Keycloak group the operator user joins. Vault OIDC maps this group to the operator policy."
+  type        = string
+  default     = "vault-operators"
+}
+
+variable "vault_oidc_client_id" {
+  description = "Client ID for the Vault confidential OIDC client (server-side operator login)."
+  type        = string
+  default     = "vault"
+}
+
+variable "vault_oidc_client_secret" {
+  description = "Client secret for the Vault confidential OIDC client. Must match vault-config oidc_client_secret."
+  type        = string
+  sensitive   = true
+  default     = "armory-vault-oidc-secret-2026"
+}
+
+variable "vault_oidc_redirect_uris" {
+  description = "Allowed redirect URIs for the Vault OIDC client (CLI and UI callbacks)."
+  type        = list(string)
+  default = [
+    "http://localhost:8250/oidc/callback",
+    "https://127.0.0.1:8200/oidc/callback",
+    "https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback",
+  ]
+}
+
+variable "agent_cli_client_id" {
+  description = "Client ID for the agent-cli public OIDC client (PKCE interactive login)."
+  type        = string
+  default     = "agent-cli"
+}
+
+variable "agent_cli_redirect_uri" {
+  description = "Allowed redirect URI for the agent-cli OIDC client."
+  type        = string
+  default     = "http://127.0.0.1:18080/callback"
+}
+
+variable "agent_cli_web_origin" {
+  description = "Allowed web origin for the agent-cli OIDC client."
+  type        = string
+  default     = "http://127.0.0.1:18080"
+}

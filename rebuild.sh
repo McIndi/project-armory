@@ -91,8 +91,18 @@
 #   Phase 6   Apply services/keycloak/ — Keycloak 24 on port 8444 with a
 #             Vault Agent sidecar that renders: TLS cert (pki_ext), Postgres
 #             password (database/static-creds/keycloak), and admin bootstrap
-#             credentials (kv/data/keycloak/admin).
+#             credentials (kv/data/keycloak/admin). The 'armory' realm is
+#             seeded automatically on first boot via a realm import JSON
+#             rendered by OpenTofu (realm, group, operator user, both OIDC
+#             clients with group mappers and PKCE on agent-cli).
 #             (Skippable with --skip-keycloak.)
+#
+#   Phase 7   Wait for Keycloak to be healthy, then re-apply vault-config/
+#             with oidc_enabled=true to enable the Vault OIDC auth backend.
+#             The OIDC client secret is shared between the realm import JSON
+#             and vault-config via the OIDC_CLIENT_SECRET env var (default:
+#             armory-vault-oidc-secret-2026). No browser interaction needed.
+#             (Skipped automatically when --skip-keycloak is passed.)
 #
 #   Phase 9   Re-apply vault-config/ with agent_enabled=true, then apply
 #             services/agent/ — writes role_id and wrapped_secret_id to
@@ -101,22 +111,15 @@
 #
 # MANUAL STEPS NOT AUTOMATED BY THIS SCRIPT
 # ------------------------------------------
-#   Phase 7   Configure the Keycloak 'armory' realm via the admin console:
-#             create the 'vault-operators' group, the 'vault' confidential
-#             OIDC client (with a Group Membership protocol mapper), and the
-#             'agent-cli' public OIDC client (PKCE/S256, no direct grant).
-#             This requires browser-based interaction and a Keycloak client
-#             secret that cannot be predicted ahead of time.
-#
-#   Phase 8   Enable the Vault OIDC auth method by re-applying vault-config/
-#             with oidc_enabled=true and the client secret from Phase 7.
-#             Must be done after Phase 7 because the secret is only known
-#             once the Keycloak client exists.
-#
 #   Agent API Start the FastAPI server manually:
 #             cd services/agent/agent && .venv/bin/python api.py
 #             The wrapped_secret_id is single-use; re-run services/agent/
 #             tofu apply to issue a new one before each cold start.
+#
+#   Hardening (optional, after verifying OIDC works):
+#             Re-apply vault-config/ with userpass_enabled=false to retire
+#             the bootstrap userpass auth method and require OIDC for all
+#             human logins.
 #
 # DESIGN NOTES
 # ------------
@@ -200,6 +203,11 @@ SKIP_WEBSERVER=false   # If true, Phase 4 (nginx) is skipped
 SKIP_KEYCLOAK=false    # If true, Phases 6 and 9 are skipped
 SKIP_AGENT=false       # If true, Phase 9 (services/agent) is skipped
 DESTROY_ONLY=false     # If true, teardown runs but build() does not
+
+# OIDC client secret — must match vault_oidc_client_secret in services/keycloak/
+# and oidc_client_secret in vault-config/. The default matches example.tfvars;
+# override via the OIDC_CLIENT_SECRET env var before any non-demo use.
+OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-armory-vault-oidc-secret-2026}"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # Simple positional flag parsing. No getopt dependency — keeps the script
@@ -328,20 +336,39 @@ saved_root_token() {
 #
 # The CA cert at $DEPLOY_DIR/vault/tls/ca.crt is a self-signed cert written
 # by the vault/ tofu module. curl needs it to verify the TLS connection.
-# -sk would suppress errors but also skip verification; --cacert is correct.
+# -s suppresses progress noise while preserving TLS verification via --cacert.
 wait_for_vault() {
   local max_attempts="${1:-30}"   # Default: 30 attempts × 1 second = 30 seconds
   local attempt=0
+  local code
+  local state
 
   log "Waiting for Vault to become reachable..."
-  until curl -sk --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
-        https://127.0.0.1:8200/v1/sys/health \
-        -o /dev/null -w "%{http_code}" 2>/dev/null \
-        | grep -qE '^(200|429|472|473|501|503)$'; do
+  while true; do
+    code=$(curl -s --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
+           https://127.0.0.1:8200/v1/sys/health \
+           -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+
+    case "$code" in
+      200) state="active/unsealed" ;;
+      429) state="standby (HA)" ;;
+      472) state="dr secondary" ;;
+      473) state="performance standby" ;;
+      501) state="uninitialized" ;;
+      503) state="sealed" ;;
+      000) state="connection failed" ;;
+      *)   state="unexpected status" ;;
+    esac
 
     attempt=$(( attempt + 1 ))
+    log "Vault health attempt ${attempt}/${max_attempts}: HTTP ${code} (${state})"
+
+    if [[ "$code" =~ ^(200|429|472|473|501|503)$ ]]; then
+      break
+    fi
+
     if [[ $attempt -ge $max_attempts ]]; then
-      error "Vault did not become reachable after ${max_attempts}s"
+      error "Vault did not become reachable after ${max_attempts} attempts"
       return 1
     fi
     sleep 1
@@ -478,6 +505,45 @@ wait_for_postgres() {
 }
 
 # =============================================================================
+# KEYCLOAK READINESS HELPER
+# =============================================================================
+# wait_for_keycloak: polls the Keycloak /health/ready endpoint until it
+# returns HTTP 200, indicating the server has completed startup and is
+# accepting requests. This must pass before Phase 7 runs vault-config with
+# oidc_enabled=true, because Vault immediately queries the OIDC discovery URL
+# (https://<keycloak>/realms/armory/.well-known/openid-configuration) when
+# the JWT auth backend is created.
+#
+# The CA cert at $SCRIPT_DIR/vault/ca-bundle.pem covers all PKI-issued
+# certificates including the Keycloak TLS cert (issued from pki_ext).
+# =============================================================================
+
+wait_for_keycloak() {
+  local max_attempts="${1:-180}"  # 180 × 3 seconds = 9 minutes maximum wait
+  local attempt=0
+  local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
+
+  log "Waiting for Keycloak to become ready on port 8444..."
+  log "(This can take up to 10 minutes while Vault Agent renders TLS cert and DB password)"
+
+  until curl -s --cacert "$cacert" \
+        https://127.0.0.1:8444/health/ready \
+        -o /dev/null -w "%{http_code}" 2>/dev/null \
+        | grep -q "200"; do
+    attempt=$(( attempt + 1 ))
+    if [[ $attempt -ge $max_attempts ]]; then
+      error "Keycloak did not become ready after $(( max_attempts * 3 ))s"
+      log "Last 20 lines from armory-keycloak (if running):"
+      podman logs armory-keycloak --tail 20 2>/dev/null || true
+      log "Last 20 lines from armory-keycloak-vault-agent (if running):"
+      podman logs armory-keycloak-vault-agent --tail 20 2>/dev/null || true
+      return 1
+    fi
+    sleep 3
+  done
+
+  success "Keycloak is ready"
+}
 # OPENTOFU HELPERS
 # =============================================================================
 
@@ -926,6 +992,16 @@ build() {
   # 60 seconds to accommodate slow pulls or slow container runtimes.
   wait_for_vault 60
 
+  # Phase 2 expects an uninitialized Vault (HTTP 501). If Vault is already
+  # initialized (typically HTTP 503/200), running `bao operator init` will
+  # fail with "Vault is already initialized". Fail fast with a clearer error.
+  if ! vault_is_uninit; then
+    error "Vault is reachable but not uninitialized; refusing to run 'bao operator init'"
+    error "Expected HTTP 501 from /v1/sys/health at this stage."
+    error "This usually means stale Vault data survived teardown."
+    exit 1
+  fi
+
   log "Running bao operator init (1-of-1 key shares)..."
   local init_output
   init_output=$(podman exec armory-vault bao operator init \
@@ -957,7 +1033,28 @@ build() {
   fi
 
   log "Unsealing Vault..."
-  podman exec armory-vault bao operator unseal "$UNSEAL_KEY"
+  local unseal_attempt unseal_max unseal_output
+  unseal_max=15
+  for ((unseal_attempt=1; unseal_attempt<=unseal_max; unseal_attempt++)); do
+    if unseal_output=$(podman exec armory-vault bao operator unseal "$UNSEAL_KEY" 2>&1); then
+      break
+    fi
+
+    if grep -qi "certificate has expired or is not yet valid" <<< "$unseal_output"; then
+      warn "Unseal attempt ${unseal_attempt}/${unseal_max} failed due to TLS not-yet-valid window; retrying..."
+      sleep 1
+      continue
+    fi
+
+    error "bao operator unseal failed with a non-retryable error:"
+    echo "$unseal_output"
+    exit 1
+  done
+
+  if [[ $unseal_attempt -gt $unseal_max ]]; then
+    error "Failed to unseal Vault after ${unseal_max} attempts (TLS validity window did not clear)"
+    exit 1
+  fi
 
   # Brief pause to allow Vault to complete the unseal transition internally
   # before we query the health endpoint.
@@ -980,7 +1077,10 @@ build() {
 
   # ── Phase 3: Configure Vault ────────────────────────────────────────────────
   # The vault-config/ module builds the entire logical configuration on top of
-  # the running Vault instance. It applies in a single `tofu apply` pass:
+  # the running Vault instance. This phase uses two applies:
+  #   1) Base vault-config resources (PKI, auth, policies, engines)
+  #   2) Consolidated trust bundle (`vault_tls_cacert_path`) so ca-bundle.pem
+  #      also contains the Vault server TLS CA
   #
   #   PKI hierarchy:
   #     pki/         Root CA (10-year, ECDSA P-384, no direct leaf issuance)
@@ -1015,8 +1115,14 @@ build() {
     tofu apply -auto-approve \
       -var armory_base_dir="$ARMORY_BASE_DIR" \
       2>&1 | sed 's/^/  [vault-config] /'
+
+    log "Re-applying vault-config/ with vault_tls_cacert_path for consolidated trust bundle..."
+    tofu apply -auto-approve \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      -var "vault_tls_cacert_path=$DEPLOY_DIR/vault/tls/ca.crt" \
+      2>&1 | sed 's/^/  [vault-config] /'
   )
-  success "Vault configured: PKI hierarchy, auth methods, policies, KV, and DB engine ready"
+  success "Vault configured: PKI/auth/policies are ready and vault/ca-bundle.pem includes Vault TLS CA"
 
   # ── Phase 4: Deploy webserver (optional) ────────────────────────────────────
   # The webserver service is a demonstration of the Vault Agent sidecar pattern
@@ -1135,9 +1241,10 @@ build() {
   #     the initial admin credentials fetched from kv/data/keycloak/admin.
   #     These are only used on first startup to seed the master realm.
   #
-  # After this phase, Keycloak is running on port 8444 with TLS. The admin
-  # console is at https://127.0.0.1:8444/admin. However, the armory realm,
-  # OIDC clients, and group mappings must be created manually (Phase 7).
+  # After this phase, Keycloak is running on port 8444 with TLS and the
+  # 'armory' realm is imported automatically on first boot from the JSON file
+  # rendered by OpenTofu (services/keycloak/templates/realm-armory.json.tpl).
+  # Phase 7 below waits for readiness and then enables the Vault OIDC backend.
   if [[ "$SKIP_KEYCLOAK" == "false" ]]; then
     header "PHASE 6 — Deploy Keycloak (OIDC identity provider)"
     ensure_tfvars "services/keycloak"
@@ -1154,6 +1261,38 @@ build() {
     success "Keycloak deployed — admin console at https://127.0.0.1:8444/admin"
   else
     warn "Skipping Phase 6 (Keycloak) — --skip-keycloak flag was passed"
+  fi
+
+  # ── Phase 7: Enable Vault OIDC auth (automated) ────────────────────────────
+  # Now that Keycloak is up and the 'armory' realm exists (imported on first
+  # boot), re-apply vault-config/ with oidc_enabled=true. Vault will
+  # immediately fetch the OIDC discovery document from Keycloak to validate
+  # the configuration, so Keycloak must be healthy before this step runs.
+  #
+  # The client secret is the same value baked into the realm import JSON by
+  # the services/keycloak module (vault_oidc_client_secret). Override
+  # OIDC_CLIENT_SECRET before running rebuild.sh if you customised it.
+  if [[ "$SKIP_KEYCLOAK" == "false" ]]; then
+    header "PHASE 7 — Enable Vault OIDC auth (automated)"
+
+    wait_for_keycloak
+
+    log "Enabling Vault OIDC auth backend (vault-config oidc_enabled=true)..."
+    (
+      cd "$SCRIPT_DIR/vault-config"
+      tofu apply -auto-approve \
+        -var armory_base_dir="$ARMORY_BASE_DIR" \
+        -var keycloak_url="https://armory-keycloak:8443" \
+        -var database_roles_enabled=true \
+        -var oidc_enabled=true \
+        -var oidc_client_secret="$OIDC_CLIENT_SECRET" \
+        -var userpass_enabled=true \
+        2>&1 | sed 's/^/  [vault-config] /'
+    )
+    success "Vault OIDC auth enabled — operator login via Keycloak is active"
+    log "  Verify: bao login -method=oidc role=operator"
+  else
+    warn "Skipping Phase 7 (OIDC) — --skip-keycloak flag was passed"
   fi
 
   # ── Phase 9: Deploy the agentic layer ───────────────────────────────────────
@@ -1186,13 +1325,15 @@ build() {
     (
       cd "$SCRIPT_DIR/vault-config"
       # Both vars must be true: agent_enabled creates the agent AppRole;
-      # database_roles_enabled prevents tofu from destroying the db roles
-      # that were created in Phase 5b (omitting a var reverts it to its
-      # default, which is false for both of these).
+      # database_roles_enabled preserves the db roles from Phase 5b;
+      # oidc_enabled preserves the OIDC backend from Phase 7.
+      # Omitting any of these would cause tofu to destroy that resource.
       tofu apply -auto-approve \
         -var armory_base_dir="$ARMORY_BASE_DIR" \
         -var agent_enabled=true \
         -var database_roles_enabled=true \
+        -var oidc_enabled=true \
+        -var oidc_client_secret="$OIDC_CLIENT_SECRET" \
         2>&1 | sed 's/^/  [vault-config] /'
     )
     success "Agent AppRole and policy created in Vault"
@@ -1257,21 +1398,27 @@ print_summary() {
 
   if [[ "$SKIP_KEYCLOAK" == "false" ]]; then
     echo ""
-    echo "  Phase 7 — Configure the Keycloak 'armory' realm (browser-based):"
-    echo "    1. Log in to https://127.0.0.1:8444/admin"
-    echo "    2. Create realm: armory"
-    echo "    3. Create group: vault-operators  (add your operator user)"
-    echo "    4. Create OIDC client 'vault' (confidential, with Group Membership mapper)"
-    echo "    5. Create OIDC client 'agent-cli' (public, PKCE S256, no direct grant)"
-    echo "    See README.md Phase 7 for the full step-by-step."
+    echo "  Keycloak realm — the 'armory' realm, OIDC clients, group, and operator"
+    echo "  user were seeded automatically via the realm import JSON."
+    echo "  Log in at https://127.0.0.1:8444/admin to verify:"
+    echo "    Realm: armory"
+    echo "    Group: vault-operators  (contains user 'operator')"
+    echo "    Clients: vault (confidential), agent-cli (public, PKCE S256)"
     echo ""
-    echo "  Phase 8 — Enable Vault OIDC auth (after Phase 7):"
+    echo "  Test OIDC login:"
+    echo "    export VAULT_ADDR=https://127.0.0.1:8200"
+    echo "    export VAULT_CACERT=$DEPLOY_DIR/vault/tls/ca.crt"
+    echo "    bao login -method=oidc role=operator"
+    echo ""
+    echo "  Optional — retire userpass after verifying OIDC works:"
     echo "    cd vault-config/"
     echo "    export TF_VAR_vault_token=<ROOT_TOKEN_FROM_$CREDS_FILE>"
     echo "    tofu apply \\"
     echo "      -var oidc_enabled=true \\"
-    echo "      -var oidc_client_id=vault \\"
-    echo "      -var 'oidc_client_secret=<SECRET_FROM_KEYCLOAK_VAULT_CLIENT>'"
+    echo "      -var 'oidc_client_secret=\$OIDC_CLIENT_SECRET' \\"
+    echo "      -var agent_enabled=true \\"
+    echo "      -var database_roles_enabled=true \\"
+    echo "      -var userpass_enabled=false"
   fi
 
   if [[ "$SKIP_AGENT" == "false" ]]; then

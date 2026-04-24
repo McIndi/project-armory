@@ -178,3 +178,74 @@ run "keycloak_url_output" {
     error_message = "keycloak_url must be https://host_ip:keycloak_port"
   }
 }
+
+# ---------------------------------------------------------------------------
+# Realm import — compose wiring
+# ---------------------------------------------------------------------------
+
+run "compose_uses_import_realm_flag" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.compose.content, "--import-realm")
+    error_message = "compose.yml Keycloak entrypoint must include the --import-realm flag"
+  }
+}
+
+run "compose_mounts_import_dir" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_file.compose.content, "/opt/keycloak/data/import")
+    error_message = "compose.yml must mount the import dir into /opt/keycloak/data/import"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Realm import — JSON content
+# ---------------------------------------------------------------------------
+
+run "realm_import_contains_vault_client" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, var.vault_oidc_client_id)
+    error_message = "realm import JSON must contain the vault OIDC client ID"
+  }
+}
+
+run "realm_import_contains_agent_cli_client" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, var.agent_cli_client_id)
+    error_message = "realm import JSON must contain the agent-cli OIDC client ID"
+  }
+}
+
+run "realm_import_has_pkce_s256" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, "S256")
+    error_message = "realm import JSON must configure PKCE S256 on the agent-cli client"
+  }
+}
+
+run "realm_import_has_group_membership_mapper" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, "oidc-group-membership-mapper")
+    error_message = "realm import JSON must include the oidc-group-membership-mapper protocol mapper"
+  }
+}
+
+run "realm_import_contains_required_group" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, var.realm_required_group)
+    error_message = "realm import JSON must define the required Keycloak group"
+  }
+}
