@@ -729,8 +729,10 @@ correlating the API log with the Vault audit log.
 > **Same env vars:** `cli.py` reads `KEYCLOAK_URL`, `ARMORY_CACERT`, `OIDC_CLIENT_ID`,
 > and `AGENT_API_URL` from the environment — the same variables set for the API above.
 
-> **Single-use secret_id:** The `wrapped_secret_id` is consumed on first agent startup.
-> Re-run `tofu apply` in `services/agent/` to issue a new one before the next run.
+> **Single-use secret_id:** The `wrapped_secret_id` is consumed once at API startup.
+> Requests handled by that running API process reuse the same Vault token. Re-run
+> `tofu apply` in `services/agent/` only when starting a new API process that no
+> longer has a valid startup token.
 
 > **Postgres hostname:** `armory-postgres` only resolves on `armory-net`. If running
 > the agent on the host, either add a `/etc/hosts` entry or run it inside a container
@@ -778,30 +780,72 @@ tofu apply \
 
 ## Connecting to services
 
-Project Armory uses **two separate trust anchors** — both must be trusted for full connectivity:
+Project Armory provides **two ways to organize trust anchors**:
 
-| CA file | Covers | Location |
-|---------|--------|----------|
-| `/opt/armory/vault/tls/ca.crt` | Vault server TLS only (self-signed by OpenTofu `tls` provider) | Written by `vault/` module |
-| `vault/ca-bundle.pem` | Everything else: Keycloak, nginx, agent, Postgres — all PKI-issued certs | Written by `vault-config/` module to the project repo |
+### Option 1: Consolidated CA bundle (recommended)
 
-### Trusting both CAs (Fedora / RHEL)
+Run `vault-config/` with the `vault_tls_cacert_path` variable to include the Vault server TLS CA in the main ca-bundle:
 
+```bash
+cd vault-config/
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu apply -var "vault_tls_cacert_path=/opt/armory/vault/tls/ca.crt"
+```
+
+This creates a single `vault/ca-bundle.pem` file containing:
+- Vault server TLS CA (self-signed by OpenTofu `tls` provider)
+- Armory Root CA (PKI root)
+- Armory Internal Intermediate CA (pki_int)
+- Armory External Intermediate CA (pki_ext)
+
+After consolidation, use only `vault/ca-bundle.pem` for all Armory services.
+
+### Option 2: Separate CA files (legacy)
+
+If you prefer to keep the Vault TLS CA separate, run `vault-config/` without the `vault_tls_cacert_path` variable:
+
+```bash
+cd vault-config/
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu apply
+```
+
+This creates:
+- `/opt/armory/vault/tls/ca.crt` — Vault server TLS only
+- `vault/ca-bundle.pem` — PKI-issued certs (Keycloak, nginx, agent, Postgres)
+
+Both files must be trusted for full connectivity.
+
+### Trusting the CA bundle(s) system-wide (Fedora / RHEL)
+
+**Consolidated (Option 1):**
+```bash
+sudo cp vault/ca-bundle.pem /etc/pki/ca-trust/source/anchors/armory-ca-bundle.crt
+sudo update-ca-trust
+```
+
+**Separate (Option 2):**
 ```bash
 sudo cp /opt/armory/vault/tls/ca.crt /etc/pki/ca-trust/source/anchors/armory-vault-ca.crt
 sudo cp vault/ca-bundle.pem /etc/pki/ca-trust/source/anchors/armory-ca-bundle.crt
 sudo update-ca-trust
 ```
 
-After this, `curl`, browsers, and the `bao` CLI will trust all Armory-issued certificates without extra flags.
-
 ### Without modifying the system trust store
 
+**Consolidated (Option 1):**
 ```bash
-# Vault
+# All services
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8200/v1/sys/health
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/health/ready
+```
+
+**Separate (Option 2):**
+```bash
+# Vault only
 curl --cacert /opt/armory/vault/tls/ca.crt https://127.0.0.1:8200/v1/sys/health
 
-# Keycloak / nginx / any PKI-backed service
+# Keycloak / nginx / other PKI-backed services
 curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/health/ready
 ```
 
@@ -816,7 +860,19 @@ podman exec -e VAULT_TOKEN=<TOKEN> armory-vault bao <command>
 
 #### From other services on armory-net
 
-Services on `armory-net` reach Vault at `https://armory-vault:8200`. Mount `/opt/armory/vault/tls/ca.crt` as `VAULT_CACERT`.
+Services on `armory-net` reach Vault at `https://armory-vault:8200`. 
+
+**If using consolidated CA bundle (Option 1):**
+```bash
+# Mount vault/ca-bundle.pem as VAULT_CACERT
+export VAULT_CACERT=/path/to/project-armory/vault/ca-bundle.pem
+```
+
+**If using separate CAs (Option 2):**
+```bash
+# Mount /opt/armory/vault/tls/ca.crt as VAULT_CACERT
+export VAULT_CACERT=/opt/armory/vault/tls/ca.crt
+```
 
 #### Web UI / host CLI
 
@@ -824,6 +880,14 @@ Port 8200 is bound to `127.0.0.1` only. Access the UI at `https://127.0.0.1:8200
 
 #### Operator login (userpass, before OIDC)
 
+**Consolidated (Option 1):**
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_CACERT=vault/ca-bundle.pem
+bao login -method=userpass username=operator
+```
+
+**Separate (Option 2):**
 ```bash
 export VAULT_ADDR=https://127.0.0.1:8200
 export VAULT_CACERT=/opt/armory/vault/tls/ca.crt
@@ -832,13 +896,19 @@ bao login -method=userpass username=operator
 
 ### Connecting to Keycloak
 
-Keycloak's TLS cert is issued by the `pki_ext` intermediate CA — it is **not** covered by `/opt/armory/vault/tls/ca.crt`. Use `vault/ca-bundle.pem`:
+Keycloak's TLS cert is issued by the `pki_ext` intermediate CA.
 
+**Consolidated (Option 1):**
 ```bash
-# Verify Keycloak is healthy
+# Use the single ca-bundle.pem for all services
 curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/health/ready
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/admin
+```
 
-# Access admin console (use credentials from kv/data/keycloak/admin)
+**Separate (Option 2):**
+```bash
+# Use vault/ca-bundle.pem (does not include Vault server TLS CA)
+curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/health/ready
 curl --cacert vault/ca-bundle.pem https://127.0.0.1:8444/admin
 ```
 
@@ -916,7 +986,7 @@ All use mocked providers — no containers start and no files are written.
 
 ## Runtime Directory Layout
 
-> **CA bundle note:** `vault/ca-bundle.pem` (all three PKI CAs) is written to the **project repo directory** by the `vault-config/` module, not to `/opt/armory/`. Use this file with `--cacert` or import it into the system trust store to connect to Keycloak, nginx, and any other PKI-backed service.
+> **CA bundle note:** `vault/ca-bundle.pem` is written to the **project repo directory** by the `vault-config/` module. By default, it contains all three PKI CAs (root, internal intermediate, external intermediate). If `vault-config/` is run with `vault_tls_cacert_path=/opt/armory/vault/tls/ca.crt`, the bundle also includes the Vault server TLS CA, providing a single consolidated trust anchor for all Armory services. Use this file with `--cacert` or import it into the system trust store.
 
 ```
 /opt/armory/

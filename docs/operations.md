@@ -74,6 +74,18 @@ export TF_VAR_vault_token=<ROOT_TOKEN>
 tofu init && tofu apply -auto-approve
 ```
 
+**Optional: Consolidate CA certificates**
+
+To create a single `ca-bundle.pem` that includes both the Vault server TLS CA and all PKI CAs, re-apply with the `vault_tls_cacert_path` variable:
+
+```bash
+cd ~/projects/project-armory/vault-config
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu apply -var "vault_tls_cacert_path=/opt/armory/vault/tls/ca.crt" -auto-approve
+```
+
+After this, use `vault/ca-bundle.pem` as the single trust anchor for all Armory services (`VAULT_CACERT`, `--cacert`, system trust store, etc.). Skip this step if you prefer to keep `/opt/armory/vault/tls/ca.crt` separate for Vault-only connectivity.
+
 ### Phase 4 — PostgreSQL
 
 ```bash
@@ -112,7 +124,13 @@ Admin credentials are in Vault:
 
 ```bash
 export VAULT_ADDR=https://127.0.0.1:8200
+
+# If you consolidated the CA bundle (Phase 3 optional step):
+export VAULT_CACERT=~/projects/project-armory/vault/ca-bundle.pem
+
+# If using separate CAs (default Phase 3):
 export VAULT_CACERT=/opt/armory/vault/tls/ca.crt
+
 podman exec -e VAULT_TOKEN=<ROOT_TOKEN> armory-vault \
   bao kv get kv/keycloak/admin
 ```
@@ -189,7 +207,7 @@ cd ~/projects/project-armory/services/agent/agent
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 export VAULT_ADDR=https://127.0.0.1:8200
-export ARMORY_CACERT=/opt/armory/vault/tls/ca.crt
+export ARMORY_CACERT=~/projects/project-armory/vault/ca-bundle.pem
 export APPROLE_DIR=/opt/armory/agent/approle
 export KEYCLOAK_URL=https://127.0.0.1:8444
 export OIDC_CLIENT_ID=agent-cli
@@ -199,8 +217,13 @@ export POSTGRES_DB=app
 .venv/bin/python api.py
 ```
 
-> **Single-use secret_id:** The `wrapped_secret_id` is consumed on first agent startup.
-> Re-run `tofu apply` in `services/agent/` to issue a new one before the next run.
+> **Single-use secret_id:** The `wrapped_secret_id` is consumed once at API startup.
+> Requests handled by that running API process reuse the same Vault token.
+> Re-run `tofu apply` in `services/agent/` when starting a new API process that no
+> longer has a valid startup token.
+
+> **API restart note:** If startup fails with a wrapping token error, issue a fresh
+> wrapped secret by re-running `tofu apply` in `services/agent/`, then restart `api.py`.
 
 > **Postgres hostname:** `armory-postgres` only resolves on `armory-net`. If running
 > the agent on the host, add a `/etc/hosts` entry or run it inside a container on
@@ -220,6 +243,11 @@ podman ps --format "table {{.Names}}\t{{.Status}}"
 
 ```bash
 export VAULT_ADDR=https://127.0.0.1:8200
+
+# If you consolidated the CA bundle (Phase 3 optional step):
+export VAULT_CACERT=~/projects/project-armory/vault/ca-bundle.pem
+
+# If using separate CAs (default Phase 3):
 export VAULT_CACERT=/opt/armory/vault/tls/ca.crt
 
 podman exec armory-vault bao status
@@ -273,7 +301,7 @@ for line in sys.stdin:
 ### Verify Keycloak is issuing tokens correctly
 
 ```bash
-curl -s --cacert /opt/armory/vault/tls/ca.crt \
+curl -s --cacert ~/projects/project-armory/vault/ca-bundle.pem \
   https://127.0.0.1:8444/realms/armory/.well-known/openid-configuration \
   | python3 -m json.tool | grep -E "issuer|token_endpoint|jwks"
 ```

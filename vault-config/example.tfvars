@@ -7,6 +7,10 @@ vault_addr   = "https://127.0.0.1:8200"
 # Optional override. When unset, defaults to ${armory_base_dir}/vault/tls/ca.crt.
 # vault_cacert = "/opt/armory/vault/tls/ca.crt"
 
+# Optional: Include the Vault server TLS CA in the ca-bundle.pem for consolidated trust store.
+# When set, ca-bundle.pem will include both the Vault server TLS CA and all PKI CAs.
+# vault_tls_cacert_path = "/opt/armory/vault/tls/ca.crt"
+
 # vault_token is required — set via TF_VAR_vault_token env var or terraform.tfvars
 # vault_token = "hvs...."
 

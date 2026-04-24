@@ -26,6 +26,12 @@ variable "vault_cacert" {
   default     = null
 }
 
+variable "vault_tls_cacert_path" {
+  description = "Path to the Vault server TLS CA certificate (self-signed, from vault/ module). If provided, this cert will be included in the ca-bundle.pem for simplified trust store management."
+  type        = string
+  default     = ""
+}
+
 # ---------------------------------------------------------------------------
 # PKI
 # ---------------------------------------------------------------------------
