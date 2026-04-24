@@ -235,7 +235,7 @@ graph LR
     database -->|app<br/>dynamic creds| agent_data
     
     %% Host tls dir shared
-    v_tls -->|bind-mount (ro)| agent_tls_ro
+    v_tls -->|bind-mount ro| agent_tls_ro
     v_tls -->|distributed to<br/>all services| pg_approle
     
     %% Vault Agent writes outputs
