@@ -9,73 +9,169 @@ Project Armory uses a containerized architecture with services communicating ove
 ## Network Topology Diagram
 
 ```mermaid
-graph TB
-    subgraph "Host Machine (127.0.0.1)"
-        direction TB
-        lo["<b>Loopback Interface</b><br/>127.0.0.1"]
-    end
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '13px'}}}%%
+flowchart TB
 
-    subgraph "vault-net"
+    %% ═══════════════════════════════════════════════════════════════════
+    %% HOST — Fedora 43 VM  (Vagrant + VirtualBox sits below this layer)
+    %% ═══════════════════════════════════════════════════════════════════
+    subgraph HOST["Fedora 43 VM · rootless Podman"]
         direction TB
-        vault["<b>armory-vault</b><br/>Container: 8200, 8201<br/>API + Raft"]
-    end
 
-    subgraph "armory-net"
-        direction TB
-        subgraph "Services"
-            postgres["<b>armory-postgres</b><br/>:5432"]
-            keycloak["<b>armory-keycloak</b><br/>:8443"]
-            nginx["<b>armory-webserver</b><br/>:443"]
+        %% ── Loopback port bindings exposed to the host ─────────────────
+        subgraph LB["127.0.0.1 — Loopback Port Bindings  (localhost only by default)"]
+            direction LR
+            b8200["<b>:8200</b><br/>Vault API / UI"]
+            b5432["<b>:5432</b><br/>PostgreSQL"]
+            b8444["<b>:8444</b><br/>Keycloak HTTPS"]
+            b8443["<b>:8443</b><br/>Nginx HTTPS"]
+            b8445["<b>:8445</b><br/>Agent API HTTPS"]
         end
-        subgraph "Vault Agents"
-            vault_agent_pg["<b>armory-postgres<br/>-vault-agent</b><br/>Inject: postgres.pem"]
-            vault_agent_kc["<b>armory-vault-agent<br/>-keycloak</b><br/>Inject: keycloak.pem<br/>+ env files"]
-            vault_agent_nginx["<b>armory-vault-agent</b><br/>Inject: nginx.pem"]
+
+        %% ═══════════════════════════════════════════════════════════════
+        %% ARMORY-NET — single Podman bridge network
+        %% Vault compose creates it; every other service joins as external.
+        %% ═══════════════════════════════════════════════════════════════
+        subgraph NET["armory-net · Podman bridge  (created by Vault compose — all services join as external)"]
+            direction TB
+
+            %% ── Vault (secret & PKI authority) ────────────────────────
+            VAULT[["<b>armory-vault</b><br/>────────────────────────────<br/>Image: quay.io/openbao/openbao:2.5.2<br/>:8200  API + UI  HTTPS  ← published<br/>:8201  Raft cluster  ← internal only<br/>TLS: self-signed CA  /vault/tls/ca.crt<br/>Auth mounts: approle · oidc<br/>PKI mounts:  pki_int · pki_ext"]]
+
+            %% ── PostgreSQL stack ───────────────────────────────────────
+            subgraph PG_S["PostgreSQL Stack"]
+                direction LR
+                VA_PG["<b>armory-postgres-vault-agent</b><br/>──────────────────────<br/>Sidecar: OpenBao agent<br/>Auth: AppRole  approle/postgres<br/>Policies: postgres_db · postgres_pki<br/>Writes: postgres.pem"]
+                PG[("  <b>armory-postgres</b>  <br/>──────────────────────<br/>postgres:16-alpine<br/>:5432  PostgreSQL + TLS<br/>CN: armory-postgres.armory.internal<br/>CA: pki_int  TTL: 24h")]
+            end
+
+            %% ── Keycloak stack ─────────────────────────────────────────
+            subgraph KC_S["Keycloak Stack  (OIDC Identity Provider)"]
+                direction LR
+                VA_KC["<b>armory-vault-agent-keycloak</b><br/>──────────────────────<br/>Sidecar: OpenBao agent<br/>Auth: AppRole  approle/keycloak<br/>Policies: keycloak_db · keycloak_pki<br/>          · kv_reader_keycloak<br/>Writes: keycloak.pem<br/>        + keycloak.env<br/>        + keycloak-admin.env"]
+                KC["<b>armory-keycloak</b><br/>──────────────────────<br/>keycloak:24.0<br/>:8443  OIDC + Admin UI  HTTPS<br/>Realm: armory<br/>CN: armory-keycloak<br/>CA: pki_ext  TTL: 720h<br/>DB: armory-postgres:5432 (JDBC+TLS)"]
+            end
+
+            %% ── Nginx / Webserver stack ────────────────────────────────
+            subgraph WEB_S["Webserver Stack"]
+                direction LR
+                VA_WEB["<b>armory-vault-agent</b>  (webserver)<br/>──────────────────────<br/>Sidecar: OpenBao agent<br/>Auth: AppRole  approle/nginx<br/>Policies: nginx_pki<br/>Writes: nginx.pem"]
+                NGINX["<b>armory-webserver</b><br/>──────────────────────<br/>nginx:alpine<br/>:443  HTTPS reverse proxy<br/>CN: armory-webserver<br/>CA: pki_ext  TTL: 720h"]
+            end
+
+            %% ── Agent API stack ────────────────────────────────────────
+            subgraph AGENT_S["Agent API Stack"]
+                direction LR
+                VA_AGENT["<b>vault-agent</b>  (agent)<br/>──────────────────────<br/>Sidecar: OpenBao agent<br/>Auth: AppRole  approle/agent<br/>Policies: agent_pki<br/>Writes: agent.pem"]
+                AGENTAPI["<b>agent-api</b><br/>──────────────────────<br/>Python FastAPI (uvicorn)<br/>:8443  HTTPS REST API<br/>CN: armory-agent<br/>CA: pki_ext  TTL: 720h<br/>Auth: Keycloak OIDC Bearer token"]
+            end
         end
     end
 
-    %% Host to Container Port Bindings
-    lo -->|<b>8200:8200</b><br/>Vault API<br/>localhost only| vault
-    lo -->|<b>5432:5432</b><br/>PostgreSQL<br/>localhost only| postgres
-    lo -->|<b>8444:8443</b><br/>Keycloak<br/>localhost only| keycloak
-    lo -->|<b>8443:443</b><br/>Nginx<br/>localhost only| nginx
+    %% ════════════════════════════════════════════
+    %% A · Host port bindings  (loopback → container)
+    %% ════════════════════════════════════════════
+    b8200 -->|"127.0.0.1:8200 → :8200  HTTPS"| VAULT
+    b5432 -->|"127.0.0.1:5432 → :5432  TCP+TLS"| PG
+    b8444 -->|"127.0.0.1:8444 → :8443  HTTPS"| KC
+    b8443 -->|"127.0.0.1:8443 → :443   HTTPS"| NGINX
+    b8445 -->|"127.0.0.1:8445 → :8443  HTTPS"| AGENTAPI
 
-    %% Container-to-Container (armory-net)
-    keycloak -->|armory-postgres:5432<br/>TLS| postgres
-    vault_agent_pg -->|armory-vault:8200<br/>AppRole auth| vault
-    vault_agent_kc -->|armory-vault:8200<br/>AppRole auth| vault
-    vault_agent_nginx -->|armory-vault:8200<br/>AppRole auth| vault
-    
-    %% Certificate & Secret Injection
-    vault_agent_pg -->|write| postgres
-    vault_agent_kc -->|write| keycloak
-    vault_agent_nginx -->|write| nginx
-    
-    %% Service Dependencies (health checks)
-    postgres -.->|wait for| vault_agent_pg
-    keycloak -.->|wait for| vault_agent_kc
-    nginx -.->|wait for| vault_agent_nginx
+    %% ════════════════════════════════════════════
+    %% B · Vault Agent sidecars → Vault  (AppRole auth)
+    %% ════════════════════════════════════════════
+    VA_PG    -->|"armory-vault:8200  HTTPS<br/>AppRole auth + pki_int issue"| VAULT
+    VA_KC    -->|"armory-vault:8200  HTTPS<br/>AppRole auth + pki_ext issue + KV read"| VAULT
+    VA_WEB   -->|"armory-vault:8200  HTTPS<br/>AppRole auth + pki_ext issue"| VAULT
+    VA_AGENT -->|"armory-vault:8200  HTTPS<br/>AppRole auth + pki_ext issue"| VAULT
 
-    %% Styling
-    classDef host fill:#f5f5f5,stroke:#333,stroke-width:2px,color:#000
-    classDef network fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef service fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
-    classDef agent fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
-    classDef vault fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
-    
-    class lo host
-    class vault vault
-    class postgres,keycloak,nginx service
-    class vault_agent_pg,vault_agent_kc,vault_agent_nginx agent
+    %% ════════════════════════════════════════════
+    %% C · Vault Agent sidecars → Service  (shared-volume cert injection)
+    %% ════════════════════════════════════════════
+    VA_PG    -. "shared volume<br/>postgres.pem" .-> PG
+    VA_KC    -. "shared volume<br/>keycloak.pem + .env files" .-> KC
+    VA_WEB   -. "shared volume<br/>nginx.pem" .-> NGINX
+    VA_AGENT -. "shared volume<br/>agent.pem" .-> AGENTAPI
+
+    %% ════════════════════════════════════════════
+    %% D · Service-to-service  (Podman DNS on armory-net)
+    %% ════════════════════════════════════════════
+    KC       -->|"armory-postgres:5432<br/>JDBC + TLS  sslmode=require"| PG
+    AGENTAPI -->|"armory-keycloak:8443<br/>OIDC token introspection  HTTPS"| KC
+    AGENTAPI -->|"armory-postgres:5432<br/>SELECT queries + TLS"| PG
+    AGENTAPI -->|"armory-vault:8200<br/>AppRole + Vault API  (runtime)"| VAULT
+    VAULT    -->|"armory-keycloak:8443<br/>OIDC discovery + token verify"| KC
+
+    %% ════════════════════════════════════════════
+    %% Styles
+    %% ════════════════════════════════════════════
+    classDef vault   fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef svc     fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef agent   fill:#ffe0b2,stroke:#e65100,stroke-width:2px,color:#bf360c
+    classDef binding fill:#f3e5f5,stroke:#6a1b9a,stroke-width:1px,color:#4a148c
+
+    class VAULT vault
+    class PG,KC,NGINX,AGENTAPI svc
+    class VA_PG,VA_KC,VA_WEB,VA_AGENT agent
+    class b8200,b5432,b8444,b8443,b8445 binding
 ```
 
 ### Legend
 
-- **Blue boxes (Services)**: Application containers
-- **Orange boxes (Vault Agents)**: Sidecars that inject certificates & secrets
-- **Green box (Vault)**: Central secrets & PKI management
-- **Solid arrows**: Network communication
-- **Dotted arrows**: Dependency relationships (health checks)
+| Color | Meaning |
+|-------|---------|
+| Green | Vault / secret authority |
+| Blue | Application service containers |
+| Orange | Vault Agent sidecar containers |
+| Purple | Host-side loopback port bindings |
+
+| Arrow style | Meaning |
+|-------------|---------|
+| Solid `-->` | Active network call (HTTPS / TCP) |
+| Dotted `-.->` | Shared-volume write (cert/secret injection, no network) |
+
+**Port notation**: `host_ip:host_port → container_port`
+
+---
+
+## PKI Certificate Hierarchy
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph PKI["Vault PKI — Certificate Authority Chain"]
+        direction TB
+
+        ROOT["<b>Vault Self-Signed Root CA</b><br/>Generated at bootstrap<br/>/vault/tls/ca.crt  (shared with all containers)"]
+
+        subgraph INT_CA["pki_int  —  Internal Intermediate CA"]
+            INT["<b>Armory Internal CA</b><br/>Role: armory-server<br/>CN pattern: armory-*.armory.internal"]
+            PG_CERT["armory-postgres.armory.internal<br/>TTL: 24h  (auto-renewed by agent)"]
+            INT --> PG_CERT
+        end
+
+        subgraph EXT_CA["pki_ext  —  External Intermediate CA"]
+            EXT["<b>Armory External CA</b><br/>Role: armory-external<br/>CN pattern: armory-*"]
+            KC_CERT["armory-keycloak<br/>TTL: 720h"]
+            WEB_CERT["armory-webserver<br/>TTL: 720h"]
+            AGENT_CERT["armory-agent<br/>TTL: 720h"]
+            EXT --> KC_CERT
+            EXT --> WEB_CERT
+            EXT --> AGENT_CERT
+        end
+
+        ROOT --> INT
+        ROOT --> EXT
+    end
+
+    classDef ca    fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef leaf  fill:#bbdefb,stroke:#1565c0,stroke-width:1px,color:#0d47a1
+    class ROOT,INT,EXT ca
+    class PG_CERT,KC_CERT,WEB_CERT,AGENT_CERT leaf
+```
+
+### Legend
+
 - **Port format**: `host_port:container_port`
 
 ---
@@ -83,10 +179,11 @@ graph TB
 ## Network Architecture
 
 ### Primary Network: `armory-net`
-- **Type**: Podman bridge network (external)
+- **Type**: Podman bridge network
 - **Driver**: bridge
-- **Purpose**: Internal container-to-container communication
-- **Note**: All services join this network for inter-service communication
+- **Created by**: Vault compose (compose-internal alias `vault-net`; physical name `armory-net`)
+- **Joined by**: All other service compose stacks declare it as `external: true` (each uses a local alias: `postgres-net`, `keycloak-net`, `webserver-net`, `agent-net`)
+- **Purpose**: Single shared network for all container-to-container communication — Vault, all services, and all Vault Agent sidecars
 
 ---
 
@@ -95,7 +192,7 @@ graph TB
 ### 1. Vault (Secret Management)
 **Container Name**: `armory-vault`  
 **Image**: `quay.io/openbao/openbao:2.5.2` (or HashiCorp Vault)  
-**Network**: `vault-net` (separate network created by vault module)
+**Network**: `armory-net` (Vault compose creates this bridge; its compose-internal alias is `vault-net`)
 
 #### Ports
 | Binding | Protocol | Port | Access | Purpose |
@@ -405,8 +502,9 @@ host_port = 8443
 
 ## Networking Notes
 
-1. **No cross-network communication**: Vault runs on `vault-net`, other services on `armory-net`. Separation is intentional.
-2. **DNS Resolution**: Container hostnames resolve via Podman's internal DNS on each network.
-3. **TLS Verification**: All services verify Vault's CA cert (`/vault/tls/ca.crt`).
-4. **Vault Agent health checks**: Services wait for Vault Agent to be healthy (certificates injected) before starting main service.
-5. **Port 443 vs 8443**: Nginx internally listens on 443; the host binding is configurable (default 8443 for rootless Podman).
+1. **Single shared network**: All containers — including Vault — share one Podman bridge network named `armory-net`. The Vault compose project creates it; every other service compose declares it as `external: true`. Each compose file uses a local alias (`vault-net`, `postgres-net`, etc.) that maps to the same physical `armory-net` bridge.
+2. **DNS Resolution**: Podman's embedded DNS resolver gives each container a hostname matching its `container_name`. Containers reach each other by name (e.g. `armory-vault`, `armory-postgres`) without any `/etc/hosts` editing.
+3. **TLS Verification**: All services verify Vault's CA cert (`/vault/tls/ca.crt`), which is shared as a read-only bind mount into every container.
+4. **Vault Agent health checks**: Each service's compose `depends_on` the sidecar Vault Agent with `condition: service_healthy`. The agent is healthy only after it has written the certificate file to the shared volume, guaranteeing the main service starts with valid TLS material.
+5. **Port 443 vs 8443**: Nginx internally listens on 443 (standard HTTPS); the host binding defaults to 8443 because rootless Podman cannot bind ports below 1024 without additional kernel capabilities.
+6. **Port 8443 collision**: Both Nginx (host :8443 → container :443) and the Agent API (host :8445 → container :8443) use internal port 8443 in their respective containers, but they are different containers so there is no conflict.
