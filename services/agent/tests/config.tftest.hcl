@@ -82,6 +82,24 @@ run "wrapped_secret_id_file_permission" {
   }
 }
 
+run "tls_role_id_file_in_approle_dir" {
+  command = plan
+
+  assert {
+    condition     = local_sensitive_file.role_id_tls.filename == "${var.deploy_dir}/approle/role_id_tls"
+    error_message = "role_id_tls must be written to <deploy_dir>/approle/role_id_tls"
+  }
+}
+
+run "tls_wrapped_secret_file_in_approle_dir" {
+  command = plan
+
+  assert {
+    condition     = local_sensitive_file.wrapped_secret_id_tls.filename == "${var.deploy_dir}/approle/wrapped_secret_id_tls"
+    error_message = "wrapped_secret_id_tls must be written to <deploy_dir>/approle/wrapped_secret_id_tls"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Directory layout
 # ---------------------------------------------------------------------------
@@ -114,5 +132,14 @@ run "approle_dir_output" {
   assert {
     condition     = output.approle_dir == "${var.deploy_dir}/approle"
     error_message = "approle_dir output must be <deploy_dir>/approle"
+  }
+}
+
+run "agent_api_url_output" {
+  command = plan
+
+  assert {
+    condition     = output.agent_api_url == "https://${var.host_ip}:${var.host_port}"
+    error_message = "agent_api_url output must expose the HTTPS endpoint"
   }
 }

@@ -107,13 +107,13 @@ def _wait_for_postgres(timeout=90, interval=3):
     raise TimeoutError("PostgreSQL did not become ready within timeout")
 
 
-def _wait_for_agent_api(timeout=30, interval=2):
-    """Wait until the agent API returns 200 on /health."""
+def _wait_for_agent_api(timeout=60, interval=2):
+    """Wait until the agent API returns 200 on /health (HTTPS)."""
     import httpx
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = httpx.get("http://127.0.0.1:8000/health", timeout=2)
+            r = httpx.get("https://127.0.0.1:8445/health", verify=VAULT_CACERT, timeout=2)
             if r.status_code == 200:
                 return
         except Exception:
@@ -418,56 +418,11 @@ def agent_env(vault_env, postgres_env):
 @pytest.fixture(scope="session")
 def agent_api_env(agent_env, postgres_env, vault_client):
     """
-    Start the agent API subprocess and yield its base URL.
+    Wait for the containerised agent API (deployed by agent_env via podman
+    compose) and yield its base URL.
 
-    Issues a fresh wrapped secret_id immediately before startup — the running
-    API consumes it once during startup Vault authentication.
+    The API runs as a container on port 8445 with TLS served by the
+    vault-agent sidecar — no subprocess spawning is needed here.
     """
-    import subprocess
-    import hvac
-
-    approle_dir = agent_env["approle_dir"]
-
-    # Issue a fresh wrapped_secret_id for this API process startup.
-    response = vault_client.auth.approle.generate_secret_id(
-        role_name="agent",
-        wrap_ttl="10m",
-    )
-    wrap_token = response["wrap_info"]["token"]
-    wrap_path  = f"{approle_dir}/wrapped_secret_id"
-    # The file is 0444 — remove before rewriting
-    _run(f"podman unshare rm -f {wrap_path} 2>/dev/null || rm -f {wrap_path} 2>/dev/null || true", check=False)
-    Path(wrap_path).write_text(wrap_token)
-    Path(wrap_path).chmod(0o444)
-
-    agent_dir = AGENT_MODULE / "agent"
-    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python"
-
-    env = os.environ.copy()
-    env.update({
-        "VAULT_ADDR":      VAULT_ADDR,
-        "ARMORY_CACERT":   VAULT_CACERT,
-        "APPROLE_DIR":     approle_dir,
-        "KEYCLOAK_URL":    "https://127.0.0.1:8444",  # not used in integration tests
-        "OIDC_CLIENT_ID":  "agent-cli",
-        "POSTGRES_HOST":   "armory-postgres",
-        "POSTGRES_DB":     "app",
-    })
-
-    proc = subprocess.Popen(
-        [str(venv_python), "api.py"],
-        cwd=str(agent_dir),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    try:
-        _wait_for_agent_api(timeout=30)
-        yield {"url": "http://127.0.0.1:8000", "vault_client": vault_client}
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+    _wait_for_agent_api(timeout=60)
+    yield {"url": "https://127.0.0.1:8445", "vault_client": vault_client}

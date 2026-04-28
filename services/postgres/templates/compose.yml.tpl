@@ -70,7 +70,7 @@ services:
       - ${certs_dir}:/vault/certs:ro,z
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres"]
       interval: 5s
       timeout: 2s
       retries: 12

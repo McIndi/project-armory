@@ -6,7 +6,7 @@ import structlog
 log = structlog.get_logger()
 
 VAULT_ADDR    = os.environ["VAULT_ADDR"]
-ARMORY_CACERT = os.environ["ARMORY_CACERT"]
+VAULT_CACERT  = os.environ.get("VAULT_CACERT", os.environ.get("ARMORY_CACERT", ""))
 APPROLE_DIR   = os.environ["APPROLE_DIR"]
 
 _RENEW_THRESHOLD_SECONDS = 120
@@ -34,19 +34,24 @@ def authenticate() -> hvac.Client:
     The Vault audit log records both the unwrap and the login,
     including the token accessor issued to this agent instance.
     """
-    log.info("vault.auth.start", vault_addr=VAULT_ADDR)
+    log.info("vault.auth.start", vault_addr=VAULT_ADDR, vault_cacert=VAULT_CACERT)
+
+    if not VAULT_CACERT:
+        raise RuntimeError("VAULT_CACERT is not set (and ARMORY_CACERT fallback is empty)")
+    if not os.path.exists(VAULT_CACERT):
+        raise RuntimeError(f"Vault CA file does not exist: {VAULT_CACERT}")
 
     role_id, wrapped_secret_id = _load_approle_credentials()
 
     # The wrapping token IS the auth token for /sys/wrapping/unwrap.
     # Passing it in the body with an unauthenticated client is rejected (403).
-    wrap_client = hvac.Client(url=VAULT_ADDR, token=wrapped_secret_id, verify=ARMORY_CACERT)
+    wrap_client = hvac.Client(url=VAULT_ADDR, token=wrapped_secret_id, verify=VAULT_CACERT)
 
     log.info("vault.auth.unwrap_secret_id")
     unwrap_response = wrap_client.sys.unwrap()
     secret_id = unwrap_response["data"]["secret_id"]
 
-    client = hvac.Client(url=VAULT_ADDR, verify=ARMORY_CACERT)
+    client = hvac.Client(url=VAULT_ADDR, verify=VAULT_CACERT)
 
     log.info("vault.auth.approle_login")
     login_response = client.auth.approle.login(

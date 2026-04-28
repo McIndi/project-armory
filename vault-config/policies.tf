@@ -116,6 +116,9 @@ resource "vault_policy" "agent" {
   name  = "agent"
 
   policy = <<-EOT
+    # TLS certificate issuance for the agent API sidecar
+    path "pki_ext/issue/armory-external" { capabilities = ["create", "update"] }
+
     # Dynamic credentials for the app database
     path "database/creds/app" { capabilities = ["read"] }
 

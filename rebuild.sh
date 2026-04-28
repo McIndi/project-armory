@@ -105,17 +105,13 @@
 #             (Skipped automatically when --skip-keycloak is passed.)
 #
 #   Phase 9   Re-apply vault-config/ with agent_enabled=true, then apply
-#             services/agent/ — writes role_id and wrapped_secret_id to
-#             $DEPLOY_DIR/agent/approle/ for the FastAPI agentic layer.
+#             services/agent/ — writes AppRole credentials, starts a Vault
+#             Agent TLS sidecar, and starts the FastAPI agent API over HTTPS
+#             on port 8445 (host binding).
 #             (Skippable with --skip-agent or --skip-keycloak.)
 #
 # MANUAL STEPS NOT AUTOMATED BY THIS SCRIPT
 # ------------------------------------------
-#   Agent API Start the FastAPI server manually:
-#             cd services/agent/agent && .venv/bin/python api.py
-#             The wrapped_secret_id is single-use; re-run services/agent/
-#             tofu apply to issue a new one before each cold start.
-#
 #   Hardening (optional, after verifying OIDC works):
 #             Re-apply vault-config/ with userpass_enabled=false to retire
 #             the bootstrap userpass auth method and require OIDC for all
@@ -433,30 +429,28 @@ try_unseal_vault() {
 # =============================================================================
 # POSTGRES READINESS HELPER
 # =============================================================================
-# wait_for_postgres: a two-stage readiness gate that must pass before Phase 5b
+# wait_for_postgres: a three-stage readiness gate that must pass before Phase 5b
 # (vault-config re-apply with database_roles_enabled=true) can run.
 #
 # Stage 1 — Host-side health check:
 #   Polls the Docker/Podman container health status for armory-postgres until
 #   it reports "healthy". The healthcheck in the compose template runs
-#   `pg_isready -U postgres` every 5 seconds. PostgreSQL starts late because
-#   the Vault Agent sidecar must first authenticate to Vault, render the TLS
-#   certificate to disk, and become healthy before the postgres container's
-#   depends_on condition is satisfied. This can take 60–90 seconds on a
-#   cold pull.
+#   `pg_isready -h 127.0.0.1 -p 5432 -U postgres` every 5 seconds to verify
+#   TCP acceptance. PostgreSQL starts late because the Vault Agent sidecar must
+#   first authenticate to Vault, render the TLS certificate to disk, and become
+#   healthy before the postgres container's depends_on condition is satisfied.
+#   This can take 60–90 seconds on a cold pull.
 #
-# Stage 2 — Vault-side DNS resolution check:
-#   Even after the container is healthy on the host, Vault (running inside
-#   its own container on armory-net) must be able to resolve the hostname
-#   "armory-postgres". Podman's internal DNS only propagates the name once
-#   the container is connected to the network. This stage runs
-#   `getent hosts armory-postgres` inside the Vault container and retries
-#   until it succeeds or times out.
+# Stage 2 — TCP acceptance check from within postgres container:
+#   Verifies that PostgreSQL is accepting TCP connections on the network interface
+#   (not just the local Unix socket). Vault creates static roles over TCP from
+#   inside the armory-vault container, so this check ensures Vault will succeed.
 #
-#   Without this gate, Phase 5b fails with:
-#     "hostname resolving error: lookup armory-postgres ... no such host"
-#   because Vault's database secrets engine tries to open a TCP connection
-#   to armory-postgres:5432 immediately when the static role is created.
+# Stage 3 — Vault-side DNS resolution check:
+#   Verifies that Vault can resolve the hostname "armory-postgres". Podman's
+#   internal DNS only propagates the name once the container is connected to
+#   the network. Without this gate, Vault's database secrets engine would fail
+#   with "lookup armory-postgres ... no such host" when creating the static role.
 # =============================================================================
 
 wait_for_postgres() {
@@ -485,10 +479,23 @@ wait_for_postgres() {
 
   success "armory-postgres is healthy"
 
-  # Stage 2: verify DNS resolution from inside the Vault container.
-  # armory-vault runs on armory-net and resolves peer hostnames via Podman's
-  # internal DNS. `getent hosts` performs a forward lookup — if it returns a
-  # line with an IP address, Vault can reach the container.
+  log "Verifying PostgreSQL is accepting TCP connections inside the container..."
+  attempt=0
+
+  until podman exec armory-postgres \
+        pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; do
+    attempt=$(( attempt + 1 ))
+    if [[ $attempt -ge 30 ]]; then
+      error "armory-postgres is healthy but not accepting TCP connections after 60s"
+      log "Last 20 lines from armory-postgres:"
+      podman logs armory-postgres --tail 20 2>/dev/null || true
+      return 1
+    fi
+    sleep 2
+  done
+
+  success "armory-postgres is accepting TCP connections"
+
   log "Verifying armory-postgres is resolvable from inside the Vault container..."
   attempt=0
 
@@ -522,12 +529,15 @@ wait_for_keycloak() {
   local max_attempts="${1:-180}"  # 180 × 3 seconds = 9 minutes maximum wait
   local attempt=0
   local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
+  local keycloak_port
 
-  log "Waiting for Keycloak to become ready on port 8444..."
+  keycloak_port=$(tfvars_number "services/keycloak" "keycloak_port" "8444")
+
+  log "Waiting for Keycloak to become ready on port ${keycloak_port}..."
   log "(This can take up to 10 minutes while Vault Agent renders TLS cert and DB password)"
 
   until curl -s --cacert "$cacert" \
-        https://127.0.0.1:8444/health/ready \
+        "https://127.0.0.1:${keycloak_port}/health/ready" \
         -o /dev/null -w "%{http_code}" 2>/dev/null \
         | grep -q "200"; do
     attempt=$(( attempt + 1 ))
@@ -544,6 +554,44 @@ wait_for_keycloak() {
 
   success "Keycloak is ready"
 }
+
+# =============================================================================
+# AGENT API READINESS HELPER
+# =============================================================================
+# wait_for_agent_api: polls the HTTPS /health endpoint for the agent API until
+# it returns HTTP 200. This confirms the Vault Agent sidecar has rendered the
+# certificate bundle and the FastAPI container is accepting TLS connections.
+# =============================================================================
+
+wait_for_agent_api() {
+  local max_attempts="${1:-120}"  # 120 x 2 seconds = 4 minutes max
+  local attempt=0
+  local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
+  local agent_port
+
+  agent_port=$(tfvars_number "services/agent" "host_port" "8445")
+
+  log "Waiting for agent API to become ready on port ${agent_port} (HTTPS)..."
+
+  until curl -s --cacert "$cacert" \
+        "https://127.0.0.1:${agent_port}/health" \
+        -o /dev/null -w "%{http_code}" 2>/dev/null \
+        | grep -q "200"; do
+    attempt=$(( attempt + 1 ))
+    if [[ $attempt -ge $max_attempts ]]; then
+      error "Agent API did not become ready after $(( max_attempts * 2 ))s"
+      log "Last 20 lines from armory-agent (if running):"
+      podman logs armory-agent --tail 20 2>/dev/null || true
+      log "Last 20 lines from armory-vault-agent-agent (if running):"
+      podman logs armory-vault-agent-agent --tail 20 2>/dev/null || true
+      return 1
+    fi
+    sleep 2
+  done
+
+  success "Agent API is ready"
+}
+
 # OPENTOFU HELPERS
 # =============================================================================
 
@@ -598,6 +646,34 @@ ensure_tfvars() {
   if [[ ! -f "$path" ]]; then
     log "Copying example.tfvars → terraform.tfvars for $dir"
     cp "$SCRIPT_DIR/$dir/example.tfvars" "$path"
+  fi
+}
+
+# tfvars_number: returns a numeric variable value from a module's terraform.tfvars,
+# or a provided default when the file/key is absent or non-numeric.
+tfvars_number() {
+  local dir="$1"
+  local key="$2"
+  local default_value="$3"
+  local path="$SCRIPT_DIR/$dir/terraform.tfvars"
+  local value
+
+  if [[ ! -f "$path" ]]; then
+    echo "$default_value"
+    return
+  fi
+
+  value=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$path" 2>/dev/null | tail -1 || true)
+  if [[ -z "$value" ]]; then
+    echo "$default_value"
+    return
+  fi
+
+  value=$(echo "$value" | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*(#.*)?$//; s/"//g')
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+  else
+    echo "$default_value"
   fi
 }
 
@@ -667,6 +743,7 @@ teardown() {
     "webserver:$DEPLOY_DIR/webserver/compose.yml"
     "postgres:$DEPLOY_DIR/postgres/compose.yml"
     "keycloak:$DEPLOY_DIR/keycloak/compose.yml"
+    "agent:$DEPLOY_DIR/agent/compose.yml"
   )
 
   for entry in "${compose_projects[@]}"; do
@@ -1116,12 +1193,59 @@ build() {
       -var armory_base_dir="$ARMORY_BASE_DIR" \
       2>&1 | sed 's/^/  [vault-config] /'
 
+    if [[ ! -r "$DEPLOY_DIR/vault/tls/ca.crt" ]]; then
+      error "Vault TLS CA is not readable: $DEPLOY_DIR/vault/tls/ca.crt"
+      error "Cannot build consolidated vault/ca-bundle.pem without this input"
+      exit 1
+    fi
+
     log "Re-applying vault-config/ with vault_tls_cacert_path for consolidated trust bundle..."
     tofu apply -auto-approve \
       -var armory_base_dir="$ARMORY_BASE_DIR" \
       -var "vault_tls_cacert_path=$DEPLOY_DIR/vault/tls/ca.crt" \
       2>&1 | sed 's/^/  [vault-config] /'
   )
+
+  # Enforce consolidated trust by default. We validate three conditions:
+  #   1) vault/ca-bundle.pem exists,
+  #   2) it actually contains/trusts the Vault TLS CA cert,
+  #   3) it can verify Vault's HTTPS endpoint.
+  # This prevents opaque runtime TLS failures in later phases.
+  log "Validating consolidated trust bundle against Vault TLS..."
+
+  if [[ ! -s "$SCRIPT_DIR/vault/ca-bundle.pem" ]]; then
+    error "Consolidated trust bundle validation failed"
+    error "Missing or empty: $SCRIPT_DIR/vault/ca-bundle.pem"
+    exit 1
+  fi
+
+  if [[ ! -s "$DEPLOY_DIR/vault/tls/ca.crt" ]]; then
+    error "Consolidated trust bundle validation failed"
+    error "Missing Vault TLS CA file: $DEPLOY_DIR/vault/tls/ca.crt"
+    exit 1
+  fi
+
+  local vault_ca_pem bundle_pem
+  vault_ca_pem=$(awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/' "$DEPLOY_DIR/vault/tls/ca.crt" \
+    | tr -d '\r\n[:space:]')
+  bundle_pem=$(awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/' "$SCRIPT_DIR/vault/ca-bundle.pem" \
+    | tr -d '\r\n[:space:]')
+
+  if [[ -z "$vault_ca_pem" || "$bundle_pem" != *"$vault_ca_pem"* ]]; then
+    error "Consolidated trust bundle validation failed"
+    error "$SCRIPT_DIR/vault/ca-bundle.pem does not trust/include $DEPLOY_DIR/vault/tls/ca.crt"
+    error "Re-run Phase 3 and verify -var vault_tls_cacert_path=$DEPLOY_DIR/vault/tls/ca.crt"
+    exit 1
+  fi
+
+  if ! curl -s --cacert "$SCRIPT_DIR/vault/ca-bundle.pem" \
+        https://127.0.0.1:8200/v1/sys/health \
+        -o /dev/null; then
+    error "Consolidated trust bundle validation failed"
+    error "Expected $SCRIPT_DIR/vault/ca-bundle.pem to trust Vault at https://127.0.0.1:8200"
+    exit 1
+  fi
+
   success "Vault configured: PKI/auth/policies are ready and vault/ca-bundle.pem includes Vault TLS CA"
 
   # ── Phase 4: Deploy webserver (optional) ────────────────────────────────────
@@ -1311,13 +1435,13 @@ build() {
   #     This creates the `agent` AppRole and the `agent` ACL policy.
   #
   #   Step 2 — Apply services/agent/:
-  #     Writes role_id and a response-wrapped secret_id to
-  #     /opt/armory/agent/approle/. The secret_id is single-use — the FastAPI
-  #     application unwraps it on first startup to obtain the actual secret_id
-  #     and exchanges it for a Vault token.
+  #     Writes API and sidecar AppRole credentials to /opt/armory/agent/approle,
+  #     renders compose and Vault Agent config, and starts:
+  #       - armory-vault-agent-agent (cert rendering sidecar)
+  #       - armory-agent (FastAPI over HTTPS)
   #
-  # NOTE: Running the FastAPI server (api.py) is a manual step — see the
-  # summary banner printed after this script completes.
+  #     The sidecar consumes wrapped_secret_id_tls (single-use) to authenticate
+  #     to Vault and render /opt/armory/agent/certs/agent.pem.
   if [[ "$SKIP_AGENT" == "false" ]]; then
     header "PHASE 9 — Deploy agentic layer (AppRole + services/agent module)"
 
@@ -1338,7 +1462,7 @@ build() {
     )
     success "Agent AppRole and policy created in Vault"
 
-    log "Step 2: Applying services/agent/ to write AppRole credentials to disk..."
+    log "Step 2: Applying services/agent/ to deploy HTTPS agent API + TLS sidecar..."
     ensure_tfvars "services/agent"
     (
       cd "$SCRIPT_DIR/services/agent"
@@ -1350,8 +1474,11 @@ build() {
         -var deploy_dir="$DEPLOY_DIR/agent" \
         2>&1 | sed 's/^/  [agent] /'
     )
-    success "Agent credentials written to $DEPLOY_DIR/agent/approle/"
-    log "  role_id and wrapped_secret_id are ready for api.py"
+    success "Agent stack deployed"
+    log "  AppRole credentials: $DEPLOY_DIR/agent/approle/"
+    log "  TLS bundle: $DEPLOY_DIR/agent/certs/agent.pem"
+
+    wait_for_agent_api
   else
     warn "Skipping Phase 9 (agent) — --skip-agent or --skip-keycloak flag was passed"
   fi
@@ -1366,6 +1493,11 @@ build() {
 
 print_summary() {
   header "BUILD COMPLETE"
+  local keycloak_port
+  local agent_port
+
+  keycloak_port=$(tfvars_number "services/keycloak" "keycloak_port" "8444")
+  agent_port=$(tfvars_number "services/agent" "host_port" "8445")
 
   echo -e "${GREEN}Vault credentials saved to:${RESET} $CREDS_FILE"
   echo -e "${YELLOW}Keep this file safe. Losing the unseal key means Vault cannot be unsealed after a restart.${RESET}"
@@ -1377,7 +1509,9 @@ print_summary() {
     echo "  nginx         : https://127.0.0.1:8443   (Vault Agent TLS sidecar demo)"
   echo "  PostgreSQL    : 127.0.0.1:5432             (internal; use psql or a client)"
   [[ "$SKIP_KEYCLOAK"  == "false" ]] && \
-    echo "  Keycloak      : https://127.0.0.1:8444/admin"
+    echo "  Keycloak      : https://127.0.0.1:${keycloak_port}/admin"
+  [[ "$SKIP_AGENT" == "false" ]] && \
+    echo "  Agent API     : https://127.0.0.1:${agent_port}"
   echo ""
 
   echo -e "${BOLD}CA certificates — BOTH must be trusted for full connectivity:${RESET}"
@@ -1407,7 +1541,7 @@ print_summary() {
     echo ""
     echo "  Test OIDC login:"
     echo "    export VAULT_ADDR=https://127.0.0.1:8200"
-    echo "    export VAULT_CACERT=$DEPLOY_DIR/vault/tls/ca.crt"
+    echo "    export VAULT_CACERT=$SCRIPT_DIR/vault/ca-bundle.pem"
     echo "    bao login -method=oidc role=operator"
     echo ""
     echo "  Optional — retire userpass after verifying OIDC works:"
@@ -1423,23 +1557,12 @@ print_summary() {
 
   if [[ "$SKIP_AGENT" == "false" ]]; then
     echo ""
-    echo "  Agent API — start the FastAPI server manually:"
-    echo "    cd services/agent/agent/"
-    echo "    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
-    echo "    export VAULT_ADDR=https://127.0.0.1:8200"
-    echo "    export ARMORY_CACERT=$DEPLOY_DIR/vault/tls/ca.crt"
-    echo "    export APPROLE_DIR=$DEPLOY_DIR/agent/approle"
-    echo "    export KEYCLOAK_URL=https://127.0.0.1:8444"
-    echo "    export OIDC_CLIENT_ID=agent-cli"
-    echo "    export POSTGRES_HOST=armory-postgres"
-    echo "    export POSTGRES_DB=app"
-    echo "    .venv/bin/python api.py"
+    echo "  Agent API is deployed automatically in Phase 9:"
+    echo "    URL: https://127.0.0.1:8445"
+    echo "    Cert bundle: $DEPLOY_DIR/agent/certs/agent.pem"
     echo ""
-    echo "  NOTE: The wrapped_secret_id is single-use. Re-run the following"
-    echo "  before each cold start of api.py:"
-    echo "    cd services/agent/"
-    echo "    export TF_VAR_vault_token=<ROOT_TOKEN>"
-    echo "    tofu apply -auto-approve"
+    echo "  If you re-run services/agent/ manually, note that wrapped_secret_id and"
+    echo "  wrapped_secret_id_tls are single-use and will be re-issued on each apply."
   fi
 
   echo ""

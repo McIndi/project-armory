@@ -127,7 +127,7 @@ variable "cert_dns_sans" {
 variable "agent_image" {
   description = "Vault Agent (OpenBao) container image."
   type        = string
-  default     = "quay.io/openbao/openbao:2"
+  default     = "quay.io/openbao/openbao:2.5.2"
 }
 
 variable "agent_container_name" {

@@ -68,12 +68,12 @@ graph TD
     Decision3 -->|Yes| Phase9["<b>Phase 9</b><br/>Deploy Agent Layer<br/>Re-apply: <code>vault-config/</code><br/>with agent_enabled=true<br/>Then: <code>services/agent/</code>"]
     Decision3 -->|No/Skip| SkipPhase9["⊘ Skip Phase 9"]
     
-    Phase9 --> HC9["✓ Agent ready<br/>AppRole credentials<br/>written to disk"]
-    HC9 --> AgentManual["<b>Agent API (MANUAL)</b><br/>Start FastAPI server<br/><code>cd services/agent/agent</code><br/><code>.venv/bin/python api.py</code><br/><br/>Wrapped secret_id<br/>is single-use"]
+    Phase9 --> HC9["✓ Agent ready<br/>TLS sidecar + HTTPS API<br/>running on 8445"]
+    HC9 --> AgentAuto["<b>Agent API (AUTOMATED)</b><br/>Vault Agent renders cert<br/><code>/opt/armory/agent/certs/agent.pem</code><br/>FastAPI serves HTTPS"]
     
     SkipPhase6 --> End["✅ COMPLETE"]
     SkipPhase9 --> End
-    AgentManual --> End
+    AgentAuto --> End
     
     classDef automated fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
     classDef manual fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
@@ -82,7 +82,7 @@ graph TD
     classDef decision fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
     
     class Phase1,Phase2,Phase3,Phase4,Phase5,Phase5b,Phase6,Phase7,Phase9 automated
-    class AgentManual manual
+    class AgentAuto automated
     class HC1,HC2,HC3,HC4,HC5A,HC5B,HC5b,HC6,HC6b,HC7,HC9 healthCheck
     class SkipPhase4,SkipPhase6,SkipPhase9 skip
     class Decision1,Decision2,Decision3 decision
@@ -110,7 +110,7 @@ graph TD
 | **Phase 6** | Phase 5b | Database roles created | Vault can issue keycloak password + app dynamic creds |
 | **Phase 7** | Phase 6 | Keycloak ready + realm imported | Realm, group, clients seeded via `--import-realm`; OIDC backend enabled |
 | **Phase 9** | Phase 3, Phase 7 | OIDC auth enabled | Vault OIDC method configured |
-| **Agent API** | Phase 9 | AppRole credentials on disk | Wrapped secret_id written to `/opt/armory/agent/approle/` |
+| **Agent API** | Phase 9 | AppRole + sidecar credentials on disk | HTTPS endpoint healthy at `https://127.0.0.1:8445/health` |
 
 ### Automated rebuild (recommended)
 
@@ -129,7 +129,7 @@ graph TD
 | `--skip-agent` | Skip Phase 9 only; Keycloak is still deployed |
 | `--destroy-only` | Tear everything down without rebuilding |
 
-After `rebuild.sh` completes, the stack is fully operational including OIDC. The 'armory' realm and both OIDC clients are seeded automatically. No browser-based manual steps are required.
+After `rebuild.sh` completes, the stack is fully operational including OIDC and the HTTPS agent API on `https://127.0.0.1:8445`. The 'armory' realm and both OIDC clients are seeded automatically. No browser-based manual steps are required.
 
 ---
 
@@ -577,7 +577,7 @@ cd ..
 
 This command ensures both the agent AppRole and the database roles are enabled in Vault. Both variables must be set to `true` when deploying the agentic layer.
 
-**Step 2:** Issue credentials and scaffold host directories:
+**Step 2:** Deploy HTTPS agent API + Vault Agent TLS sidecar:
 
 ```bash
 cd services/agent/
@@ -588,30 +588,20 @@ tofu apply
 cd ../..
 ```
 
-This writes `role_id` and `wrapped_secret_id` to `/opt/armory/agent/approle/`.
+This writes API and sidecar AppRole credentials to `/opt/armory/agent/approle/`, renders a TLS certificate to `/opt/armory/agent/certs/agent.pem`, and starts the API at `https://127.0.0.1:8445`.
 
-**Step 3:** Start the agent API:
+**Step 3:** Verify the HTTPS API is reachable:
 
 ```bash
-cd services/agent/agent/
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-
-export VAULT_ADDR=https://127.0.0.1:8200
-export ARMORY_CACERT=/home/vagrant/project/project-armory/vault/ca-bundle.pem
-export APPROLE_DIR=/opt/armory/agent/approle
-export KEYCLOAK_URL=https://127.0.0.1:8444
-export OIDC_CLIENT_ID=agent-cli
-export POSTGRES_HOST=armory-postgres
-export POSTGRES_DB=app
-
-.venv/bin/python api.py
+curl --cacert /home/vagrant/project/project-armory/vault/ca-bundle.pem \
+    https://127.0.0.1:8445/health
 ```
 
 **Step 4:** Submit a task:
 
 ```bash
 cd services/agent/agent/
+export AGENT_API_URL=https://127.0.0.1:8445
 .venv/bin/python cli.py --query "SELECT current_user, now() AS ts"
 ```
 
@@ -629,10 +619,10 @@ correlating the API log with the Vault audit log.
 > **Same env vars:** `cli.py` reads `KEYCLOAK_URL`, `ARMORY_CACERT`, `OIDC_CLIENT_ID`,
 > and `AGENT_API_URL` from the environment — the same variables set for the API above.
 
-> **Single-use secret_id:** The `wrapped_secret_id` is consumed once at API startup.
-> Requests handled by that running API process reuse the same Vault token. Re-run
-> `tofu apply` in `services/agent/` only when starting a new API process that no
-> longer has a valid startup token.
+> **Single-use secret_id:** `services/agent/` now writes two wrapped tokens: one for
+> the API runtime (`wrapped_secret_id`) and one for the TLS sidecar
+> (`wrapped_secret_id_tls`). Re-run `tofu apply` in `services/agent/` to re-issue
+> both tokens when rotating/restarting the agent stack.
 
 > **Postgres hostname:** `armory-postgres` only resolves on `armory-net`. If running
 > the agent on the host, either add a `/etc/hosts` entry or run it inside a container
@@ -998,6 +988,9 @@ See [`docs/ADR/`](docs/ADR/) for all 20 Architecture Decision Records, including
 |---|---|---|
 | `deploy_dir` | `/opt/armory/agent` | Host path for runtime artefacts |
 | `approle_mount_path` | `approle` | AppRole auth method mount path |
+| `host_port` | `8445` | Host port publishing the agent API HTTPS endpoint |
+| `server_name` | `armory-agent` | TLS certificate common name for the agent API |
+| `pki_ext_role` | `armory-external` | PKI role used by the TLS sidecar to issue agent certs |
 
 ### Agent environment variables
 
@@ -1005,10 +998,11 @@ See [`docs/ADR/`](docs/ADR/) for all 20 Architecture Decision Records, including
 |---|---|
 | `VAULT_ADDR` | Vault API address (e.g. `https://127.0.0.1:8200`) |
 | `ARMORY_CACERT` | Path to the Armory CA cert — used for Vault, Keycloak, and Postgres TLS |
-| `APPROLE_DIR` | Path containing `role_id` and `wrapped_secret_id` (written by `services/agent/`) |
+| `APPROLE_DIR` | Path containing `role_id`, `wrapped_secret_id`, `role_id_tls`, `wrapped_secret_id_tls` (written by `services/agent/`) |
 | `KEYCLOAK_URL` | Keycloak base URL (e.g. `https://127.0.0.1:8444`) |
 | `KEYCLOAK_REALM` | Keycloak realm name (default: `armory`) |
-| `OIDC_CLIENT_ID` | OIDC client ID — `azp` claim must match this value (default: `vault`) |
+| `OIDC_CLIENT_ID` | OIDC client ID — `azp` claim must match this value (default: `agent-cli`) |
 | `REQUIRED_GROUP` | Keycloak group membership required to submit tasks (default: `vault-operators`) |
 | `POSTGRES_HOST` | PostgreSQL container hostname (e.g. `armory-postgres`) |
 | `POSTGRES_DB` | Database name (default: `app`) |
+| `AGENT_API_URL` | Client target URL for task submission (default: `https://127.0.0.1:8445`) |

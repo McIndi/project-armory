@@ -16,7 +16,7 @@ Required environment variables:
 Optional environment variables:
     KEYCLOAK_REALM  Realm name (default: armory)
     OIDC_CLIENT_ID  Public client ID registered in Keycloak (default: agent-cli)
-    AGENT_API_URL   Agent API base URL (default: http://127.0.0.1:8000)
+    AGENT_API_URL   Agent API base URL (default: https://127.0.0.1:8445)
 """
 
 import argparse
@@ -37,7 +37,7 @@ KEYCLOAK_URL   = os.environ["KEYCLOAK_URL"]
 KEYCLOAK_REALM = os.environ.get("KEYCLOAK_REALM", "armory")
 ARMORY_CACERT  = os.environ["ARMORY_CACERT"]
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "agent-cli")
-AGENT_API_URL  = os.environ.get("AGENT_API_URL", "http://127.0.0.1:8000")
+AGENT_API_URL  = os.environ.get("AGENT_API_URL", "https://127.0.0.1:8445")
 
 _CALLBACK_PORT = 18080
 _CALLBACK_PATH = "/callback"
@@ -155,10 +155,12 @@ def _exchange_code(code: str, verifier: str) -> str:
 
 def _submit_task(token: str, query: str) -> dict:
     """Submit a db_query task to the agent API and return the parsed response."""
+    verify = ARMORY_CACERT if AGENT_API_URL.startswith("https://") else True
     response = httpx.post(
         f"{AGENT_API_URL}/task",
         json={"type": "db_query", "query": query},
         headers={"Authorization": f"Bearer {token}"},
+        verify=verify,
         timeout=60,
     )
     response.raise_for_status()

@@ -73,4 +73,18 @@ async def health():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    host = os.environ.get("AGENT_API_HOST", "0.0.0.0")
+    port = int(os.environ.get("AGENT_API_PORT", "8443"))
+    tls_cert = os.environ.get("AGENT_TLS_CERT_FILE")
+    tls_key = os.environ.get("AGENT_TLS_KEY_FILE") or tls_cert
+
+    uvicorn_kwargs = {
+        "host": host,
+        "port": port,
+    }
+
+    if tls_cert:
+        uvicorn_kwargs["ssl_certfile"] = tls_cert
+        uvicorn_kwargs["ssl_keyfile"] = tls_key
+
+    uvicorn.run(app, **uvicorn_kwargs)

@@ -48,5 +48,5 @@ resource "vault_approle_auth_backend_role" "agent" {
   token_policies = [vault_policy.agent[0].name]
   token_ttl      = 1800  # 30 minutes — sufficient for one task run
   token_max_ttl  = 3600
-  secret_id_ttl  = 600   # 10 minutes to unwrap and authenticate
+  secret_id_ttl  = 1800  # 30 minutes to unwrap and authenticate; wrapped for 24h
 }

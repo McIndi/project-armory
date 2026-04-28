@@ -202,28 +202,27 @@ cp example.tfvars terraform.tfvars
 export TF_VAR_vault_token=<ROOT_TOKEN>
 tofu init && tofu apply -auto-approve
 
-# Start the agent API (new terminal)
+# Verify agent API HTTPS readiness
+curl --cacert ~/projects/project-armory/vault/ca-bundle.pem \
+  https://127.0.0.1:8445/health
+
+# Submit a task from the CLI client (new terminal)
 cd ~/projects/project-armory/services/agent/agent
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-export VAULT_ADDR=https://127.0.0.1:8200
-export ARMORY_CACERT=~/projects/project-armory/vault/ca-bundle.pem
-export APPROLE_DIR=/opt/armory/agent/approle
+export AGENT_API_URL=https://127.0.0.1:8445
 export KEYCLOAK_URL=https://127.0.0.1:8444
-export OIDC_CLIENT_ID=agent-cli
-export POSTGRES_HOST=armory-postgres
-export POSTGRES_DB=app
-
-.venv/bin/python api.py
+export ARMORY_CACERT=~/projects/project-armory/vault/ca-bundle.pem
+.venv/bin/python cli.py --query "SELECT current_user, now() AS ts"
 ```
 
-> **Single-use secret_id:** The `wrapped_secret_id` is consumed once at API startup.
-> Requests handled by that running API process reuse the same Vault token.
-> Re-run `tofu apply` in `services/agent/` when starting a new API process that no
-> longer has a valid startup token.
+> **Single-use secret_id:** `services/agent/` now writes two wrapped tokens:
+> `wrapped_secret_id` (API runtime) and `wrapped_secret_id_tls` (Vault Agent TLS
+> sidecar). Re-run `tofu apply` in `services/agent/` to re-issue both tokens.
 
-> **API restart note:** If startup fails with a wrapping token error, issue a fresh
-> wrapped secret by re-running `tofu apply` in `services/agent/`, then restart `api.py`.
+> **API restart note:** The HTTPS API is started by Podman Compose in
+> `services/agent/`. If startup fails with a wrapping token error, re-run
+> `tofu apply` in `services/agent/` and then restart the stack:
+> `podman compose -f /opt/armory/agent/compose.yml up -d`.
 
 > **Postgres hostname:** `armory-postgres` only resolves on `armory-net`. If running
 > the agent on the host, add a `/etc/hosts` entry or run it inside a container on
@@ -266,6 +265,7 @@ podman exec armory-vault bao login -method=oidc role=operator
 
 ```bash
 cd ~/projects/project-armory/services/agent/agent
+export AGENT_API_URL=https://127.0.0.1:8445
 .venv/bin/python cli.py --query "SELECT current_user, now() AS ts"
 ```
 

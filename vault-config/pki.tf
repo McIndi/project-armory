@@ -185,8 +185,10 @@ resource "vault_pki_secret_backend_role" "armory_external" {
 # ===========================================================================
 
 locals {
-  # Conditionally include Vault TLS CA cert if path is provided
-  vault_tls_ca = var.vault_tls_cacert_path != "" ? try(file(var.vault_tls_cacert_path), "") : ""
+  # Conditionally include Vault TLS CA cert if path is provided.
+  # Use file() directly so an unreadable/missing path fails the apply instead
+  # of silently producing a bundle without the Vault CA.
+  vault_tls_ca = var.vault_tls_cacert_path != "" ? file(var.vault_tls_cacert_path) : ""
 }
 
 resource "local_file" "ca_bundle" {
