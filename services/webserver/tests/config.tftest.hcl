@@ -85,7 +85,7 @@ run "nginx_url_output" {
   command = plan
 
   assert {
-    condition     = output.nginx_url == "https://${var.host_ip}:${var.host_port}"
-    error_message = "nginx_url must be https://host_ip:host_port"
+    condition     = output.nginx_url == "https://${var.host_ip}:${var.nginx_host_port}"
+    error_message = "nginx_url must be https://host_ip:nginx_host_port"
   }
 }

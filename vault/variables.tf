@@ -59,6 +59,18 @@ variable "api_addr" {
   default     = "127.0.0.1"
 }
 
+variable "vault_port" {
+  description = "Host port published for the Vault API and bound inside the container. Set via TF_VAR_vault_port in armory.env."
+  type        = number
+  default     = 8200
+}
+
+variable "vault_cluster_port" {
+  description = "Vault cluster (raft) listener port. Bound on all container interfaces; not published to the host."
+  type        = number
+  default     = 8201
+}
+
 variable "podman_network_name" {
   description = "Name of the podman network created for this deployment."
   type        = string

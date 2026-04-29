@@ -168,6 +168,18 @@ variable "postgres_host" {
   default     = "armory-postgres"
 }
 
+variable "postgres_port" {
+  description = "PostgreSQL port on armory-net. Set via TF_VAR_postgres_port in armory.env."
+  type        = number
+  default     = 5432
+}
+
+variable "keycloak_db_username" {
+  description = "PostgreSQL login role for Keycloak, managed by Vault's database static role. Must match vault-config and services/postgres. Set via TF_VAR_keycloak_db_username in armory.env."
+  type        = string
+  default     = "keycloak"
+}
+
 variable "host_ip" {
   description = "Host IP to bind the published port."
   type        = string
@@ -197,10 +209,9 @@ variable "realm_operator_username" {
 }
 
 variable "realm_operator_password" {
-  description = "Password for the seeded demo operator account. Override before any non-demo use."
+  description = "Password for the seeded demo operator account. Set via TF_VAR_realm_operator_password in armory.env."
   type        = string
   sensitive   = true
-  default     = "armory-demo-2026"
 }
 
 variable "realm_required_group" {
@@ -216,20 +227,21 @@ variable "vault_oidc_client_id" {
 }
 
 variable "vault_oidc_client_secret" {
-  description = "Client secret for the Vault confidential OIDC client. Must match vault-config oidc_client_secret."
+  description = "Client secret for the Vault confidential OIDC client. Must match vault-config oidc_client_secret. Set via TF_VAR_vault_oidc_client_secret in armory.env."
   type        = string
   sensitive   = true
-  default     = "armory-vault-oidc-secret-2026"
+}
+
+variable "vault_port" {
+  description = "Vault API port. Used to derive OIDC redirect URIs when vault_oidc_redirect_uris is not explicitly set."
+  type        = number
+  default     = 8200
 }
 
 variable "vault_oidc_redirect_uris" {
-  description = "Allowed redirect URIs for the Vault OIDC client (CLI and UI callbacks)."
+  description = "Allowed redirect URIs for the Vault OIDC client (CLI and UI callbacks). Leave null to auto-derive from vault_port."
   type        = list(string)
-  default = [
-    "http://localhost:8250/oidc/callback",
-    "https://127.0.0.1:8200/oidc/callback",
-    "https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback",
-  ]
+  default     = null
 }
 
 variable "agent_cli_client_id" {

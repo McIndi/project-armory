@@ -112,7 +112,7 @@ variable "host_ip" {
   default     = "127.0.0.1"
 }
 
-variable "host_port" {
+variable "agent_host_port" {
   description = "Host port to publish for agent API HTTPS. Use >= 1024 for rootless podman."
   type        = number
   default     = 8445

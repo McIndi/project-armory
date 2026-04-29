@@ -20,7 +20,7 @@ resource "vault_database_secret_backend_connection" "postgres" {
   verify_connection = false
 
   postgresql {
-    connection_url = "postgresql://vault_mgmt:${var.vault_mgmt_password}@${var.postgres_host}:5432/postgres?sslmode=require"
+    connection_url = "postgresql://${var.vault_mgmt_username}:${var.vault_mgmt_password}@${var.postgres_host}:${var.postgres_port}/postgres?sslmode=require"
   }
 }
 
@@ -38,7 +38,7 @@ resource "vault_database_secret_backend_static_role" "keycloak" {
   backend  = vault_mount.database.path
   name     = "keycloak"
   db_name  = vault_database_secret_backend_connection.postgres.name
-  username = "keycloak"
+  username = var.keycloak_db_username
 
   rotation_period = 86400
 

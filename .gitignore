@@ -1,5 +1,6 @@
 rebuild.log
 unseal_key-and-root_token.txt
+armory.env
 
 # OpenTofu / Terraform
 .terraform/

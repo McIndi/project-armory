@@ -144,7 +144,7 @@ variable "host_ip" {
   default     = "127.0.0.1"
 }
 
-variable "host_port" {
+variable "nginx_host_port" {
   description = "Host port to publish for nginx HTTPS. Use >= 1024 for rootless podman."
   type        = number
   default     = 8443

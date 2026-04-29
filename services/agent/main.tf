@@ -130,8 +130,9 @@ resource "local_file" "compose" {
     api_container_name   = var.api_container_name
     agent_image          = var.agent_image
     agent_container_name = var.agent_container_name
+    vault_agent_addr     = var.vault_agent_addr
     host_ip              = var.host_ip
-    host_port            = var.host_port
+    host_port            = var.agent_host_port
     api_port             = var.api_port
     network_name         = var.network_name
     agent_config_dir     = local.dirs.agent_config

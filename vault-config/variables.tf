@@ -52,11 +52,16 @@ variable "pki_ext_allowed_domains" {
 # Human operator credentials
 # ---------------------------------------------------------------------------
 
+variable "operator_username" {
+  description = "Username for the Vault userpass operator account. Used in the auth path and ACL policy."
+  type        = string
+  default     = "operator"
+}
+
 variable "operator_password" {
-  description = "Password for the 'operator' userpass account. Override before any non-demo use."
+  description = "Password for the Vault userpass operator account. Set via TF_VAR_operator_password in armory.env."
   type        = string
   sensitive   = true
-  default     = "armory-demo-2026"
 }
 
 # ---------------------------------------------------------------------------
@@ -69,11 +74,22 @@ variable "postgres_host" {
   default     = "armory-postgres"
 }
 
+variable "postgres_port" {
+  description = "PostgreSQL port on armory-net. Must match services/postgres host_port."
+  type        = number
+  default     = 5432
+}
+
+variable "vault_mgmt_username" {
+  description = "PostgreSQL role used by Vault's database secrets engine to manage credentials."
+  type        = string
+  default     = "vault_mgmt"
+}
+
 variable "vault_mgmt_password" {
-  description = "Password for the vault_mgmt PostgreSQL role. Must match services/postgres vault_mgmt_password."
+  description = "Password for the vault_mgmt PostgreSQL role. Must match services/postgres vault_mgmt_password. Set via TF_VAR_vault_mgmt_password in armory.env."
   type        = string
   sensitive   = true
-  default     = "vault-mgmt-demo-2026"
 }
 
 variable "database_roles_enabled" {
@@ -86,11 +102,28 @@ variable "database_roles_enabled" {
 # Keycloak
 # ---------------------------------------------------------------------------
 
+variable "keycloak_admin_username" {
+  description = "Username for the Keycloak admin account stored in KV v2 and consumed by the Vault Agent sidecar."
+  type        = string
+  default     = "admin"
+}
+
 variable "keycloak_admin_password" {
-  description = "Bootstrap password for the Keycloak admin account, stored in KV v2."
+  description = "Bootstrap password for the Keycloak admin account, stored in KV v2. Set via TF_VAR_keycloak_admin_password in armory.env."
   type        = string
   sensitive   = true
-  default     = "armory-demo-2026"
+}
+
+variable "keycloak_db_username" {
+  description = "PostgreSQL role whose password Vault manages via the database static role."
+  type        = string
+  default     = "keycloak"
+}
+
+variable "keycloak_realm" {
+  description = "Keycloak realm name used in the OIDC discovery URL."
+  type        = string
+  default     = "armory"
 }
 
 # ---------------------------------------------------------------------------
@@ -116,20 +149,21 @@ variable "oidc_client_id" {
 }
 
 variable "oidc_client_secret" {
-  description = "OIDC client secret from the Keycloak 'vault' client. Must match vault_oidc_client_secret in services/keycloak."
+  description = "OIDC client secret from the Keycloak 'vault' client. Must match vault_oidc_client_secret in services/keycloak. Set via TF_VAR_oidc_client_secret in armory.env."
   type        = string
   sensitive   = true
-  default     = "armory-vault-oidc-secret-2026"
+}
+
+variable "vault_port" {
+  description = "Vault API port. Used to construct OIDC redirect URIs that reference the Vault address."
+  type        = number
+  default     = 8200
 }
 
 variable "oidc_redirect_uris" {
-  description = "Allowed redirect URIs for the Vault OIDC role (CLI and UI callbacks). Must match Keycloak vault client."
+  description = "Allowed redirect URIs for the Vault OIDC role (CLI and UI callbacks). Must match Keycloak vault client. Leave null to auto-derive from vault_port."
   type        = list(string)
-  default = [
-    "http://localhost:8250/oidc/callback",
-    "https://127.0.0.1:8200/oidc/callback",
-    "https://127.0.0.1:8200/ui/vault/auth/oidc/oidc/callback",
-  ]
+  default     = null
 }
 
 variable "userpass_enabled" {

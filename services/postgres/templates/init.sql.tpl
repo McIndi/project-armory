@@ -13,15 +13,15 @@ CREATE DATABASE app;
 -- NOSUPERUSER NOCREATEDB CREATEROLE: minimum privileges for the Vault Database
 -- secrets engine to create and revoke dynamic credential roles.
 
-CREATE ROLE vault_mgmt WITH
+CREATE ROLE ${vault_mgmt_username} WITH
   LOGIN
   PASSWORD '${vault_mgmt_password}'
   NOSUPERUSER
   NOCREATEDB
   CREATEROLE;
 
-GRANT CONNECT ON DATABASE keycloak TO vault_mgmt;
-GRANT CONNECT ON DATABASE app TO vault_mgmt;
+GRANT CONNECT ON DATABASE keycloak TO ${vault_mgmt_username};
+GRANT CONNECT ON DATABASE app TO ${vault_mgmt_username};
 
 -- Template roles for Vault dynamic credentials --------------------------------
 -- vault_mgmt holds ADMIN OPTION so it can grant these roles to new users.
@@ -29,11 +29,11 @@ GRANT CONNECT ON DATABASE app TO vault_mgmt;
 
 CREATE ROLE keycloak_role NOLOGIN;
 GRANT ALL PRIVILEGES ON DATABASE keycloak TO keycloak_role;
-GRANT keycloak_role TO vault_mgmt WITH ADMIN OPTION;
+GRANT keycloak_role TO ${vault_mgmt_username} WITH ADMIN OPTION;
 
 CREATE ROLE app_role NOLOGIN;
 GRANT ALL PRIVILEGES ON DATABASE app TO app_role;
-GRANT app_role TO vault_mgmt WITH ADMIN OPTION;
+GRANT app_role TO ${vault_mgmt_username} WITH ADMIN OPTION;
 
 -- PostgreSQL 15+ revokes CREATE on public schema from PUBLIC by default.
 -- Restore schema-level privileges so Keycloak and app roles can create tables.
@@ -47,9 +47,9 @@ GRANT ALL ON SCHEMA public TO app_role;
 -- Managed by Vault Database static role. Initial password is a placeholder;
 -- Vault rotates it to a random value when the static role is first read.
 
-CREATE ROLE keycloak WITH LOGIN PASSWORD 'placeholder-vault-will-rotate';
-GRANT keycloak_role TO keycloak;
+CREATE ROLE ${keycloak_db_username} WITH LOGIN PASSWORD 'placeholder-vault-will-rotate';
+GRANT keycloak_role TO ${keycloak_db_username};
 
 -- Allow vault_mgmt to rotate the keycloak login role's password (PG16+).
 -- CREATEROLE alone is insufficient; admin option on the target role is required.
-GRANT keycloak TO vault_mgmt WITH ADMIN OPTION;
+GRANT ${keycloak_db_username} TO ${vault_mgmt_username} WITH ADMIN OPTION;

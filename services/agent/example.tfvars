@@ -14,5 +14,5 @@ approle_mount_path = "approle"
 deploy_dir         = "/opt/armory/agent"
 
 # Agent API HTTPS endpoint published on the host.
-host_ip   = "127.0.0.1"
-host_port = 8445
+host_ip         = "127.0.0.1"
+agent_host_port = 8445

@@ -154,11 +154,13 @@ resource "local_file" "vault_config" {
   filename        = "${local.dirs.config}/vault.hcl"
   file_permission = "0644"
   content         = templatefile("${path.module}/templates/vault.hcl.tpl", {
-    node_id       = var.node_id
-    api_addr      = var.api_addr
-    ui_enabled    = var.ui_enabled
-    log_level     = var.log_level
-    disable_mlock = var.disable_mlock
+    node_id            = var.node_id
+    api_addr           = var.api_addr
+    vault_port         = var.vault_port
+    vault_cluster_port = var.vault_cluster_port
+    ui_enabled         = var.ui_enabled
+    log_level          = var.log_level
+    disable_mlock      = var.disable_mlock
   })
 }
 
@@ -171,17 +173,19 @@ resource "local_file" "compose" {
   filename        = "${var.deploy_dir}/compose.yml"
   file_permission = "0644"
   content         = templatefile("${path.module}/templates/compose.yml.tpl", {
-    project_name   = var.compose_project_name
-    image          = local.image
-    container_name = var.container_name
-    restart_policy = var.restart_policy
-    vault_binary   = var.vault_binary
-    network_name   = var.podman_network_name
-    config_dir     = local.dirs.config
-    data_dir       = local.dirs.data
-    tls_dir        = local.dirs.tls
-    logs_dir       = local.dirs.logs
-    disable_mlock  = var.disable_mlock
+    project_name       = var.compose_project_name
+    image              = local.image
+    container_name     = var.container_name
+    restart_policy     = var.restart_policy
+    vault_binary       = var.vault_binary
+    network_name       = var.podman_network_name
+    api_addr           = var.api_addr
+    vault_port         = var.vault_port
+    config_dir         = local.dirs.config
+    data_dir           = local.dirs.data
+    tls_dir            = local.dirs.tls
+    logs_dir           = local.dirs.logs
+    disable_mlock      = var.disable_mlock
   })
 }
 

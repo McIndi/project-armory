@@ -15,9 +15,9 @@ services:
     command: ["bao", "agent", "-config=/vault/agent/agent.hcl"]
 
     environment:
-      VAULT_ADDR: "https://armory-vault:8200"
+      VAULT_ADDR: "${vault_agent_addr}"
       VAULT_CACERT: "/vault/tls/ca.crt"
-      BAO_ADDR: "https://armory-vault:8200"
+      BAO_ADDR: "${vault_agent_addr}"
       BAO_CACERT: "/vault/tls/ca.crt"
 
     volumes:
@@ -87,8 +87,8 @@ services:
 
     environment:
       KC_DB: postgres
-      KC_DB_URL: "jdbc:postgresql://${postgres_host}:5432/keycloak?ssl=true&sslmode=require"
-      KC_DB_USERNAME: keycloak
+      KC_DB_URL: "jdbc:postgresql://${postgres_host}:${postgres_port}/keycloak?ssl=true&sslmode=require"
+      KC_DB_USERNAME: "${keycloak_db_username}"
       KC_HTTPS_CERTIFICATE_FILE: /tmp/keycloak.crt
       KC_HTTPS_CERTIFICATE_KEY_FILE: /tmp/keycloak.key
       KC_HOSTNAME_STRICT: "false"

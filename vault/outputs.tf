@@ -3,13 +3,13 @@
 # ---------------------------------------------------------------------------
 
 output "vault_addr" {
-  description = "Vault API address from the host (localhost-only). Use https://armory-vault:8200 from within the compose network."
-  value       = "https://127.0.0.1:8200"
+  description = "Vault API address from the host. Use https://armory-vault:<vault_port> from within the compose network."
+  value       = "https://${var.api_addr}:${var.vault_port}"
 }
 
 output "vault_ui_url" {
-  description = "Web UI URL, accessible from the host browser via the localhost-only port binding."
-  value       = var.ui_enabled ? "https://127.0.0.1:8200/ui" : null
+  description = "Web UI URL, accessible from the host browser via the published port binding."
+  value       = var.ui_enabled ? "https://${var.api_addr}:${var.vault_port}/ui" : null
 }
 
 output "vault_cacert_path" {

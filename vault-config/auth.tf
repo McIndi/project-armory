@@ -21,7 +21,7 @@ resource "vault_auth_backend" "userpass" {
 
 resource "vault_generic_endpoint" "operator_user" {
   count                = var.userpass_enabled ? 1 : 0
-  path                 = "auth/${vault_auth_backend.userpass[0].path}/users/operator"
+  path                 = "auth/${vault_auth_backend.userpass[0].path}/users/${var.operator_username}"
   ignore_absent_fields = true
 
   data_json = jsonencode({

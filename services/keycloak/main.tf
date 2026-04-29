@@ -14,6 +14,13 @@ locals {
 
   ip_sans_str   = join(",", concat(["127.0.0.1"], var.cert_ip_sans))
   alt_names_str = join(",", var.cert_dns_sans)
+
+  # Derive Vault OIDC redirect URIs from vault_port when not explicitly overridden.
+  vault_oidc_redirect_uris = var.vault_oidc_redirect_uris != null ? var.vault_oidc_redirect_uris : [
+    "http://localhost:8250/oidc/callback",
+    "https://127.0.0.1:${var.vault_port}/oidc/callback",
+    "https://127.0.0.1:${var.vault_port}/ui/vault/auth/oidc/oidc/callback",
+  ]
 }
 
 # ===========================================================================
@@ -140,7 +147,7 @@ resource "local_sensitive_file" "realm_import" {
     realm_operator_password  = var.realm_operator_password
     vault_oidc_client_id     = var.vault_oidc_client_id
     vault_oidc_client_secret = var.vault_oidc_client_secret
-    vault_oidc_redirect_uris = var.vault_oidc_redirect_uris
+    vault_oidc_redirect_uris = local.vault_oidc_redirect_uris
     agent_cli_client_id      = var.agent_cli_client_id
     agent_cli_redirect_uri   = var.agent_cli_redirect_uri
     agent_cli_web_origin     = var.agent_cli_web_origin
@@ -155,6 +162,7 @@ resource "local_file" "compose" {
     project_name            = var.compose_project_name
     agent_image             = var.agent_image
     agent_container_name    = var.agent_container_name
+    vault_agent_addr        = var.vault_agent_addr
     keycloak_image          = var.keycloak_image
     keycloak_container_name = var.keycloak_container_name
     host_ip                 = var.host_ip
@@ -167,6 +175,8 @@ resource "local_file" "compose" {
     secrets_dir             = local.dirs.secrets
     import_dir              = local.dirs.import
     postgres_host           = var.postgres_host
+    postgres_port           = var.postgres_port
+    keycloak_db_username    = var.keycloak_db_username
   })
 }
 

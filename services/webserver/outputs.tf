@@ -1,6 +1,6 @@
 output "nginx_url" {
   description = "HTTPS URL for the webserver."
-  value       = "https://${var.host_ip}:${var.host_port}"
+  value       = "https://${var.host_ip}:${var.nginx_host_port}"
 }
 
 output "compose_file" {

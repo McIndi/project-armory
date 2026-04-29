@@ -15,9 +15,9 @@ services:
     command: ["bao", "agent", "-config=/vault/agent/agent.hcl"]
 
     environment:
-      VAULT_ADDR: "https://armory-vault:8200"
+      VAULT_ADDR: "${vault_agent_addr}"
       VAULT_CACERT: "/vault/tls/ca.crt"
-      BAO_ADDR: "https://armory-vault:8200"
+      BAO_ADDR: "${vault_agent_addr}"
       BAO_CACERT: "/vault/tls/ca.crt"
 
     volumes:
@@ -52,7 +52,7 @@ services:
         exec python /app/api.py
 
     environment:
-      VAULT_ADDR: "https://armory-vault:8200"
+      VAULT_ADDR: "${vault_agent_addr}"
       VAULT_CACERT: "/vault/tls/ca.crt"
       ARMORY_CACERT: "/vault/ca-bundle.pem"
       APPROLE_DIR: "/vault/approle"

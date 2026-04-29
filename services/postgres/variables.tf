@@ -32,22 +32,44 @@ variable "network_name" {
   default     = "armory-net"
 }
 
+variable "postgres_port" {
+  description = "Host port published for PostgreSQL. Set via TF_VAR_postgres_port in armory.env."
+  type        = number
+  default     = 5432
+}
+
+variable "keycloak_db_username" {
+  description = "PostgreSQL login role for Keycloak, managed by Vault's database static role. Must match vault-config keycloak_db_username. Set via TF_VAR_keycloak_db_username in armory.env."
+  type        = string
+  default     = "keycloak"
+}
+
 # ---------------------------------------------------------------------------
 # Credentials
 # ---------------------------------------------------------------------------
 
+variable "postgres_username" {
+  description = "PostgreSQL superuser name (POSTGRES_USER). Set via TF_VAR_postgres_username in armory.env."
+  type        = string
+  default     = "postgres"
+}
+
 variable "postgres_password" {
-  description = "Password for the PostgreSQL superuser (postgres)."
+  description = "Password for the PostgreSQL superuser. Set via TF_VAR_postgres_password in armory.env."
   type        = string
   sensitive   = true
-  default     = "postgres-demo-2026"
+}
+
+variable "vault_mgmt_username" {
+  description = "PostgreSQL role used by Vault's database secrets engine. Must match vault-config vault_mgmt_username. Set via TF_VAR_vault_mgmt_username in armory.env."
+  type        = string
+  default     = "vault_mgmt"
 }
 
 variable "vault_mgmt_password" {
-  description = "Password for the vault_mgmt role used by Vault Database secrets engine."
+  description = "Password for the vault_mgmt role used by Vault Database secrets engine. Must match vault-config vault_mgmt_password. Set via TF_VAR_vault_mgmt_password in armory.env."
   type        = string
   sensitive   = true
-  default     = "vault-mgmt-demo-2026"
 }
 
 # ---------------------------------------------------------------------------
@@ -58,6 +80,12 @@ variable "vault_addr" {
   description = "Vault API address reachable from the host."
   type        = string
   default     = "https://127.0.0.1:8200"
+}
+
+variable "vault_agent_addr" {
+  description = "Vault API address reachable from inside the agent container (container-to-container on armory-net)."
+  type        = string
+  default     = "https://armory-vault:8200"
 }
 
 variable "vault_token" {

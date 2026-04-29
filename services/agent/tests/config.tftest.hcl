@@ -139,7 +139,7 @@ run "agent_api_url_output" {
   command = plan
 
   assert {
-    condition     = output.agent_api_url == "https://${var.host_ip}:${var.host_port}"
+    condition     = output.agent_api_url == "https://${var.host_ip}:${var.agent_host_port}"
     error_message = "agent_api_url output must expose the HTTPS endpoint"
   }
 }

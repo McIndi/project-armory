@@ -117,7 +117,9 @@ resource "local_file" "init_sql" {
   filename        = local.init_sql_path
   file_permission = "0644"
   content = templatefile("${path.module}/templates/init.sql.tpl", {
-    vault_mgmt_password = var.vault_mgmt_password
+    vault_mgmt_username  = var.vault_mgmt_username
+    vault_mgmt_password  = var.vault_mgmt_password
+    keycloak_db_username = var.keycloak_db_username
   })
 }
 
@@ -129,7 +131,10 @@ resource "local_file" "compose" {
     project_name         = var.compose_project_name
     postgres_image       = var.postgres_image
     container_name       = var.container_name
+    postgres_username    = var.postgres_username
     postgres_password    = var.postgres_password
+    postgres_port        = var.postgres_port
+    vault_agent_addr     = var.vault_agent_addr
     pgdata_dir           = local.pgdata_dir
     init_sql_path        = local.init_sql_path
     network_name         = var.network_name

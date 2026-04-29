@@ -138,6 +138,14 @@
 
 set -euo pipefail
 
+# Mirror all script stdout to a fresh log file on each run.
+# Stderr is intentionally left unchanged for now.
+LOG_FILE_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rebuild.log"
+LOG_FILE="${ARMORY_REBUILD_LOG_FILE:-$LOG_FILE_DEFAULT}"
+: > "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE")
+exec 2> >(tee -a "$LOG_FILE" >&2)
+
 # =============================================================================
 # COLOUR HELPERS
 # =============================================================================
@@ -182,6 +190,28 @@ header()  {
 # is sourced or called via a symlink.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── Shared config (credentials, ports, network) ───────────────────────────────
+# armory.env exports TF_VAR_* variables (picked up automatically by every
+# `tofu apply` call) and ARMORY_* variables used by this script.
+# Copy example.armory.env → armory.env and edit before any non-demo use.
+ARMORY_CONFIG="${SCRIPT_DIR}/armory.env"
+if [[ -f "$ARMORY_CONFIG" ]]; then
+  # shellcheck source=/dev/null
+  source "$ARMORY_CONFIG"
+else
+  warn "armory.env not found — falling back to variables.tf defaults. Copy example.armory.env to armory.env to set credentials and ports."
+fi
+
+# Fallbacks for scripts that source this before armory.env exists.
+ARMORY_HOST_IP="${ARMORY_HOST_IP:-127.0.0.1}"
+ARMORY_VAULT_PORT="${ARMORY_VAULT_PORT:-8200}"
+ARMORY_VAULT_ADDR="${ARMORY_VAULT_ADDR:-https://${ARMORY_HOST_IP}:${ARMORY_VAULT_PORT}}"
+ARMORY_WEBSERVER_PORT="${ARMORY_WEBSERVER_PORT:-8443}"
+ARMORY_KEYCLOAK_PORT="${ARMORY_KEYCLOAK_PORT:-8444}"
+ARMORY_AGENT_PORT="${ARMORY_AGENT_PORT:-8445}"
+ARMORY_PG_PORT="${ARMORY_PG_PORT:-5432}"
+OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-armory-vault-oidc-secret-2026}"
+
 # CREDS_FILE: where the unseal key and root token are saved after the key
 # ceremony. This file is gitignored. It is also read during teardown so the
 # script can re-unseal a sealed Vault before running tofu destroy against it.
@@ -199,11 +229,6 @@ SKIP_WEBSERVER=false   # If true, Phase 4 (nginx) is skipped
 SKIP_KEYCLOAK=false    # If true, Phases 6 and 9 are skipped
 SKIP_AGENT=false       # If true, Phase 9 (services/agent) is skipped
 DESTROY_ONLY=false     # If true, teardown runs but build() does not
-
-# OIDC client secret — must match vault_oidc_client_secret in services/keycloak/
-# and oidc_client_secret in vault-config/. The default matches example.tfvars;
-# override via the OIDC_CLIENT_SECRET env var before any non-demo use.
-OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-armory-vault-oidc-secret-2026}"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # Simple positional flag parsing. No getopt dependency — keeps the script
@@ -342,7 +367,7 @@ wait_for_vault() {
   log "Waiting for Vault to become reachable..."
   while true; do
     code=$(curl -s --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
-           https://127.0.0.1:8200/v1/sys/health \
+           "${ARMORY_VAULT_ADDR}/v1/sys/health" \
            -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
 
     case "$code" in
@@ -378,7 +403,7 @@ wait_for_vault() {
 vault_is_sealed() {
   local code
   code=$(curl -sk --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
-         https://127.0.0.1:8200/v1/sys/health \
+         "${ARMORY_VAULT_ADDR}/v1/sys/health" \
          -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
   [[ "$code" == "503" ]]
 }
@@ -390,7 +415,7 @@ vault_is_sealed() {
 vault_is_uninit() {
   local code
   code=$(curl -sk --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
-         https://127.0.0.1:8200/v1/sys/health \
+         "${ARMORY_VAULT_ADDR}/v1/sys/health" \
          -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
   [[ "$code" == "501" ]]
 }
@@ -483,7 +508,7 @@ wait_for_postgres() {
   attempt=0
 
   until podman exec armory-postgres \
-        pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; do
+        pg_isready -h 127.0.0.1 -p "${ARMORY_PG_PORT}" -U "${TF_VAR_postgres_username:-postgres}" >/dev/null 2>&1; do
     attempt=$(( attempt + 1 ))
     if [[ $attempt -ge 30 ]]; then
       error "armory-postgres is healthy but not accepting TCP connections after 60s"
@@ -529,9 +554,7 @@ wait_for_keycloak() {
   local max_attempts="${1:-180}"  # 180 × 3 seconds = 9 minutes maximum wait
   local attempt=0
   local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
-  local keycloak_port
-
-  keycloak_port=$(tfvars_number "services/keycloak" "keycloak_port" "8444")
+  local keycloak_port="${ARMORY_KEYCLOAK_PORT}"
 
   log "Waiting for Keycloak to become ready on port ${keycloak_port}..."
   log "(This can take up to 10 minutes while Vault Agent renders TLS cert and DB password)"
@@ -567,9 +590,7 @@ wait_for_agent_api() {
   local max_attempts="${1:-120}"  # 120 x 2 seconds = 4 minutes max
   local attempt=0
   local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
-  local agent_port
-
-  agent_port=$(tfvars_number "services/agent" "host_port" "8445")
+  local agent_port="${ARMORY_AGENT_PORT}"
 
   log "Waiting for agent API to become ready on port ${agent_port} (HTTPS)..."
 
@@ -646,34 +667,6 @@ ensure_tfvars() {
   if [[ ! -f "$path" ]]; then
     log "Copying example.tfvars → terraform.tfvars for $dir"
     cp "$SCRIPT_DIR/$dir/example.tfvars" "$path"
-  fi
-}
-
-# tfvars_number: returns a numeric variable value from a module's terraform.tfvars,
-# or a provided default when the file/key is absent or non-numeric.
-tfvars_number() {
-  local dir="$1"
-  local key="$2"
-  local default_value="$3"
-  local path="$SCRIPT_DIR/$dir/terraform.tfvars"
-  local value
-
-  if [[ ! -f "$path" ]]; then
-    echo "$default_value"
-    return
-  fi
-
-  value=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$path" 2>/dev/null | tail -1 || true)
-  if [[ -z "$value" ]]; then
-    echo "$default_value"
-    return
-  fi
-
-  value=$(echo "$value" | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*(#.*)?$//; s/"//g')
-  if [[ "$value" =~ ^[0-9]+$ ]]; then
-    echo "$value"
-  else
-    echo "$default_value"
   fi
 }
 
@@ -1239,10 +1232,10 @@ build() {
   fi
 
   if ! curl -s --cacert "$SCRIPT_DIR/vault/ca-bundle.pem" \
-        https://127.0.0.1:8200/v1/sys/health \
+        "${ARMORY_VAULT_ADDR}/v1/sys/health" \
         -o /dev/null; then
     error "Consolidated trust bundle validation failed"
-    error "Expected $SCRIPT_DIR/vault/ca-bundle.pem to trust Vault at https://127.0.0.1:8200"
+    error "Expected $SCRIPT_DIR/vault/ca-bundle.pem to trust Vault at ${ARMORY_VAULT_ADDR}"
     exit 1
   fi
 
@@ -1273,7 +1266,7 @@ build() {
         -var deploy_dir="$DEPLOY_DIR/webserver" \
         2>&1 | sed 's/^/  [webserver] /'
     )
-    success "Webserver deployed — reachable at https://127.0.0.1:8443"
+    success "Webserver deployed — reachable at https://${ARMORY_HOST_IP}:${ARMORY_WEBSERVER_PORT}"
   else
     warn "Skipping Phase 4 (webserver) — --skip-webserver flag was passed"
   fi
@@ -1382,7 +1375,7 @@ build() {
         -var deploy_dir="$DEPLOY_DIR/keycloak" \
         2>&1 | sed 's/^/  [keycloak] /'
     )
-    success "Keycloak deployed — admin console at https://127.0.0.1:8444/admin"
+    success "Keycloak deployed — admin console at https://${ARMORY_HOST_IP}:${ARMORY_KEYCLOAK_PORT}/admin"
   else
     warn "Skipping Phase 6 (Keycloak) — --skip-keycloak flag was passed"
   fi
@@ -1493,25 +1486,22 @@ build() {
 
 print_summary() {
   header "BUILD COMPLETE"
-  local keycloak_port
-  local agent_port
-
-  keycloak_port=$(tfvars_number "services/keycloak" "keycloak_port" "8444")
-  agent_port=$(tfvars_number "services/agent" "host_port" "8445")
+  local keycloak_port="${ARMORY_KEYCLOAK_PORT}"
+  local agent_port="${ARMORY_AGENT_PORT}"
 
   echo -e "${GREEN}Vault credentials saved to:${RESET} $CREDS_FILE"
   echo -e "${YELLOW}Keep this file safe. Losing the unseal key means Vault cannot be unsealed after a restart.${RESET}"
   echo ""
 
   echo -e "${BOLD}Deployed services:${RESET}"
-  echo "  Vault UI      : https://127.0.0.1:8200/ui"
+  echo "  Vault UI      : ${ARMORY_VAULT_ADDR}/ui"
   [[ "$SKIP_WEBSERVER" == "false" ]] && \
-    echo "  nginx         : https://127.0.0.1:8443   (Vault Agent TLS sidecar demo)"
-  echo "  PostgreSQL    : 127.0.0.1:5432             (internal; use psql or a client)"
+    echo "  nginx         : https://${ARMORY_HOST_IP}:${ARMORY_WEBSERVER_PORT}   (Vault Agent TLS sidecar demo)"
+  echo "  PostgreSQL    : ${ARMORY_HOST_IP}:${ARMORY_PG_PORT}             (internal; use psql or a client)"
   [[ "$SKIP_KEYCLOAK"  == "false" ]] && \
-    echo "  Keycloak      : https://127.0.0.1:${keycloak_port}/admin"
+    echo "  Keycloak      : https://${ARMORY_HOST_IP}:${keycloak_port}/admin"
   [[ "$SKIP_AGENT" == "false" ]] && \
-    echo "  Agent API     : https://127.0.0.1:${agent_port}"
+    echo "  Agent API     : https://${ARMORY_HOST_IP}:${agent_port}"
   echo ""
 
   echo -e "${BOLD}CA certificates — BOTH must be trusted for full connectivity:${RESET}"
@@ -1534,13 +1524,13 @@ print_summary() {
     echo ""
     echo "  Keycloak realm — the 'armory' realm, OIDC clients, group, and operator"
     echo "  user were seeded automatically via the realm import JSON."
-    echo "  Log in at https://127.0.0.1:8444/admin to verify:"
+    echo "  Log in at https://${ARMORY_HOST_IP}:${ARMORY_KEYCLOAK_PORT}/admin to verify:"
     echo "    Realm: armory"
     echo "    Group: vault-operators  (contains user 'operator')"
     echo "    Clients: vault (confidential), agent-cli (public, PKCE S256)"
     echo ""
     echo "  Test OIDC login:"
-    echo "    export VAULT_ADDR=https://127.0.0.1:8200"
+    echo "    export VAULT_ADDR=${ARMORY_VAULT_ADDR}"
     echo "    export VAULT_CACERT=$SCRIPT_DIR/vault/ca-bundle.pem"
     echo "    bao login -method=oidc role=operator"
     echo ""
@@ -1558,7 +1548,7 @@ print_summary() {
   if [[ "$SKIP_AGENT" == "false" ]]; then
     echo ""
     echo "  Agent API is deployed automatically in Phase 9:"
-    echo "    URL: https://127.0.0.1:8445"
+    echo "    URL: https://${ARMORY_HOST_IP}:${ARMORY_AGENT_PORT}"
     echo "    Cert bundle: $DEPLOY_DIR/agent/certs/agent.pem"
     echo ""
     echo "  If you re-run services/agent/ manually, note that wrapped_secret_id and"

@@ -18,7 +18,7 @@ resource "vault_kv_secret_v2" "keycloak_admin" {
   name  = "keycloak/admin"
 
   data_json = jsonencode({
-    username = "admin"
+    username = var.keycloak_admin_username
     password = var.keycloak_admin_password
   })
 }

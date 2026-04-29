@@ -10,7 +10,7 @@ output "approle_dir" {
 
 output "agent_api_url" {
   description = "Agent API HTTPS base URL exposed on the host."
-  value       = "https://${var.host_ip}:${var.host_port}"
+  value       = "https://${var.host_ip}:${var.agent_host_port}"
 }
 
 output "cert_bundle_path" {

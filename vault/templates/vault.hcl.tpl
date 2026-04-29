@@ -26,7 +26,7 @@ storage "raft" {
 # ---------------------------------------------------------------------------
 
 listener "tcp" {
-  address       = "0.0.0.0:8200"
+  address       = "0.0.0.0:${vault_port}"
   tls_cert_file = "/vault/tls/vault.crt"
   tls_key_file  = "/vault/tls/vault.key"
 
@@ -34,15 +34,15 @@ listener "tcp" {
   tls_min_version = "tls12"
 
   # Cluster listener shares the same TLS material
-  cluster_address = "0.0.0.0:8201"
+  cluster_address = "0.0.0.0:${vault_cluster_port}"
 }
 
 # ---------------------------------------------------------------------------
 # Addresses — used for cluster member communication and client redirects
 # ---------------------------------------------------------------------------
 
-api_addr     = "https://${api_addr}:8200"
-cluster_addr = "https://${api_addr}:8201"
+api_addr     = "https://${api_addr}:${vault_port}"
+cluster_addr = "https://${api_addr}:${vault_cluster_port}"
 
 # ---------------------------------------------------------------------------
 # Audit logging — declarative config required by OpenBao 2.x (API path blocked)

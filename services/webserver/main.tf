@@ -123,19 +123,20 @@ resource "local_file" "compose" {
   filename        = "${var.deploy_dir}/compose.yml"
   file_permission = "0644"
   content = templatefile("${path.module}/templates/compose.yml.tpl", {
-    project_name       = var.compose_project_name
-    agent_image        = var.agent_image
+    project_name         = var.compose_project_name
+    agent_image          = var.agent_image
     agent_container_name = var.agent_container_name
-    nginx_image        = var.nginx_image
+    vault_agent_addr     = var.vault_agent_addr
+    nginx_image          = var.nginx_image
     nginx_container_name = var.nginx_container_name
-    host_ip            = var.host_ip
-    host_port          = var.host_port
-    network_name       = var.network_name
-    agent_config_dir   = local.dirs.agent_config
-    approle_dir        = local.dirs.approle
-    vault_tls_dir      = local.vault_tls_dir
-    certs_dir          = local.dirs.certs
-    nginx_config_dir   = local.dirs.nginx
+    host_ip              = var.host_ip
+    host_port            = var.nginx_host_port
+    network_name         = var.network_name
+    agent_config_dir     = local.dirs.agent_config
+    approle_dir          = local.dirs.approle
+    vault_tls_dir        = local.vault_tls_dir
+    certs_dir            = local.dirs.certs
+    nginx_config_dir     = local.dirs.nginx
   })
 }
 

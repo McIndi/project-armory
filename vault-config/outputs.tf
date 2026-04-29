@@ -30,7 +30,7 @@ output "audit_log_path" {
 
 output "operator_login_command" {
   description = "Command to authenticate as the operator user (userpass method, while enabled)."
-  value       = var.userpass_enabled ? "podman exec armory-vault bao login -method=userpass -format=json username=operator | python3 -c \"import sys,json; print(json.load(sys.stdin)['auth']['client_token'])\"" : "userpass disabled — use: bao login -method=oidc role=operator"
+  value       = var.userpass_enabled ? "podman exec armory-vault bao login -method=userpass -format=json username=${var.operator_username} | python3 -c \"import sys,json; print(json.load(sys.stdin)['auth']['client_token'])\"" : "userpass disabled — use: bao login -method=oidc role=${var.operator_username}"
 }
 
 output "oidc_login_command" {

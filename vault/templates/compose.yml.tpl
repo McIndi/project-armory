@@ -13,7 +13,7 @@ services:
     restart: ${restart_policy}
 
     ports:
-      - "127.0.0.1:8200:8200"
+      - "${api_addr}:${vault_port}:${vault_port}"
 
     volumes:
       - ${config_dir}:/vault/config:ro,z
@@ -22,10 +22,11 @@ services:
       - ${logs_dir}:/vault/logs:z
 
     environment:
-      # Used by the vault/bao CLI inside the container for health-check commands
-      VAULT_ADDR: "https://127.0.0.1:8200"
+      # Used by the vault/bao CLI inside the container for health-check commands.
+      # Always 127.0.0.1 here — this is the address inside the container.
+      VAULT_ADDR: "https://127.0.0.1:${vault_port}"
       VAULT_CACERT: "/vault/tls/ca.crt"
-      BAO_ADDR: "https://127.0.0.1:8200"
+      BAO_ADDR: "https://127.0.0.1:${vault_port}"
       BAO_CACERT: "/vault/tls/ca.crt"
 
 %{ if !disable_mlock ~}
@@ -38,7 +39,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "${vault_binary} status -address=https://127.0.0.1:8200 -ca-cert=/vault/tls/ca.crt || exit 1"
+        - "${vault_binary} status -address=https://127.0.0.1:${vault_port} -ca-cert=/vault/tls/ca.crt || exit 1"
       interval: 15s
       timeout: 5s
       retries: 6

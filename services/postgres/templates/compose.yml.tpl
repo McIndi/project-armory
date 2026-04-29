@@ -15,9 +15,9 @@ services:
     command: ["bao", "agent", "-config=/vault/agent/agent.hcl"]
 
     environment:
-      VAULT_ADDR: "https://armory-vault:8200"
+      VAULT_ADDR: "${vault_agent_addr}"
       VAULT_CACERT: "/vault/tls/ca.crt"
-      BAO_ADDR: "https://armory-vault:8200"
+      BAO_ADDR: "${vault_agent_addr}"
       BAO_CACERT: "/vault/tls/ca.crt"
 
     volumes:
@@ -58,11 +58,12 @@ services:
                -c ssl_key_file=/tmp/server.key"
 
     environment:
+      POSTGRES_USER: "${postgres_username}"
       POSTGRES_PASSWORD: "${postgres_password}"
       PGDATA: /var/lib/postgresql/data/pgdata
 
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${postgres_port}:${postgres_port}"
 
     volumes:
       - ${pgdata_dir}:/var/lib/postgresql/data:z
@@ -70,7 +71,7 @@ services:
       - ${certs_dir}:/vault/certs:ro,z
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${postgres_port} -U ${postgres_username}"]
       interval: 5s
       timeout: 2s
       retries: 12
