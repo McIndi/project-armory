@@ -29,11 +29,13 @@
 # OPTIONS
 #   --skip-webserver   Skip Phase 4 (nginx + Vault Agent sidecar demo).
 #                      Useful when you only need the core vault/db/auth stack.
-#   --skip-keycloak    Skip Phases 6 and 9 (Keycloak and the agentic layer).
-#                      Automatically implies --skip-agent.
+#   --skip-keycloak    Skip Phases 6, 9, and 10 (Keycloak, agent, Wazuh).
+#                      Automatically implies --skip-agent and --skip-wazuh.
 #   --skip-agent       Skip Phase 9 (services/agent module only).
 #                      Keycloak is still deployed; only the agent AppRole and
 #                      services/agent tofu module are omitted.
+#   --skip-wazuh       Skip Phase 10 (Wazuh SIEM + Keycloak auth proxy).
+#                      Keycloak is still deployed; only services/wazuh is omitted.
 #   --base-dir PATH    Override the runtime artefact root directory.
 #                      Example: --base-dir /home/cliff/armory
 #   --destroy-only     Run the teardown phase but do not rebuild. Useful for
@@ -109,6 +111,13 @@
 #             Agent TLS sidecar, and starts the FastAPI agent API over HTTPS
 #             on port 8445 (host binding).
 #             (Skippable with --skip-agent or --skip-keycloak.)
+#
+#   Phase 10  Apply services/wazuh/ — deploys Wazuh manager with:
+#             - Vault Agent sidecar for TLS + oauth2-proxy OIDC secrets
+#             - oauth2-proxy integrated with Keycloak for human auth
+#             - observer sidecar emitting health/perf JSON checks for
+#               Vault, Keycloak, and PostgreSQL into Wazuh log ingestion.
+#             (Skippable with --skip-wazuh or --skip-keycloak.)
 #
 # MANUAL STEPS NOT AUTOMATED BY THIS SCRIPT
 # ------------------------------------------
@@ -210,6 +219,8 @@ ARMORY_WEBSERVER_PORT="${ARMORY_WEBSERVER_PORT:-8443}"
 ARMORY_KEYCLOAK_PORT="${ARMORY_KEYCLOAK_PORT:-8444}"
 ARMORY_AGENT_PORT="${ARMORY_AGENT_PORT:-8445}"
 ARMORY_PG_PORT="${ARMORY_PG_PORT:-5432}"
+ARMORY_WAZUH_API_PORT="${ARMORY_WAZUH_API_PORT:-55000}"
+ARMORY_WAZUH_AUTH_PORT="${ARMORY_WAZUH_AUTH_PORT:-8550}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-armory-vault-oidc-secret-2026}"
 
 # CREDS_FILE: where the unseal key and root token are saved after the key
@@ -226,8 +237,9 @@ DEPLOY_DIR="$ARMORY_BASE_DIR"
 # ── Feature flags (overridden by CLI arguments below) ────────────────────────
 
 SKIP_WEBSERVER=false   # If true, Phase 4 (nginx) is skipped
-SKIP_KEYCLOAK=false    # If true, Phases 6 and 9 are skipped
+SKIP_KEYCLOAK=false    # If true, Phases 6, 9, and 10 are skipped
 SKIP_AGENT=false       # If true, Phase 9 (services/agent) is skipped
+SKIP_WAZUH=false       # If true, Phase 10 (services/wazuh) is skipped
 DESTROY_ONLY=false     # If true, teardown runs but build() does not
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -241,13 +253,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-keycloak)
       # Keycloak is a prerequisite for the agent (OIDC token validation).
-      # Skipping Keycloak therefore forces --skip-agent as well.
+      # Skipping Keycloak therefore forces --skip-agent/--skip-wazuh as well.
       SKIP_KEYCLOAK=true
       SKIP_AGENT=true
+      SKIP_WAZUH=true
       shift
       ;;
     --skip-agent)
       SKIP_AGENT=true
+      shift
+      ;;
+    --skip-wazuh)
+      SKIP_WAZUH=true
       shift
       ;;
     --base-dir)
@@ -613,6 +630,41 @@ wait_for_agent_api() {
   success "Agent API is ready"
 }
 
+# =============================================================================
+# WAZUH AUTH PROXY READINESS HELPER
+# =============================================================================
+# wait_for_wazuh_auth_proxy: polls oauth2-proxy's /ping endpoint over HTTPS
+# until it returns HTTP 200. This confirms the Vault Agent sidecar has rendered
+# TLS material and OIDC secrets and oauth2-proxy is listening.
+# =============================================================================
+
+wait_for_wazuh_auth_proxy() {
+  local max_attempts="${1:-120}"  # 120 x 2 seconds = 4 minutes max
+  local attempt=0
+  local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
+  local auth_port="${ARMORY_WAZUH_AUTH_PORT}"
+
+  log "Waiting for Wazuh auth proxy to become ready on port ${auth_port} (HTTPS)..."
+
+  until curl -s --cacert "$cacert" \
+        "https://127.0.0.1:${auth_port}/ping" \
+        -o /dev/null -w "%{http_code}" 2>/dev/null \
+        | grep -q "200"; do
+    attempt=$(( attempt + 1 ))
+    if [[ $attempt -ge $max_attempts ]]; then
+      error "Wazuh auth proxy did not become ready after $(( max_attempts * 2 ))s"
+      log "Last 20 lines from armory-wazuh-auth-proxy (if running):"
+      podman logs armory-wazuh-auth-proxy --tail 20 2>/dev/null || true
+      log "Last 20 lines from armory-vault-agent-wazuh (if running):"
+      podman logs armory-vault-agent-wazuh --tail 20 2>/dev/null || true
+      return 1
+    fi
+    sleep 2
+  done
+
+  success "Wazuh auth proxy is ready"
+}
+
 # OPENTOFU HELPERS
 # =============================================================================
 
@@ -679,6 +731,7 @@ ensure_tfvars() {
 #
 # Destroy order (reverse of deploy):
 #   services/agent    — depends on vault-config AppRole and Vault Agent
+#   services/wazuh    — depends on Vault AppRole/PKI and Keycloak OIDC
 #   services/keycloak — depends on vault-config PKI (pki_ext) and DB roles
 #   services/webserver — depends on vault-config PKI (pki_ext) and AppRole
 #   vault-config      — depends on a running, unsealed Vault
@@ -737,6 +790,7 @@ teardown() {
     "postgres:$DEPLOY_DIR/postgres/compose.yml"
     "keycloak:$DEPLOY_DIR/keycloak/compose.yml"
     "agent:$DEPLOY_DIR/agent/compose.yml"
+    "wazuh:$DEPLOY_DIR/wazuh/compose.yml"
   )
 
   for entry in "${compose_projects[@]}"; do
@@ -808,6 +862,14 @@ teardown() {
       -var deploy_dir="$DEPLOY_DIR/agent"
   else
     log "Skipping services/agent destroy (--skip-agent was passed)"
+  fi
+
+  if [[ "$SKIP_WAZUH" == "false" ]]; then
+    destroy_module "services/wazuh" \
+      -var armory_base_dir="$ARMORY_BASE_DIR" \
+      -var deploy_dir="$DEPLOY_DIR/wazuh"
+  else
+    log "Skipping services/wazuh destroy (--skip-wazuh was passed)"
   fi
 
   # services/keycloak — AppRole credentials, PKI certificate from pki_ext,
@@ -1475,6 +1537,36 @@ build() {
   else
     warn "Skipping Phase 9 (agent) — --skip-agent or --skip-keycloak flag was passed"
   fi
+
+  # ── Phase 10: Deploy Wazuh SIEM layer ─────────────────────────────────────
+  # Wazuh deployment includes:
+  #   - Wazuh manager for SIEM event processing and security analytics
+  #   - Vault Agent sidecar to render TLS cert + oauth2-proxy OIDC secrets
+  #   - oauth2-proxy in front of Wazuh API, authenticating users via Keycloak
+  #   - observer sidecar writing JSON health/perf checks for Vault/Keycloak/
+  #     PostgreSQL into Wazuh-monitored log files
+  if [[ "$SKIP_WAZUH" == "false" ]]; then
+    header "PHASE 10 — Deploy Wazuh SIEM (manager + Keycloak auth proxy)"
+
+    ensure_tfvars "services/wazuh"
+    (
+      cd "$SCRIPT_DIR/services/wazuh"
+      log "Initialising OpenTofu providers for services/wazuh/..."
+      tofu init -upgrade 2>&1 | sed 's/^/  [wazuh] /'
+      log "Applying services/wazuh/ module..."
+      tofu apply -auto-approve \
+        -var armory_base_dir="$ARMORY_BASE_DIR" \
+        -var deploy_dir="$DEPLOY_DIR/wazuh" \
+        2>&1 | sed 's/^/  [wazuh] /'
+    )
+    success "Wazuh stack deployed"
+    log "  Wazuh API: https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_API_PORT}"
+    log "  Keycloak-protected endpoint: https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_AUTH_PORT}"
+
+    wait_for_wazuh_auth_proxy
+  else
+    warn "Skipping Phase 10 (wazuh) — --skip-wazuh or --skip-keycloak flag was passed"
+  fi
 }
 
 # =============================================================================
@@ -1488,6 +1580,8 @@ print_summary() {
   header "BUILD COMPLETE"
   local keycloak_port="${ARMORY_KEYCLOAK_PORT}"
   local agent_port="${ARMORY_AGENT_PORT}"
+  local wazuh_api_port="${ARMORY_WAZUH_API_PORT}"
+  local wazuh_auth_port="${ARMORY_WAZUH_AUTH_PORT}"
 
   echo -e "${GREEN}Vault credentials saved to:${RESET} $CREDS_FILE"
   echo -e "${YELLOW}Keep this file safe. Losing the unseal key means Vault cannot be unsealed after a restart.${RESET}"
@@ -1502,6 +1596,10 @@ print_summary() {
     echo "  Keycloak      : https://${ARMORY_HOST_IP}:${keycloak_port}/admin"
   [[ "$SKIP_AGENT" == "false" ]] && \
     echo "  Agent API     : https://${ARMORY_HOST_IP}:${agent_port}"
+  [[ "$SKIP_WAZUH" == "false" ]] && \
+    echo "  Wazuh API     : https://${ARMORY_HOST_IP}:${wazuh_api_port}"
+  [[ "$SKIP_WAZUH" == "false" ]] && \
+    echo "  Wazuh (OIDC)  : https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
   echo ""
 
   echo -e "${BOLD}CA certificates — BOTH must be trusted for full connectivity:${RESET}"
@@ -1555,6 +1653,19 @@ print_summary() {
     echo "  wrapped_secret_id_tls are single-use and will be re-issued on each apply."
   fi
 
+  if [[ "$SKIP_WAZUH" == "false" ]]; then
+    echo ""
+    echo "  Wazuh OIDC bootstrap (Keycloak) required for auth-proxy sign-in:"
+    echo "    1) In Keycloak realm 'armory', create group: wazuh-operators"
+    echo "    2) Create confidential client: ${TF_VAR_keycloak_oidc_client_id:-wazuh-dashboard}"
+    echo "       - Valid redirect URI: https://${ARMORY_HOST_IP}:${wazuh_auth_port}/oauth2/callback"
+    echo "       - Web origin: https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
+    echo "    3) Create users and add them to wazuh-operators"
+    echo "    4) Write client + cookie secrets to Vault KV v2:" 
+    echo "       bao kv put kv/wazuh/oidc client_secret=<OIDC_CLIENT_SECRET> cookie_secret=<32_BYTE_BASE64>"
+    echo "    5) Re-apply services/wazuh/ to refresh Vault Agent rendered env file"
+  fi
+
   echo ""
   echo -e "${YELLOW}Vault must be manually unsealed after every restart:${RESET}"
   echo "  podman exec armory-vault bao operator unseal <UNSEAL_KEY_FROM_$CREDS_FILE>"
@@ -1573,7 +1684,7 @@ main() {
   log "Script directory : $SCRIPT_DIR"
   log "Deploy directory : $DEPLOY_DIR"
   log "Credentials file : $CREDS_FILE"
-  log "Flags            : skip-webserver=$SKIP_WEBSERVER  skip-keycloak=$SKIP_KEYCLOAK  skip-agent=$SKIP_AGENT  destroy-only=$DESTROY_ONLY"
+  log "Flags            : skip-webserver=$SKIP_WEBSERVER  skip-keycloak=$SKIP_KEYCLOAK  skip-agent=$SKIP_AGENT  skip-wazuh=$SKIP_WAZUH  destroy-only=$DESTROY_ONLY"
 
   check_prereqs
   teardown

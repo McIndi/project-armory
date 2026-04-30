@@ -47,12 +47,14 @@ cp example.armory.env armory.env
 
 | Variable | Module(s) | Description |
 |---|---|---|
-| `ARMORY_HOST_IP` / `TF_VAR_api_addr` / `TF_VAR_host_ip` | vault/, webserver, keycloak, agent | Host IP that services bind to. `127.0.0.1` = loopback only; `0.0.0.0` = all interfaces. |
+| `ARMORY_HOST_IP` / `TF_VAR_api_addr` / `TF_VAR_host_ip` | vault/, webserver, keycloak, agent, wazuh | Host IP that services bind to. `127.0.0.1` = loopback only; `0.0.0.0` = all interfaces. |
 | `ARMORY_VAULT_PORT` / `TF_VAR_vault_port` | vault/, vault-config/, keycloak | Vault API port. Also used to derive OIDC redirect URIs. Default: `8200` |
 | `TF_VAR_vault_cluster_port` | vault/ | Internal Raft cluster port. Not published to host. Default: `8201` |
 | `ARMORY_WEBSERVER_PORT` / `TF_VAR_nginx_host_port` | services/webserver/ | Host port for nginx HTTPS. Default: `8443` |
 | `ARMORY_KEYCLOAK_PORT` / `TF_VAR_keycloak_port` | services/keycloak/ | Host port for Keycloak HTTPS. Default: `8444` |
 | `ARMORY_AGENT_PORT` / `TF_VAR_agent_host_port` | services/agent/ | Host port for the agent API HTTPS. Default: `8445` |
+| `ARMORY_WAZUH_API_PORT` / `TF_VAR_wazuh_api_port` | services/wazuh/ | Host port for direct Wazuh manager API HTTPS. Default: `55000` |
+| `ARMORY_WAZUH_AUTH_PORT` / `TF_VAR_wazuh_auth_proxy_port` | services/wazuh/ | Host port for Keycloak-protected Wazuh oauth2-proxy endpoint. Default: `8550` |
 | `ARMORY_PG_PORT` / `TF_VAR_postgres_port` | vault-config/, services/postgres/, services/keycloak/ | PostgreSQL port. Default: `5432` |
 | `TF_VAR_operator_username` | vault-config/ | Vault userpass account username. Default: `operator` |
 | `TF_VAR_operator_password` | vault-config/ | Vault userpass account password. **Required — no default.** |
@@ -70,6 +72,8 @@ cp example.armory.env armory.env
 | `TF_VAR_keycloak_admin_password` | vault-config/ | Keycloak bootstrap admin password stored in KV v2. **Required — no default.** |
 | `TF_VAR_realm_operator_username` | services/keycloak/ | Username for the demo operator user seeded in the Keycloak realm. Default: `operator` |
 | `TF_VAR_realm_operator_password` | services/keycloak/ | Password for the demo operator user. **Required — no default.** |
+| `TF_VAR_keycloak_oidc_client_id` | services/wazuh/ | Keycloak OIDC client ID used by oauth2-proxy in front of Wazuh. Default: `wazuh-dashboard` |
+| `TF_VAR_required_group` | services/wazuh/ | Keycloak group required to access Wazuh via oauth2-proxy. Default: `wazuh-operators` |
 | `TF_VAR_vault_addr` | All vault-provider modules | Vault API address reachable from the host. Derived from `ARMORY_HOST_IP` and `ARMORY_VAULT_PORT`. |
 | `TF_VAR_armory_base_dir` | All modules | Root directory for all runtime artefacts. Default: `/opt/armory` |
 
@@ -174,10 +178,11 @@ cp example.armory.env armory.env
 | `--skip-webserver` | Skip Phase 4 (nginx demo). Useful when you only need the core vault/db/auth stack. |
 | `--skip-keycloak` | Skip Phases 6, 7, and 9 (Keycloak, OIDC, and the agentic layer). |
 | `--skip-agent` | Skip Phase 9 only. Keycloak and OIDC are still deployed. |
+| `--skip-wazuh` | Skip Phase 10 only. Keycloak remains deployed, but Wazuh SIEM is not applied. |
 | `--destroy-only` | Run teardown without rebuilding. |
 | `--base-dir PATH` | Override the runtime artefact root (default: `/opt/armory`). Also settable via `ARMORY_BASE_DIR` env var. |
 
-After `rebuild.sh` completes, the full stack is operational: Vault unsealed, PKI configured, PostgreSQL running, Keycloak running with the `armory` realm imported, OIDC auth enabled, and the HTTPS agent API live. No manual browser steps are required.
+After `rebuild.sh` completes, the full stack is operational: Vault unsealed, PKI configured, PostgreSQL running, Keycloak running with the `armory` realm imported, OIDC auth enabled, the HTTPS agent API live, and (unless skipped) Wazuh deployed with Keycloak-protected access.
 
 ---
 
@@ -624,6 +629,56 @@ python cli.py --query "SELECT current_user, now() AS ts"
 > **Headless / no-GUI environments:** `cli.py` prints the full authorization URL to stderr before attempting to open a browser. Copy-paste it into a browser on your host machine. The callback listener on `http://127.0.0.1:18080/callback` completes the exchange once you log in.
 
 > **Single-use wrapped tokens:** `wrapped_secret_id` and `wrapped_secret_id_tls` are single-use. Re-run `tofu apply` in `services/agent/` to re-issue both when rotating or restarting the agent stack.
+
+---
+
+### Phase 10 — Deploy Wazuh SIEM + Keycloak auth proxy
+
+This phase deploys `services/wazuh/` with four containers:
+
+- Wazuh manager for SIEM ingestion and analysis
+- Vault Agent sidecar for TLS cert and OIDC secret rendering
+- oauth2-proxy for Keycloak-based human authentication
+- Observer sidecar that emits JSON health/perf checks for Vault, Keycloak, and PostgreSQL
+
+```bash
+source armory.env
+export TF_VAR_vault_token=<ROOT_TOKEN>
+cd services/wazuh/
+cp example.tfvars terraform.tfvars
+tofu init
+tofu apply \
+  -var armory_base_dir="$ARMORY_BASE_DIR" \
+  -var deploy_dir="$ARMORY_BASE_DIR/wazuh"
+```
+
+Create Keycloak access group and users:
+
+1. In realm `armory`, create group `wazuh-operators`.
+2. Create confidential client `wazuh-dashboard`.
+3. Configure redirect URI: `https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_AUTH_PORT}/oauth2/callback`.
+4. Configure web origin: `https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_AUTH_PORT}`.
+5. Ensure `groups` claim mapping is present on issued access tokens.
+6. Create users and add them to `wazuh-operators`.
+
+Write oauth2-proxy secrets to Vault (read by Wazuh Vault Agent sidecar):
+
+```bash
+export VAULT_ADDR="${ARMORY_VAULT_ADDR}"
+export VAULT_CACERT="$(pwd)/vault/ca-bundle.pem"
+export VAULT_TOKEN=<ROOT_TOKEN>
+
+bao kv put kv/wazuh/oidc \
+  client_secret=<KEYCLOAK_CLIENT_SECRET> \
+  cookie_secret=<32_BYTE_BASE64>
+```
+
+Verify:
+
+```bash
+curl -I --cacert vault/ca-bundle.pem "https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_AUTH_PORT}/oauth2/sign_in"
+curl -k "https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_API_PORT}"
+```
 
 ---
 

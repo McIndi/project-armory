@@ -320,6 +320,46 @@ curl -s --cacert ~/projects/project-armory/vault/ca-bundle.pem \
   https://127.0.0.1:8443/ | head -5
 ```
 
+### Wazuh SIEM (optional — Phase 10)
+
+```bash
+# Deploy
+cd ~/projects/project-armory/services/wazuh
+cp example.tfvars terraform.tfvars
+export TF_VAR_vault_token=<ROOT_TOKEN>
+tofu init && tofu apply -auto-approve
+```
+
+Keycloak setup for Wazuh auth-proxy:
+
+1. In realm `armory`, create group `wazuh-operators`.
+2. Create confidential client `wazuh-dashboard`.
+3. Redirect URI: `https://127.0.0.1:8550/oauth2/callback`
+4. Web origin: `https://127.0.0.1:8550`
+5. Ensure `groups` claim is mapped into access tokens.
+6. Create users and add them to `wazuh-operators`.
+
+Write OIDC secrets to Vault KV v2 so the Wazuh Vault Agent sidecar can render `oidc.env`:
+
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_CACERT=~/projects/project-armory/vault/ca-bundle.pem
+export VAULT_TOKEN=<ROOT_TOKEN>
+
+bao kv put kv/wazuh/oidc \
+  client_secret=<KEYCLOAK_CLIENT_SECRET> \
+  cookie_secret=<32_BYTE_BASE64>
+```
+
+Verify endpoints:
+
+```bash
+curl -I --cacert ~/projects/project-armory/vault/ca-bundle.pem \
+  https://127.0.0.1:8550/oauth2/sign_in
+
+curl -k https://127.0.0.1:55000
+```
+
 ---
 
 ## Integration Tests
