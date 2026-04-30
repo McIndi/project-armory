@@ -25,31 +25,34 @@ Wazuh ingests these signals as local files to provide cross-service observabilit
 
 - Vault, vault-config, PostgreSQL, and Keycloak should already be deployed.
 - Keycloak OIDC realm should exist (`armory` by default).
-- Vault KV v2 secret should exist at `kv/wazuh/oidc` with:
-  - `client_secret`
-  - `cookie_secret` (32-byte base64 value)
+- The Wazuh module seeds Vault KV v2 secret `kv/wazuh/oidc` during apply.
+- Set `TF_VAR_wazuh_oidc_client_secret` and `TF_VAR_wazuh_cookie_secret` before deployment.
 
 ## Keycloak account and client setup
 
-1. Log in to Keycloak admin console (`https://127.0.0.1:8444/admin`).
-2. Open realm `armory`.
-3. Create group `wazuh-operators`.
-4. Create a confidential client (default ID: `wazuh-dashboard`).
-5. Set redirect URI to `https://127.0.0.1:8550/oauth2/callback`.
-6. Set web origin to `https://127.0.0.1:8550`.
-7. Ensure `groups` claim is present in tokens (group membership mapper).
-8. Create users and add them to `wazuh-operators`.
+When using `rebuild.sh`, Keycloak bootstrap for Wazuh is automated by `services/keycloak/`.
+The imported `armory` realm already contains:
+
+1. Group `wazuh-operators`
+2. Confidential client `wazuh-dashboard`
+3. Redirect URI `https://127.0.0.1:8550/oauth2/callback`
+4. Web origin `https://127.0.0.1:8550`
+5. Demo user `wazuh-operator` in `wazuh-operators`
 
 ## Vault secret for oauth2-proxy
+
+The module writes these values to Vault KV v2 path `kv/wazuh/oidc` during `tofu apply`.
 
 ```bash
 export VAULT_ADDR=https://127.0.0.1:8200
 export VAULT_CACERT=~/projects/project-armory/vault/ca-bundle.pem
 export VAULT_TOKEN=<ROOT_TOKEN>
+export TF_VAR_wazuh_operator_username=wazuh-operator
+export TF_VAR_wazuh_operator_password=<WAZUH_OPERATOR_PASSWORD>
+export TF_VAR_wazuh_oidc_client_secret=<KEYCLOAK_CLIENT_SECRET>
+export TF_VAR_wazuh_cookie_secret=<32_BYTE_BASE64>
 
-bao kv put kv/wazuh/oidc \
-  client_secret=<KEYCLOAK_CLIENT_SECRET> \
-  cookie_secret=<32_BYTE_BASE64>
+tofu apply -auto-approve
 ```
 
 ## Deploy

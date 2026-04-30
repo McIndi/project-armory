@@ -31,7 +31,7 @@ server_name   = "armory-keycloak"
 cert_ttl      = "720h"
 
 host_ip       = "127.0.0.1"
-keycloak_port = 8444
+keycloak_port = 8443
 
 # Optional: extra IP SANs beyond 127.0.0.1 (always included).
 # cert_ip_sans = ["192.168.1.50"]
@@ -57,6 +57,13 @@ vault_oidc_client_id = "vault"
 agent_cli_client_id    = "agent-cli"
 agent_cli_redirect_uri = "http://127.0.0.1:18080/callback"
 agent_cli_web_origin   = "http://127.0.0.1:18080"
+
+keycloak_oidc_client_id = "wazuh-dashboard"
+required_group          = "wazuh-operators"
+wazuh_operator_username = "wazuh-operator"
+# wazuh_operator_password = "armory-demo-2026"      # set via TF_VAR_wazuh_operator_password
+# wazuh_oidc_client_secret = "armory-wazuh-oidc-secret-2026"  # set via TF_VAR_wazuh_oidc_client_secret
+# wazuh_auth_proxy_port = 8550
 
 vault_oidc_redirect_uris = [
   "http://localhost:8250/oidc/callback",

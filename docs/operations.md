@@ -135,7 +135,7 @@ podman exec -e VAULT_TOKEN=<ROOT_TOKEN> armory-vault \
   bao kv get kv/keycloak/admin
 ```
 
-Navigate to `https://127.0.0.1:8444/admin`, then:
+Navigate to `https://127.0.0.1:8443/admin`, then:
 
 1. Create realm **`armory`**
 2. Create group **`vault-operators`**, add your operator user
@@ -210,7 +210,7 @@ curl --cacert ~/projects/project-armory/vault/ca-bundle.pem \
 cd ~/projects/project-armory/services/agent/agent
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 export AGENT_API_URL=https://127.0.0.1:8445
-export KEYCLOAK_URL=https://127.0.0.1:8444
+export KEYCLOAK_URL=https://127.0.0.1:8443
 export ARMORY_CACERT=~/projects/project-armory/vault/ca-bundle.pem
 .venv/bin/python cli.py --query "SELECT current_user, now() AS ts"
 ```
@@ -302,7 +302,7 @@ for line in sys.stdin:
 
 ```bash
 curl -s --cacert ~/projects/project-armory/vault/ca-bundle.pem \
-  https://127.0.0.1:8444/realms/armory/.well-known/openid-configuration \
+  https://127.0.0.1:8443/realms/armory/.well-known/openid-configuration \
   | python3 -m json.tool | grep -E "issuer|token_endpoint|jwks"
 ```
 
@@ -317,7 +317,7 @@ tofu init && tofu apply -auto-approve
 
 # Verify
 curl -s --cacert ~/projects/project-armory/vault/ca-bundle.pem \
-  https://127.0.0.1:8443/ | head -5
+  https://127.0.0.1:8000/ | head -5
 ```
 
 ### Wazuh SIEM (optional — Phase 10)

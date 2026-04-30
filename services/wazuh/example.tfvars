@@ -23,6 +23,10 @@ keycloak_realm          = "armory"
 keycloak_oidc_client_id = "wazuh-dashboard"
 required_group          = "wazuh-operators"
 
+# Set these via environment variables for real deployments:
+#   export TF_VAR_wazuh_oidc_client_secret=<KEYCLOAK_CLIENT_SECRET>
+#   export TF_VAR_wazuh_cookie_secret=<32_BYTE_BASE64>
+
 # Sidecar secret path for oauth2-proxy secrets.
 # Expected fields:
 #   client_secret

@@ -50,7 +50,7 @@ pytestmark = pytest.mark.skipif(
 ARMORY_BASE_DIR = os.environ.get("ARMORY_BASE_DIR", "/opt/armory")
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-KEYCLOAK_URL = os.environ.get("KEYCLOAK_URL", "https://127.0.0.1:8444")
+KEYCLOAK_URL = os.environ.get("KEYCLOAK_URL", "https://127.0.0.1:8443")
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "https://127.0.0.1:8200")
 
 # ca-bundle.pem covers pki_ext-issued certs (including Keycloak TLS)

@@ -37,8 +37,8 @@ graph TB
     %% Host to Container Port Bindings
     lo -->|<b>8200:8200</b><br/>Vault API<br/>localhost only| vault
     lo -->|<b>5432:5432</b><br/>PostgreSQL<br/>localhost only| postgres
-    lo -->|<b>8444:8443</b><br/>Keycloak<br/>localhost only| keycloak
-    lo -->|<b>8443:443</b><br/>Nginx<br/>localhost only| nginx
+    lo -->|<b>8443:8443</b><br/>Keycloak<br/>localhost only| keycloak
+    lo -->|<b>8000:443</b><br/>Nginx<br/>localhost only| nginx
 
     %% Container-to-Container (armory-net)
     keycloak -->|armory-postgres:5432<br/>TLS| postgres
@@ -157,8 +157,8 @@ BAO_CACERT=/vault/tls/ca.crt
 #### Configuration
 - **Container listens on**: 8443 (standard HTTPS)
 - **Default host_ip**: `127.0.0.1` (localhost only)
-- **Default host_port**: 8444 (configurable via `keycloak_port` variable)
-- **Actual binding**: `127.0.0.1:8444:8443` (host:container mapping)
+- **Default host_port**: 8443 (configurable via `keycloak_port` variable)
+- **Actual binding**: `127.0.0.1:8443:8443` (host:container mapping)
 - **Database**: PostgreSQL at `armory-postgres:5432`
 - **Database**: Uses TLS connection with `ssl=true&sslmode=require`
 
@@ -192,8 +192,8 @@ KC_DB_USERNAME=keycloak
 #### Configuration
 - **Container listens on**: 443 (standard HTTPS)
 - **Default host_ip**: `127.0.0.1` (localhost only)
-- **Default host_port**: 8443 (configured for rootless Podman)
-- **Actual binding**: `127.0.0.1:8443:443` (host:container mapping)
+- **Default host_port**: 8000 (configured for rootless Podman)
+- **Actual binding**: `127.0.0.1:8000:443` (host:container mapping)
 
 #### TLS Certificate Details
 - **CN**: `armory-webserver`
@@ -212,8 +212,8 @@ This section clarifies all port bindings using standard Podman compose notation:
 |---------|-----------|------|--------------|-------|
 | Vault | armory-vault | 8200 (API) | 127.0.0.1:8200:8200 | Localhost only (ADR-007) |
 | Vault | armory-vault | 8201 (Raft) | **NOT published** | Internal only, no inter-node traffic in single-node deployment |
-| Keycloak | armory-keycloak | 8443 (HTTPS) | 127.0.0.1:8444:8443 | Default; customize with `host_ip` & `keycloak_port` |
-| Nginx | armory-webserver | 443 (HTTPS) | 127.0.0.1:8443:443 | Default; customize with `host_ip` & `host_port` |
+| Keycloak | armory-keycloak | 8443 (HTTPS) | 127.0.0.1:8443:8443 | Default; customize with `host_ip` & `keycloak_port` |
+| Nginx | armory-webserver | 443 (HTTPS) | 127.0.0.1:8000:443 | Default; customize with `host_ip` & `host_port` |
 | PostgreSQL | armory-postgres | 5432 (TCP) | 127.0.0.1:5432:5432 | Localhost only (ADR-007) |
 
 ---
@@ -300,8 +300,8 @@ Each service includes a Vault Agent sidecar for certificate and secret injection
 │ External Access (Host Bindings)                 │
 ├─────────────────────────────────────────────────┤
 │ Vault       → 127.0.0.1:8200                    │
-│ Keycloak    → 127.0.0.1:8444 (→ container 8443)│
-│ Nginx       → 127.0.0.1:8443 (→ container 443) │
+│ Keycloak    → 127.0.0.1:8443 (→ container 8443)│
+│ Nginx       → 127.0.0.1:8000 (→ container 443) │
 │ PostgreSQL  → 127.0.0.1:5432                    │
 └─────────────────────────────────────────────────┘
 
@@ -373,11 +373,11 @@ Modify the relevant `.tfvars`:
 ```hcl
 # For Keycloak
 host_ip       = "0.0.0.0"  # or specific LAN IP
-keycloak_port = 8444
+keycloak_port = 8443
 
 # For Nginx
 host_ip   = "192.168.1.50"  # or 0.0.0.0
-host_port = 8443
+host_port = 8000
 ```
 
 ---

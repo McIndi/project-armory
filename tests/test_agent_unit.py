@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Provide minimal env vars that modules read at import time
-os.environ.setdefault("KEYCLOAK_URL",   "https://127.0.0.1:8444")
+os.environ.setdefault("KEYCLOAK_URL",   "https://127.0.0.1:8443")
 os.environ.setdefault("ARMORY_CACERT",  "/dev/null")
 os.environ.setdefault("OIDC_CLIENT_ID", "agent-cli")
 os.environ.setdefault("POSTGRES_HOST",  "localhost")

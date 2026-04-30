@@ -10,7 +10,7 @@ Usage:
     python cli.py --query "SELECT current_user, now() AS ts"
 
 Required environment variables:
-    KEYCLOAK_URL    Base URL of the Keycloak server (e.g. https://127.0.0.1:8444)
+    KEYCLOAK_URL    Base URL of the Keycloak server (e.g. https://127.0.0.1:8443)
     ARMORY_CACERT   Path to the Armory CA cert (used for Keycloak TLS verification)
 
 Optional environment variables:

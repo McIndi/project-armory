@@ -26,7 +26,7 @@ server_name = "armory-webserver"
 cert_ttl    = "720h"
 
 host_ip        = "127.0.0.1"
-nginx_host_port = 8443
+nginx_host_port = 8000
 
 # Optional: extra IP SANs beyond 127.0.0.1 (always included).
 # Useful when nginx must be reachable from a LAN IP.

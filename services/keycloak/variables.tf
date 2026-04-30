@@ -189,7 +189,7 @@ variable "host_ip" {
 variable "keycloak_port" {
   description = "Host port to publish for Keycloak HTTPS. Use >= 1024 for rootless podman."
   type        = number
-  default     = 8444
+  default     = 8443
 }
 
 # ---------------------------------------------------------------------------
@@ -260,4 +260,40 @@ variable "agent_cli_web_origin" {
   description = "Allowed web origin for the agent-cli OIDC client."
   type        = string
   default     = "http://127.0.0.1:18080"
+}
+
+variable "keycloak_oidc_client_id" {
+  description = "Client ID for the Wazuh confidential OIDC client used by oauth2-proxy. Shared with services/wazuh via TF_VAR_keycloak_oidc_client_id."
+  type        = string
+  default     = "wazuh-dashboard"
+}
+
+variable "wazuh_oidc_client_secret" {
+  description = "Client secret for the Wazuh confidential OIDC client. Shared with services/wazuh via TF_VAR_wazuh_oidc_client_secret."
+  type        = string
+  sensitive   = true
+}
+
+variable "required_group" {
+  description = "Keycloak group required for Wazuh access. Shared with services/wazuh via TF_VAR_required_group."
+  type        = string
+  default     = "wazuh-operators"
+}
+
+variable "wazuh_operator_username" {
+  description = "Username for the seeded Wazuh demo operator account in the Keycloak realm."
+  type        = string
+  default     = "wazuh-operator"
+}
+
+variable "wazuh_operator_password" {
+  description = "Password for the seeded Wazuh demo operator account. Set via TF_VAR_wazuh_operator_password in armory.env."
+  type        = string
+  sensitive   = true
+}
+
+variable "wazuh_auth_proxy_port" {
+  description = "Host port published for the Wazuh oauth2-proxy endpoint. Shared with services/wazuh via TF_VAR_wazuh_auth_proxy_port."
+  type        = number
+  default     = 8550
 }

@@ -13,6 +13,7 @@ locals {
   }
 
   vault_tls_dir = coalesce(var.vault_tls_dir, "${var.armory_base_dir}/vault/tls")
+  ca_bundle_file = abspath("${path.module}/../../vault/ca-bundle.pem")
   ip_sans_str   = join(",", concat(["127.0.0.1"], var.cert_ip_sans))
   alt_names_str = join(",", var.cert_dns_sans)
 }
@@ -63,6 +64,16 @@ resource "vault_approle_auth_backend_role_secret_id" "wazuh" {
   backend      = var.approle_mount_path
   role_name    = vault_approle_auth_backend_role.wazuh.role_name
   wrapping_ttl = "24h"
+}
+
+resource "vault_kv_secret_v2" "wazuh_oidc" {
+  mount = split("/", trimprefix(var.oidc_kv_path, "/"))[0]
+  name  = join("/", slice(split("/", trimprefix(var.oidc_kv_path, "/")), 2, length(split("/", trimprefix(var.oidc_kv_path, "/")))))
+
+  data_json = jsonencode({
+    client_secret = var.wazuh_oidc_client_secret
+    cookie_secret = var.wazuh_cookie_secret
+  })
 }
 
 # ===========================================================================
@@ -147,15 +158,17 @@ resource "local_file" "observer_log_placeholder" {
   content         = ""
 }
 
-# Placeholder env file must exist before podman-compose up. podman-compose
-# validates env_file paths before it starts any container, including the
-# vault-agent that later writes the real OIDC secrets. The vault-agent
-# healthcheck blocks auth-proxy startup until the file is non-empty.
-resource "local_file" "oidc_env_placeholder" {
+# Bootstrap env file must exist with values before podman compose up.
+# podman-compose reads env_file during container creation, so an empty file
+# would create auth-proxy without required client/cookie secrets.
+resource "local_sensitive_file" "oidc_env_bootstrap" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${local.dirs.secrets}/oidc.env"
   file_permission = "0666"
-  content         = ""
+  content         = <<-EOT
+    OAUTH2_PROXY_CLIENT_SECRET=${var.wazuh_oidc_client_secret}
+    OAUTH2_PROXY_COOKIE_SECRET=${var.wazuh_cookie_secret}
+  EOT
 }
 
 resource "local_file" "ossec_local_config" {
@@ -193,6 +206,7 @@ resource "local_file" "compose" {
     agent_config_dir           = local.dirs.agent_config
     approle_dir                = local.dirs.approle
     vault_tls_dir              = local.vault_tls_dir
+    ca_bundle_file             = local.ca_bundle_file
     certs_dir                  = local.dirs.certs
     secrets_dir                = local.dirs.secrets
     observer_dir               = local.dirs.observer
@@ -211,10 +225,11 @@ resource "null_resource" "deploy" {
     local_file.compose,
     local_file.observer_script,
     local_file.observer_log_placeholder,
-    local_file.oidc_env_placeholder,
+    local_sensitive_file.oidc_env_bootstrap,
     local_file.ossec_local_config,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,
+    vault_kv_secret_v2.wazuh_oidc,
   ]
 
   triggers = {

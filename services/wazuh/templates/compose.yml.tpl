@@ -90,46 +90,11 @@ services:
     env_file:
       - ${secrets_dir}/oidc.env
 
-    command:
-      - "sh"
-      - "-ec"
-      - |
-        : > /tmp/wazuh.crt
-        : > /tmp/wazuh.key
-        in_cert="0"
-        in_key="0"
-        while IFS= read -r line; do
-          case "$$line" in
-            "-----BEGIN CERTIFICATE-----") in_cert="1" ;;
-            "-----END CERTIFICATE-----")
-              printf '%s\n' "$$line" >> /tmp/wazuh.crt
-              in_cert="0"
-              continue
-              ;;
-            "-----BEGIN EC PRIVATE KEY-----"|"-----BEGIN PRIVATE KEY-----") in_key="1" ;;
-            "-----END EC PRIVATE KEY-----"|"-----END PRIVATE KEY-----")
-              printf '%s\n' "$$line" >> /tmp/wazuh.key
-              in_key="0"
-              continue
-              ;;
-          esac
-
-          if [ "$$in_cert" = "1" ]; then
-            printf '%s\n' "$$line" >> /tmp/wazuh.crt
-          fi
-          if [ "$$in_key" = "1" ]; then
-            printf '%s\n' "$$line" >> /tmp/wazuh.key
-          fi
-        done < /vault/certs/wazuh.pem
-
-        test -s /tmp/wazuh.crt
-        test -s /tmp/wazuh.key
-        exec /bin/oauth2-proxy
-
     environment:
       OAUTH2_PROXY_PROVIDER: "keycloak-oidc"
       OAUTH2_PROXY_OIDC_ISSUER_URL: "${keycloak_url}/realms/${keycloak_realm}"
       OAUTH2_PROXY_CLIENT_ID: "${keycloak_oidc_client_id}"
+      SSL_CERT_FILE: "/vault/ca-bundle.pem"
       OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
       OAUTH2_PROXY_REDIRECT_URL: "https://${host_ip}:${wazuh_auth_proxy_port}/oauth2/callback"
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
@@ -140,14 +105,15 @@ services:
       OAUTH2_PROXY_SCOPE: "openid profile email groups"
       OAUTH2_PROXY_ALLOWED_GROUPS: "${required_group}"
       OAUTH2_PROXY_HTTPS_ADDRESS: "0.0.0.0:4443"
-      OAUTH2_PROXY_TLS_CERT_FILE: "/tmp/wazuh.crt"
-      OAUTH2_PROXY_TLS_KEY_FILE: "/tmp/wazuh.key"
+      OAUTH2_PROXY_TLS_CERT_FILE: "/vault/certs/wazuh.pem"
+      OAUTH2_PROXY_TLS_KEY_FILE: "/vault/certs/wazuh.pem"
 
     ports:
       - "${host_ip}:${wazuh_auth_proxy_port}:4443"
 
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
+      - ${ca_bundle_file}:/vault/ca-bundle.pem:ro,z
 
     networks:
       - wazuh-net

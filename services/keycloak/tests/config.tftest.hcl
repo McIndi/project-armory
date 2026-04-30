@@ -12,7 +12,11 @@ mock_provider "local" {}
 mock_provider "null" {}
 
 variables {
-  vault_token = "test-token"
+  vault_token              = "test-token"
+  realm_operator_password  = "test-operator-password"
+  vault_oidc_client_secret = "test-vault-oidc-secret"
+  wazuh_operator_password  = "test-wazuh-password"
+  wazuh_oidc_client_secret = "test-wazuh-oidc-secret"
 }
 
 # ---------------------------------------------------------------------------
@@ -223,6 +227,15 @@ run "realm_import_contains_agent_cli_client" {
   }
 }
 
+run "realm_import_contains_wazuh_client" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, var.keycloak_oidc_client_id)
+    error_message = "realm import JSON must contain the Wazuh OIDC client ID"
+  }
+}
+
 run "realm_import_has_pkce_s256" {
   command = plan
 
@@ -247,5 +260,32 @@ run "realm_import_contains_required_group" {
   assert {
     condition     = strcontains(local_sensitive_file.realm_import.content, var.realm_required_group)
     error_message = "realm import JSON must define the required Keycloak group"
+  }
+}
+
+run "realm_import_contains_wazuh_group" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, var.required_group)
+    error_message = "realm import JSON must define the Wazuh Keycloak group"
+  }
+}
+
+run "realm_import_contains_wazuh_user" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, var.wazuh_operator_username)
+    error_message = "realm import JSON must contain the Wazuh operator user"
+  }
+}
+
+run "realm_import_contains_wazuh_redirect_uri" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local_sensitive_file.realm_import.content, "https://${var.host_ip}:${var.wazuh_auth_proxy_port}/oauth2/callback")
+    error_message = "realm import JSON must contain the Wazuh oauth2-proxy redirect URI"
   }
 }

@@ -12,7 +12,9 @@ mock_provider "local" {}
 mock_provider "null" {}
 
 variables {
-  vault_token = "test-token"
+  vault_token              = "test-token"
+  wazuh_oidc_client_secret = "test-wazuh-secret"
+  wazuh_cookie_secret      = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 }
 
 run "policy_name" {
@@ -84,5 +86,19 @@ run "wazuh_auth_url_output" {
   assert {
     condition     = output.wazuh_auth_url == "https://${var.host_ip}:${var.wazuh_auth_proxy_port}"
     error_message = "wazuh_auth_url must expose the Keycloak-protected endpoint"
+  }
+}
+
+run "oidc_secret_seeded_in_vault" {
+  command = plan
+
+  assert {
+    condition     = vault_kv_secret_v2.wazuh_oidc.mount == "kv"
+    error_message = "Wazuh OIDC secret must be written to the kv mount"
+  }
+
+  assert {
+    condition     = vault_kv_secret_v2.wazuh_oidc.name == "wazuh/oidc"
+    error_message = "Wazuh OIDC secret must be written to wazuh/oidc"
   }
 }

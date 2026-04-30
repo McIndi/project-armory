@@ -40,7 +40,7 @@ Key design choices:
 
 **Host-path volume for certs.** Consistent with the rest of the project (ADR-012), a host directory (`deploy_dir/certs/`) is used rather than a named Docker volume. This makes cert files inspectable on the host without entering a container.
 
-**Port 8443 for rootless Podman.** Rootless Podman cannot bind to privileged ports (< 1024). The webserver publishes HTTPS as `127.0.0.1:8443:443`, consistent with ADR-007's localhost-only principle. Configurable via `host_ip` and `host_port` variables.
+**Port 8000 for rootless Podman.** Rootless Podman cannot bind to privileged ports (< 1024). The webserver publishes HTTPS as `127.0.0.1:8000:443`, consistent with ADR-007's localhost-only principle. Configurable via `host_ip` and `host_port` variables.
 
 **Separate OpenTofu module with its own state.** `services/webserver/` follows the same pattern as `vault-config/` — independent module, independent state, applied after vault-config/. The module is responsible for its own Vault policy, AppRole role, file rendering, and container lifecycle.
 

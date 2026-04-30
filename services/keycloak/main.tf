@@ -21,6 +21,9 @@ locals {
     "https://127.0.0.1:${var.vault_port}/oidc/callback",
     "https://127.0.0.1:${var.vault_port}/ui/vault/auth/oidc/oidc/callback",
   ]
+
+  wazuh_redirect_uri = "https://${var.host_ip}:${var.wazuh_auth_proxy_port}/oauth2/callback"
+  wazuh_web_origin   = "https://${var.host_ip}:${var.wazuh_auth_proxy_port}"
 }
 
 # ===========================================================================
@@ -151,6 +154,13 @@ resource "local_sensitive_file" "realm_import" {
     agent_cli_client_id      = var.agent_cli_client_id
     agent_cli_redirect_uri   = var.agent_cli_redirect_uri
     agent_cli_web_origin     = var.agent_cli_web_origin
+    wazuh_oidc_client_id     = var.keycloak_oidc_client_id
+    wazuh_oidc_client_secret = var.wazuh_oidc_client_secret
+    wazuh_required_group     = var.required_group
+    wazuh_operator_username  = var.wazuh_operator_username
+    wazuh_operator_password  = var.wazuh_operator_password
+    wazuh_redirect_uri       = local.wazuh_redirect_uri
+    wazuh_web_origin         = local.wazuh_web_origin
   })
 }
 

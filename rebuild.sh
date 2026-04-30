@@ -74,7 +74,7 @@
 #             (Keycloak admin secret), and the Database secrets engine
 #             connection (without roles yet — PostgreSQL is not running).
 #
-#   Phase 4   Apply services/webserver/ — nginx on port 8443 with a Vault
+#   Phase 4   Apply services/webserver/ — nginx on port 8000 with a Vault
 #             Agent sidecar that fetches and auto-rotates a TLS certificate
 #             from pki_ext. Demonstrates the Vault Agent sidecar pattern.
 #             (Skippable with --skip-webserver.)
@@ -90,7 +90,7 @@
 #             Vault connects to armory-postgres immediately on role creation,
 #             which is why Phase 5 must be fully up first.
 #
-#   Phase 6   Apply services/keycloak/ — Keycloak 24 on port 8444 with a
+#   Phase 6   Apply services/keycloak/ — Keycloak 24 on port 8443 with a
 #             Vault Agent sidecar that renders: TLS cert (pki_ext), Postgres
 #             password (database/static-creds/keycloak), and admin bootstrap
 #             credentials (kv/data/keycloak/admin). The 'armory' realm is
@@ -147,8 +147,17 @@
 
 set -euo pipefail
 
+# ============================================================================
 # Mirror all script stdout to a fresh log file on each run.
 # Stderr is intentionally left unchanged for now.
+# The log file is created in the same directory as this script, with a name like
+# rebuild.log. You can override the log file path by setting the ARMORY_REBUILD_LOG_FILE
+# environment variable before running the script, e.g.:
+# ARMORY_REBUILD_LOG_FILE=/home/cliff/armory_rebuild.log ./rebuild.sh
+#
+# This relies on bash specific features. If you are using a different shell,
+# you may want to remove or modify this section.
+# =============================================================================
 LOG_FILE_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rebuild.log"
 LOG_FILE="${ARMORY_REBUILD_LOG_FILE:-$LOG_FILE_DEFAULT}"
 : > "$LOG_FILE"
@@ -215,8 +224,8 @@ fi
 ARMORY_HOST_IP="${ARMORY_HOST_IP:-127.0.0.1}"
 ARMORY_VAULT_PORT="${ARMORY_VAULT_PORT:-8200}"
 ARMORY_VAULT_ADDR="${ARMORY_VAULT_ADDR:-https://${ARMORY_HOST_IP}:${ARMORY_VAULT_PORT}}"
-ARMORY_WEBSERVER_PORT="${ARMORY_WEBSERVER_PORT:-8443}"
-ARMORY_KEYCLOAK_PORT="${ARMORY_KEYCLOAK_PORT:-8444}"
+ARMORY_WEBSERVER_PORT="${ARMORY_WEBSERVER_PORT:-8000}"
+ARMORY_KEYCLOAK_PORT="${ARMORY_KEYCLOAK_PORT:-8443}"
 ARMORY_AGENT_PORT="${ARMORY_AGENT_PORT:-8445}"
 ARMORY_PG_PORT="${ARMORY_PG_PORT:-5432}"
 ARMORY_WAZUH_API_PORT="${ARMORY_WAZUH_API_PORT:-55000}"
@@ -413,6 +422,45 @@ wait_for_vault() {
   done
 
   success "Vault is reachable"
+}
+
+# wait_for_vault_tls_valid: polls Vault over HTTPS with CA verification until
+# the TLS certificate's NotBefore window has opened. This avoids immediate
+# follow-on bao/tofu calls failing a few seconds after fresh certificate
+# issuance with "certificate has expired or is not yet valid".
+wait_for_vault_tls_valid() {
+  local max_attempts="${1:-30}"
+  local attempt=0
+  local output
+
+  log "Waiting for Vault TLS certificate to become valid..."
+  while true; do
+    attempt=$(( attempt + 1 ))
+
+    if output=$(curl -sS --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
+         "${ARMORY_VAULT_ADDR}/v1/sys/health" \
+         -o /dev/null -w "%{http_code}" 2>&1); then
+      log "Vault TLS validity attempt ${attempt}/${max_attempts}: certificate verified"
+      break
+    fi
+
+    if grep -qi "certificate has expired or is not yet valid" <<< "$output"; then
+      warn "Vault TLS validity attempt ${attempt}/${max_attempts}: certificate not yet valid; retrying..."
+    else
+      error "Vault TLS validation failed with a non-retryable error:"
+      echo "$output"
+      return 1
+    fi
+
+    if [[ $attempt -ge $max_attempts ]]; then
+      error "Vault TLS certificate did not become valid after ${max_attempts} attempts"
+      return 1
+    fi
+
+    sleep 1
+  done
+
+  success "Vault TLS certificate is valid"
 }
 
 # vault_is_sealed: returns exit code 0 (true) if Vault is sealed (HTTP 503),
@@ -1199,6 +1247,8 @@ build() {
 
   success "Vault unsealed and ready"
 
+  wait_for_vault_tls_valid
+
   # Export the root token as TF_VAR_vault_token. All subsequent tofu modules
   # (vault-config and every service module) reference this environment variable
   # in their vault provider configuration. Exporting at the function level
@@ -1306,7 +1356,7 @@ build() {
   # ── Phase 4: Deploy webserver (optional) ────────────────────────────────────
   # The webserver service is a demonstration of the Vault Agent sidecar pattern
   # applied to a public-facing service. It consists of:
-  #   - An nginx container serving HTTPS on port 8443.
+  #   - An nginx container serving HTTPS on port 8000.
   #   - A Vault Agent sidecar that authenticates via AppRole, fetches a TLS
   #     certificate from pki_ext, and renders it to disk. nginx does not start
   #     until the Agent healthcheck confirms the cert is present.
@@ -1420,7 +1470,7 @@ build() {
   #     the initial admin credentials fetched from kv/data/keycloak/admin.
   #     These are only used on first startup to seed the master realm.
   #
-  # After this phase, Keycloak is running on port 8444 with TLS and the
+  # After this phase, Keycloak is running on port 8443 with TLS and the
   # 'armory' realm is imported automatically on first boot from the JSON file
   # rendered by OpenTofu (services/keycloak/templates/realm-armory.json.tpl).
   # Phase 7 below waits for readiness and then enables the Vault OIDC backend.
@@ -1625,7 +1675,8 @@ print_summary() {
     echo "  Log in at https://${ARMORY_HOST_IP}:${ARMORY_KEYCLOAK_PORT}/admin to verify:"
     echo "    Realm: armory"
     echo "    Group: vault-operators  (contains user 'operator')"
-    echo "    Clients: vault (confidential), agent-cli (public, PKCE S256)"
+    echo "    Group: ${TF_VAR_required_group:-wazuh-operators}  (contains user '${TF_VAR_wazuh_operator_username:-wazuh-operator}')"
+    echo "    Clients: vault (confidential), agent-cli (public, PKCE S256), ${TF_VAR_keycloak_oidc_client_id:-wazuh-dashboard} (confidential)"
     echo ""
     echo "  Test OIDC login:"
     echo "    export VAULT_ADDR=${ARMORY_VAULT_ADDR}"
@@ -1655,15 +1706,11 @@ print_summary() {
 
   if [[ "$SKIP_WAZUH" == "false" ]]; then
     echo ""
-    echo "  Wazuh OIDC bootstrap (Keycloak) required for auth-proxy sign-in:"
-    echo "    1) In Keycloak realm 'armory', create group: wazuh-operators"
-    echo "    2) Create confidential client: ${TF_VAR_keycloak_oidc_client_id:-wazuh-dashboard}"
-    echo "       - Valid redirect URI: https://${ARMORY_HOST_IP}:${wazuh_auth_port}/oauth2/callback"
-    echo "       - Web origin: https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
-    echo "    3) Create users and add them to wazuh-operators"
-    echo "    4) Write client + cookie secrets to Vault KV v2:" 
-    echo "       bao kv put kv/wazuh/oidc client_secret=<OIDC_CLIENT_SECRET> cookie_secret=<32_BYTE_BASE64>"
-    echo "    5) Re-apply services/wazuh/ to refresh Vault Agent rendered env file"
+    echo "  Wazuh Keycloak bootstrap is automated. Verify sign-in with:"
+    echo "    URL: https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
+    echo "    User: ${TF_VAR_wazuh_operator_username:-wazuh-operator}"
+    echo "    Group: ${TF_VAR_required_group:-wazuh-operators}"
+    echo "    Client: ${TF_VAR_keycloak_oidc_client_id:-wazuh-dashboard}"
   fi
 
   echo ""

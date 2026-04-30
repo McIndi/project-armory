@@ -17,6 +17,12 @@
       "name": "${realm_required_group}",
       "path": "/${realm_required_group}",
       "subGroups": []
+    },
+    {
+      "id": "aaaaaaaa-1001-1001-1001-000000000002",
+      "name": "${wazuh_required_group}",
+      "path": "/${wazuh_required_group}",
+      "subGroups": []
     }
   ],
 
@@ -35,6 +41,22 @@
       ],
       "groups": [
         "/${realm_required_group}"
+      ]
+    },
+    {
+      "id": "bbbbbbbb-1001-1001-1001-000000000002",
+      "username": "${wazuh_operator_username}",
+      "enabled": true,
+      "emailVerified": false,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${wazuh_operator_password}",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/${wazuh_required_group}"
       ]
     }
   ],
@@ -96,6 +118,41 @@
       "protocolMappers": [
         {
           "id": "ffffffff-1001-1001-1001-000000000001",
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "id": "99999999-1001-1001-1001-000000000001",
+      "clientId": "${wazuh_oidc_client_id}",
+      "name": "Wazuh Dashboard OIDC Client",
+      "description": "Confidential OIDC client for Wazuh oauth2-proxy login",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${wazuh_oidc_client_secret}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": ["${wazuh_redirect_uri}"],
+      "webOrigins": ["${wazuh_web_origin}"],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "id": "99999999-1001-1001-1001-000000000002",
           "name": "groups",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-group-membership-mapper",

@@ -66,6 +66,18 @@ variable "oidc_kv_path" {
   default     = "kv/data/wazuh/oidc"
 }
 
+variable "wazuh_oidc_client_secret" {
+  description = "Client secret for the Wazuh oauth2-proxy Keycloak client. Seeded into Vault KV for the Wazuh Vault Agent sidecar. Set via TF_VAR_wazuh_oidc_client_secret in armory.env."
+  type        = string
+  sensitive   = true
+}
+
+variable "wazuh_cookie_secret" {
+  description = "Cookie secret for oauth2-proxy. Must be a 16, 24, or 32 byte base64-encoded value. Seeded into Vault KV for the Wazuh Vault Agent sidecar. Set via TF_VAR_wazuh_cookie_secret in armory.env."
+  type        = string
+  sensitive   = true
+}
+
 # ---------------------------------------------------------------------------
 # Deployment
 # ---------------------------------------------------------------------------
