@@ -55,8 +55,6 @@ services:
       - ${certs_dir}:/vault/certs:ro,z
       - ${observer_dir}/armory-observer.log:/var/ossec/logs/armory-observer.log:z
       - ${vault_audit_log_path}:/armory/vault/logs/audit.log:ro,z
-      - ${ossec_config_file}:/var/ossec/etc/ossec.conf:ro,z
-      - ${ossec_local_config_file}:/var/ossec/etc/ossec.local.conf:ro,z
 
     networks:
       - wazuh-net
@@ -103,6 +101,9 @@ services:
       OAUTH2_PROXY_SSL_UPSTREAM_INSECURE_SKIP_VERIFY: "true"
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
+      OAUTH2_PROXY_SET_AUTHORIZATION_HEADER: "true"
+      OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "true"
       OAUTH2_PROXY_SCOPE: "openid profile email"
       OAUTH2_PROXY_ALLOWED_GROUPS: "${required_group}"
       OAUTH2_PROXY_HTTPS_ADDRESS: "0.0.0.0:4443"
