@@ -224,6 +224,7 @@ fi
 ARMORY_HOST_IP="${ARMORY_HOST_IP:-127.0.0.1}"
 ARMORY_VAULT_PORT="${ARMORY_VAULT_PORT:-8200}"
 ARMORY_VAULT_ADDR="${ARMORY_VAULT_ADDR:-https://${ARMORY_HOST_IP}:${ARMORY_VAULT_PORT}}"
+ARMORY_VAULT_AGENT_ADDR="${ARMORY_VAULT_AGENT_ADDR:-https://armory-vault.armory.internal:${ARMORY_VAULT_PORT}}"
 ARMORY_WEBSERVER_PORT="${ARMORY_WEBSERVER_PORT:-8000}"
 ARMORY_KEYCLOAK_PORT="${ARMORY_KEYCLOAK_PORT:-8443}"
 ARMORY_AGENT_PORT="${ARMORY_AGENT_PORT:-8445}"
@@ -305,6 +306,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+VAULT_BOOTSTRAP_CACERT_PATH="$DEPLOY_DIR/vault/tls/ca.crt"
+VAULT_BUNDLE_CACERT_PATH="$DEPLOY_DIR/vault/tls/ca-bundle.pem"
+VAULT_API_CACERT_PATH="$VAULT_BOOTSTRAP_CACERT_PATH"
+VAULT_CONTAINER_CACERT="/vault/tls/ca.crt"
 
 # =============================================================================
 # PREREQUISITE CHECK
@@ -392,7 +398,7 @@ wait_for_vault() {
 
   log "Waiting for Vault to become reachable..."
   while true; do
-    code=$(curl -s --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
+    code=$(curl -s --cacert "$VAULT_API_CACERT_PATH" \
            "${ARMORY_VAULT_ADDR}/v1/sys/health" \
            -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
 
@@ -428,8 +434,9 @@ wait_for_vault() {
 # the TLS certificate's NotBefore window has opened. This avoids immediate
 # follow-on bao/tofu calls failing a few seconds after fresh certificate
 # issuance with "certificate has expired or is not yet valid".
-wait_for_vault_tls_valid() {
-  local max_attempts="${1:-30}"
+wait_for_vault_tls_valid_with_cacert() {
+  local cacert_path="$1"
+  local max_attempts="${2:-30}"
   local attempt=0
   local output
 
@@ -437,7 +444,7 @@ wait_for_vault_tls_valid() {
   while true; do
     attempt=$(( attempt + 1 ))
 
-    if output=$(curl -sS --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
+    if output=$(curl -sS --cacert "$cacert_path" \
          "${ARMORY_VAULT_ADDR}/v1/sys/health" \
          -o /dev/null -w "%{http_code}" 2>&1); then
       log "Vault TLS validity attempt ${attempt}/${max_attempts}: certificate verified"
@@ -463,11 +470,16 @@ wait_for_vault_tls_valid() {
   success "Vault TLS certificate is valid"
 }
 
+wait_for_vault_tls_valid() {
+  local max_attempts="${1:-30}"
+  wait_for_vault_tls_valid_with_cacert "$VAULT_API_CACERT_PATH" "$max_attempts"
+}
+
 # vault_is_sealed: returns exit code 0 (true) if Vault is sealed (HTTP 503),
 # non-zero otherwise. Used to decide whether to unseal before tofu destroy.
 vault_is_sealed() {
   local code
-  code=$(curl -sk --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
+  code=$(curl -sk --cacert "$VAULT_API_CACERT_PATH" \
          "${ARMORY_VAULT_ADDR}/v1/sys/health" \
          -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
   [[ "$code" == "503" ]]
@@ -479,7 +491,7 @@ vault_is_sealed() {
 # The teardown skips those modules when this is the case.
 vault_is_uninit() {
   local code
-  code=$(curl -sk --cacert "$DEPLOY_DIR/vault/tls/ca.crt" \
+  code=$(curl -sk --cacert "$VAULT_API_CACERT_PATH" \
          "${ARMORY_VAULT_ADDR}/v1/sys/health" \
          -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
   [[ "$code" == "501" ]]
@@ -502,7 +514,10 @@ try_unseal_vault() {
   log "Unsealing Vault with saved key..."
   # Suppress the verbose `bao operator unseal` output (it just echoes the key
   # back). Errors will still surface because of set -e in the subshell.
-  podman exec armory-vault bao operator unseal "$key" >/dev/null
+  podman exec \
+    -e BAO_CACERT="$VAULT_CONTAINER_CACERT" \
+    -e VAULT_CACERT="$VAULT_CONTAINER_CACERT" \
+    armory-vault bao operator unseal "$key" >/dev/null
 
   # Give Vault 2 seconds to complete the unseal transition. The API may
   # briefly return 503 immediately after receiving the key.
@@ -1351,7 +1366,119 @@ build() {
     exit 1
   fi
 
+  install -m 0444 "$SCRIPT_DIR/vault/ca-bundle.pem" "$VAULT_BUNDLE_CACERT_PATH"
+  VAULT_API_CACERT_PATH="$SCRIPT_DIR/vault/ca-bundle.pem"
+  VAULT_CONTAINER_CACERT="/vault/tls/ca-bundle.pem"
+  log "Vault API trust anchor switched to consolidated bundle: $VAULT_API_CACERT_PATH"
+
   success "Vault configured: PKI/auth/policies are ready and vault/ca-bundle.pem includes Vault TLS CA"
+
+  # ── Phase 3.5: Switch Vault listener to internal intermediate cert ───────
+  # After the PKI hierarchy exists, issue a Vault API certificate from pki_int
+  # and flip the listener from bootstrap self-signed TLS to the internal CA.
+  # This keeps Phase 1 bootstrap reliability while moving steady-state TLS to
+  # the same PKI workflow used by other internal services.
+  header "PHASE 3.5 — Switch Vault API TLS to pki_int-issued certificate"
+  log "Issuing Vault API certificate from pki_int/issue/armory-server..."
+
+  local issue_response issue_tmp cert_path key_path
+  cert_path="$DEPLOY_DIR/vault/tls/vault-internal.crt"
+  key_path="$DEPLOY_DIR/vault/tls/vault-internal.key"
+
+  issue_response=$(podman exec \
+    -e BAO_CACERT="$VAULT_CONTAINER_CACERT" \
+    -e VAULT_CACERT="$VAULT_CONTAINER_CACERT" \
+    -e BAO_TOKEN="$ROOT_TOKEN" \
+    -e VAULT_TOKEN="$ROOT_TOKEN" \
+    armory-vault bao write -format=json \
+    pki_int/issue/armory-server \
+    common_name="armory-vault.armory.internal" \
+    alt_names="armory-vault.armory.internal" \
+    ip_sans="127.0.0.1" \
+    ttl="720h" 2>&1) || {
+      error "Failed to issue Vault listener certificate from pki_int"
+      echo "$issue_response"
+      exit 1
+    }
+
+  issue_tmp=$(mktemp)
+  printf '%s\n' "$issue_response" > "$issue_tmp"
+
+  if ! python3 - "$issue_tmp" "$cert_path" "$key_path" <<'PY'
+import json
+import sys
+
+payload_path, cert_path, key_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(payload_path, "r", encoding="utf-8") as f:
+    payload = json.load(f)
+
+data = payload.get("data") or {}
+certificate = (data.get("certificate") or "").strip()
+private_key = (data.get("private_key") or "").strip()
+ca_chain = data.get("ca_chain") or []
+issuing_ca = (data.get("issuing_ca") or "").strip()
+
+if not certificate or not private_key:
+    raise SystemExit("missing certificate/private_key in issuance response")
+
+chain_parts = [certificate]
+if isinstance(ca_chain, list) and ca_chain:
+    chain_parts.extend([part.strip() for part in ca_chain if part and part.strip()])
+elif issuing_ca:
+    chain_parts.append(issuing_ca)
+
+with open(cert_path, "w", encoding="utf-8") as f:
+    f.write("\n".join(chain_parts) + "\n")
+
+with open(key_path, "w", encoding="utf-8") as f:
+    f.write(private_key + "\n")
+PY
+  then
+    rm -f "$issue_tmp"
+    error "Failed to parse or write issued Vault listener certificate"
+    echo "$issue_response"
+    exit 1
+  fi
+
+  rm -f "$issue_tmp"
+  chmod 0444 "$cert_path" "$key_path"
+  success "Vault API certificate written to $cert_path"
+
+  log "Re-applying vault/ with internal listener cert enabled..."
+  (
+    cd "$SCRIPT_DIR/vault"
+    tofu apply -auto-approve \
+      -var deploy_dir="$DEPLOY_DIR/vault" \
+      -var use_internal_listener_cert=true \
+      2>&1 | sed 's/^/  [vault] /'
+  )
+
+  # Wait until Vault API is back before checking seal state. Immediately after
+  # the listener switch, health checks can transiently return connection errors.
+  wait_for_vault 60
+
+  # Listener reload may briefly seal Vault depending on container restart path.
+  if vault_is_sealed; then
+    log "Vault is sealed after listener cutover; attempting automatic unseal..."
+    try_unseal_vault || {
+      error "Vault unseal failed after listener certificate cutover"
+      exit 1
+    }
+  fi
+
+  if vault_is_sealed; then
+    error "Vault remains sealed after listener certificate cutover"
+    exit 1
+  fi
+
+  if [[ ! -s "$SCRIPT_DIR/vault/ca-bundle.pem" ]]; then
+    error "Missing consolidated trust bundle after listener cutover: $SCRIPT_DIR/vault/ca-bundle.pem"
+    exit 1
+  fi
+
+  wait_for_vault_tls_valid_with_cacert "$SCRIPT_DIR/vault/ca-bundle.pem" 30
+  success "Vault API listener is now serving a pki_int-issued certificate"
 
   # ── Phase 4: Deploy webserver (optional) ────────────────────────────────────
   # The webserver service is a demonstration of the Vault Agent sidecar pattern
@@ -1376,6 +1503,7 @@ build() {
       tofu apply -auto-approve \
         -var armory_base_dir="$ARMORY_BASE_DIR" \
         -var deploy_dir="$DEPLOY_DIR/webserver" \
+        -var vault_agent_addr="$ARMORY_VAULT_AGENT_ADDR" \
         2>&1 | sed 's/^/  [webserver] /'
     )
     success "Webserver deployed — reachable at https://${ARMORY_HOST_IP}:${ARMORY_WEBSERVER_PORT}"
@@ -1413,6 +1541,7 @@ build() {
     tofu apply -auto-approve \
       -var armory_base_dir="$ARMORY_BASE_DIR" \
       -var deploy_dir="$DEPLOY_DIR/postgres" \
+      -var vault_agent_addr="$ARMORY_VAULT_AGENT_ADDR" \
       2>&1 | sed 's/^/  [postgres] /'
   )
   success "PostgreSQL deployed"
@@ -1485,6 +1614,7 @@ build() {
       tofu apply -auto-approve \
         -var armory_base_dir="$ARMORY_BASE_DIR" \
         -var deploy_dir="$DEPLOY_DIR/keycloak" \
+        -var vault_agent_addr="$ARMORY_VAULT_AGENT_ADDR" \
         2>&1 | sed 's/^/  [keycloak] /'
     )
     success "Keycloak deployed — admin console at https://${ARMORY_HOST_IP}:${ARMORY_KEYCLOAK_PORT}/admin"
@@ -1577,6 +1707,7 @@ build() {
       tofu apply -auto-approve \
         -var armory_base_dir="$ARMORY_BASE_DIR" \
         -var deploy_dir="$DEPLOY_DIR/agent" \
+        -var vault_agent_addr="$ARMORY_VAULT_AGENT_ADDR" \
         2>&1 | sed 's/^/  [agent] /'
     )
     success "Agent stack deployed"
@@ -1607,6 +1738,8 @@ build() {
       tofu apply -auto-approve \
         -var armory_base_dir="$ARMORY_BASE_DIR" \
         -var deploy_dir="$DEPLOY_DIR/wazuh" \
+        -var vault_agent_addr="$ARMORY_VAULT_AGENT_ADDR" \
+        -var vault_health_url="${ARMORY_VAULT_AGENT_ADDR}/v1/sys/health" \
         2>&1 | sed 's/^/  [wazuh] /'
     )
     success "Wazuh stack deployed"
@@ -1652,16 +1785,14 @@ print_summary() {
     echo "  Wazuh (OIDC)  : https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
   echo ""
 
-  echo -e "${BOLD}CA certificates — BOTH must be trusted for full connectivity:${RESET}"
-  echo "  $DEPLOY_DIR/vault/tls/ca.crt"
-  echo "    Covers: Vault server TLS only (self-signed by OpenTofu tls provider)"
+  echo -e "${BOLD}CA certificates — trust anchors:${RESET}"
   echo "  $SCRIPT_DIR/vault/ca-bundle.pem"
-  echo "    Covers: all PKI-issued certs — Keycloak, nginx, agent, PostgreSQL"
+  echo "    Covers: Vault API (post-Phase 3.5) and all PKI-issued certs"
+  echo "  $DEPLOY_DIR/vault/tls/ca.crt"
+  echo "    Bootstrap Vault CA (pre-Phase 3.5 compatibility only)"
   echo ""
-  echo "  To trust both on Fedora/RHEL:"
-  echo "    sudo cp $DEPLOY_DIR/vault/tls/ca.crt \\"
-  echo "         /etc/pki/ca-trust/source/anchors/armory-vault-ca.crt"
-  echo "    sudo cp $SCRIPT_DIR/vault/ca-bundle.pem \\"
+  echo "  To trust on Fedora/RHEL:"
+  echo "    sudo cp $SCRIPT_DIR/vault/ca-bundle.pem \\" 
   echo "         /etc/pki/ca-trust/source/anchors/armory-ca-bundle.crt"
   echo "    sudo update-ca-trust"
   echo ""

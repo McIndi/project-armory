@@ -25,9 +25,9 @@ services:
       # Used by the vault/bao CLI inside the container for health-check commands.
       # Always 127.0.0.1 here — this is the address inside the container.
       VAULT_ADDR: "https://127.0.0.1:${vault_port}"
-      VAULT_CACERT: "/vault/tls/ca.crt"
+      VAULT_CACERT: "${use_internal_listener_cert ? "/vault/tls/ca-bundle.pem" : "/vault/tls/ca.crt"}"
       BAO_ADDR: "https://127.0.0.1:${vault_port}"
-      BAO_CACERT: "/vault/tls/ca.crt"
+      BAO_CACERT: "${use_internal_listener_cert ? "/vault/tls/ca-bundle.pem" : "/vault/tls/ca.crt"}"
 
 %{ if !disable_mlock ~}
     cap_add:
@@ -39,14 +39,16 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "${vault_binary} status -address=https://127.0.0.1:${vault_port} -ca-cert=/vault/tls/ca.crt || exit 1"
+        - "${vault_binary} status -address=https://127.0.0.1:${vault_port} -ca-cert=${use_internal_listener_cert ? "/vault/tls/ca-bundle.pem" : "/vault/tls/ca.crt"} || exit 1"
       interval: 15s
       timeout: 5s
       retries: 6
       start_period: 30s
 
     networks:
-      - vault-net
+      vault-net:
+        aliases:
+          - armory-vault.armory.internal
 
 networks:
   vault-net:

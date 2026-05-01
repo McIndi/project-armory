@@ -16,9 +16,9 @@ services:
 
     environment:
       VAULT_ADDR: "${vault_agent_addr}"
-      VAULT_CACERT: "/vault/tls/ca.crt"
+      VAULT_CACERT: "/vault/tls/ca-bundle.pem"
       BAO_ADDR: "${vault_agent_addr}"
-      BAO_CACERT: "/vault/tls/ca.crt"
+      BAO_CACERT: "/vault/tls/ca-bundle.pem"
 
     volumes:
       - ${agent_config_dir}:/vault/agent:ro,z
@@ -53,7 +53,7 @@ services:
 
     environment:
       VAULT_ADDR: "${vault_agent_addr}"
-      VAULT_CACERT: "/vault/tls/ca.crt"
+      VAULT_CACERT: "/vault/tls/ca-bundle.pem"
       ARMORY_CACERT: "/vault/ca-bundle.pem"
       APPROLE_DIR: "/vault/approle"
       KEYCLOAK_URL: "${keycloak_url}"

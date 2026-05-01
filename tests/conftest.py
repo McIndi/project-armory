@@ -31,7 +31,9 @@ LOGS_DIR = Path(__file__).parent / "logs"
 
 VAULT_ADDR = "https://127.0.0.1:8200"
 ARMORY_BASE_DIR = os.environ.get("ARMORY_BASE_DIR", "/opt/armory")
-VAULT_CACERT = f"{ARMORY_BASE_DIR}/vault/tls/ca.crt"
+_VAULT_BUNDLE_CACERT = str(PROJECT_ROOT / "vault" / "ca-bundle.pem")
+_VAULT_BOOTSTRAP_CACERT = f"{ARMORY_BASE_DIR}/vault/tls/ca.crt"
+VAULT_CACERT = _VAULT_BUNDLE_CACERT if Path(_VAULT_BUNDLE_CACERT).exists() else _VAULT_BOOTSTRAP_CACERT
 
 NO_TEARDOWN = os.environ.get("ARMORY_NO_TEARDOWN", "").lower() in ("1", "true", "yes")
 

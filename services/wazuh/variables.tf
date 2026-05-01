@@ -11,7 +11,7 @@ variable "vault_addr" {
 variable "vault_agent_addr" {
   description = "Vault API address reachable from inside the sidecar containers (container-to-container)."
   type        = string
-  default     = "https://armory-vault:8200"
+  default     = "https://armory-vault.armory.internal:8200"
 }
 
 variable "vault_token" {
@@ -247,7 +247,7 @@ variable "required_group" {
 variable "vault_health_url" {
   description = "Vault health endpoint (reachable from armory-net)."
   type        = string
-  default     = "https://armory-vault:8200/v1/sys/health"
+  default     = "https://armory-vault.armory.internal:8200/v1/sys/health"
 }
 
 variable "keycloak_health_url" {

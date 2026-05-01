@@ -161,6 +161,7 @@ resource "local_file" "vault_config" {
     ui_enabled         = var.ui_enabled
     log_level          = var.log_level
     disable_mlock      = var.disable_mlock
+    use_internal_listener_cert = var.use_internal_listener_cert
   })
 }
 
@@ -186,6 +187,7 @@ resource "local_file" "compose" {
     tls_dir            = local.dirs.tls
     logs_dir           = local.dirs.logs
     disable_mlock      = var.disable_mlock
+    use_internal_listener_cert = var.use_internal_listener_cert
   })
 }
 

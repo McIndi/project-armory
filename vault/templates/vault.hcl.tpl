@@ -27,8 +27,13 @@ storage "raft" {
 
 listener "tcp" {
   address       = "0.0.0.0:${vault_port}"
+%{ if use_internal_listener_cert ~}
+  tls_cert_file = "/vault/tls/vault-internal.crt"
+  tls_key_file  = "/vault/tls/vault-internal.key"
+%{ else ~}
   tls_cert_file = "/vault/tls/vault.crt"
   tls_key_file  = "/vault/tls/vault.key"
+%{ endif ~}
 
   # Recommended: disable older protocols
   tls_min_version = "tls12"

@@ -11,7 +11,7 @@ variable "vault_addr" {
 variable "vault_agent_addr" {
   description = "Vault API address reachable from inside the agent sidecar container (container-to-container)."
   type        = string
-  default     = "https://armory-vault:8200"
+  default     = "https://armory-vault.armory.internal:8200"
 }
 
 variable "vault_token" {

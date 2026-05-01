@@ -105,7 +105,10 @@ graph TD
     HC2 --> Phase3["<b>Phase 3</b><br/>Configure Vault<br/><code>vault-config/</code><br/><br/>Creates:<br/>• PKI hierarchy<br/>• AppRole auth<br/>• Database connection<br/>• Policies"]
     Phase3 --> HC3["✓ Vault Ready<br/>PKI + AppRole<br/>configured"]
     
-    HC3 --> Decision1{Deploy optional<br/>webserver?}
+    HC3 --> Phase35["<b>Phase 3.5</b><br/>Vault API TLS cutover<br/><code>pki_int/issue/armory-server</code><br/>then re-apply <code>vault/</code><br/>with internal listener cert"]
+    Phase35 --> HC35["✓ Vault listener now uses<br/>internal intermediate cert"]
+
+    HC35 --> Decision1{Deploy optional<br/>webserver?}
     Decision1 -->|Yes| Phase4["<b>Phase 4</b><br/>Deploy Nginx<br/><code>services/webserver/</code>"]
     Decision1 -->|No/Skip| SkipPhase4["⊘ Skip Phase 4"]
     Phase4 --> HC4["✓ Nginx ready<br/>Certificate injected<br/>by Vault Agent"]
@@ -143,8 +146,8 @@ graph TD
     classDef skip fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#666,stroke-dasharray: 5 5
     classDef decision fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
     
-    class Phase1,Phase2,Phase3,Phase4,Phase5,Phase5b,Phase6,Phase7,Phase9 automated
-    class HC1,HC2,HC3,HC4,HC5A,HC5B,HC5b,HC6,HC6b,HC7,HC9 healthCheck
+    class Phase1,Phase2,Phase3,Phase35,Phase4,Phase5,Phase5b,Phase6,Phase7,Phase9 automated
+    class HC1,HC2,HC3,HC35,HC4,HC5A,HC5B,HC5b,HC6,HC6b,HC7,HC9 healthCheck
     class SkipPhase4,SkipPhase6,SkipPhase9 skip
     class Decision1,Decision2,Decision3 decision
 ```
@@ -155,8 +158,9 @@ graph TD
 |-------|-----------|----------------|
 | **Phase 2** | Phase 1 | Vault API returns any HTTP response on the health endpoint |
 | **Phase 3** | Phase 2 | Vault is unsealed (`bao status` shows `Sealed: false`) |
-| **Phase 4** | Phase 3 | PKI hierarchy exists; Vault Agent can request certs from `pki_ext` |
-| **Phase 5** | Phase 3 | Vault Database engine connection is configured (PostgreSQL not yet running) |
+| **Phase 3.5** | Phase 3 | `pki_int` role exists; issue Vault API cert, re-apply `vault/` with internal listener cert, then verify TLS and unseal state |
+| **Phase 4** | Phase 3.5 | Vault listener cert cutover completed; Vault Agent can request certs from `pki_ext` |
+| **Phase 5** | Phase 3.5 | Vault Database engine connection is configured (PostgreSQL not yet running) |
 | **Phase 5b** | Phase 5 | `pg_isready` passes inside the container AND `armory-postgres` is DNS-resolvable from inside the Vault container |
 | **Phase 6** | Phase 5b | Vault can issue the static keycloak DB password |
 | **Phase 7** | Phase 6 | Keycloak `/health/ready` returns HTTP 200; realm import has completed |
@@ -212,7 +216,7 @@ graph LR
         subgraph "vault/"
             v_config["config/<br/>vault.hcl"]
             v_data["data/<br/>raft storage"]
-            v_tls["<b>tls/</b><br/>ca.crt (self-signed)<br/>vault.crt<br/>vault.key"]
+            v_tls["<b>tls/</b><br/>ca.crt (bootstrap self-signed)<br/>vault.crt + vault.key (bootstrap)<br/>vault-internal.crt + vault-internal.key (post-Phase 3.5)"]
             v_logs["logs/<br/>audit.log"]
         end
         

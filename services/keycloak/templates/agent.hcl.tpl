@@ -5,7 +5,7 @@
 
 vault {
   address       = "${vault_addr}"
-  tls_ca_cert   = "/vault/tls/ca.crt"
+  tls_ca_cert   = "/vault/tls/ca-bundle.pem"
 }
 
 auto_auth {

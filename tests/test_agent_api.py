@@ -13,14 +13,18 @@ issuance → query execution path.
 
 import os
 import sys
+from pathlib import Path as _Path
 
 import pytest
 
 # Several agent modules read env vars at import time — set all required defaults
 # before any import of api/oidc/vault_client/tools.
 _ARMORY_BASE_DIR = os.environ.get("ARMORY_BASE_DIR", "/opt/armory")
+_PROJECT_ROOT = _Path(__file__).resolve().parent.parent
+_BUNDLE_CACERT = str(_PROJECT_ROOT / "vault" / "ca-bundle.pem")
+_BOOTSTRAP_CACERT = f"{_ARMORY_BASE_DIR}/vault/tls/ca.crt"
 os.environ.setdefault("KEYCLOAK_URL",   "https://127.0.0.1:8443")
-os.environ.setdefault("ARMORY_CACERT",  f"{_ARMORY_BASE_DIR}/vault/tls/ca.crt")
+os.environ.setdefault("ARMORY_CACERT",  _BUNDLE_CACERT if _Path(_BUNDLE_CACERT).exists() else _BOOTSTRAP_CACERT)
 os.environ.setdefault("OIDC_CLIENT_ID", "agent-cli")
 os.environ.setdefault("VAULT_ADDR",     "https://127.0.0.1:8200")
 os.environ.setdefault("APPROLE_DIR",    f"{_ARMORY_BASE_DIR}/agent/approle")
@@ -28,7 +32,6 @@ os.environ.setdefault("POSTGRES_HOST",  "armory-postgres")
 os.environ.setdefault("POSTGRES_DB",    "app")
 
 # Make agent package importable
-from pathlib import Path as _Path
 _AGENT_DIR = str(_Path(__file__).parent.parent / "services" / "agent" / "agent")
 if _AGENT_DIR not in sys.path:
     sys.path.insert(0, _AGENT_DIR)

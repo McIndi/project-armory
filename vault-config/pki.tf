@@ -98,6 +98,8 @@ resource "vault_pki_secret_backend_role" "armory_server" {
   allowed_domains    = ["armory.internal"]
   allow_subdomains   = true
   allow_bare_domains = true
+  allow_localhost    = true
+  allow_ip_sans      = true
   key_type           = "ec"
   key_bits           = 384
   max_ttl            = "2160h"

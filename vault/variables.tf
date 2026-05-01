@@ -117,6 +117,12 @@ variable "tls_san_ip" {
   default     = []
 }
 
+variable "use_internal_listener_cert" {
+  description = "Use Vault listener TLS material issued by pki_int (vault-internal.crt/key) instead of bootstrap self-signed certs."
+  type        = bool
+  default     = false
+}
+
 # ---------------------------------------------------------------------------
 # Vault behaviour
 # ---------------------------------------------------------------------------

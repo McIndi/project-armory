@@ -55,8 +55,9 @@ VAULT_ADDR = os.environ.get("VAULT_ADDR", "https://127.0.0.1:8200")
 
 # ca-bundle.pem covers pki_ext-issued certs (including Keycloak TLS)
 CA_BUNDLE = os.path.join(PROJECT_ROOT, "vault", "ca-bundle.pem")
-# Vault's own self-signed TLS CA
-VAULT_CACERT = os.path.join(ARMORY_BASE_DIR, "vault", "tls", "ca.crt")
+# Vault trust anchor: prefer consolidated bundle (post-cutover),
+# fallback to bootstrap self-signed CA for pre-cutover runs.
+VAULT_CACERT = CA_BUNDLE if os.path.exists(CA_BUNDLE) else os.path.join(ARMORY_BASE_DIR, "vault", "tls", "ca.crt")
 
 REALM = "armory"
 EXPECTED_REDIRECT_URIS = {

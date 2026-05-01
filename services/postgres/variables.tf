@@ -81,11 +81,10 @@ variable "vault_addr" {
   type        = string
   default     = "https://127.0.0.1:8200"
 }
-
 variable "vault_agent_addr" {
   description = "Vault API address reachable from inside the agent container (container-to-container on armory-net)."
   type        = string
-  default     = "https://armory-vault:8200"
+  default     = "https://armory-vault.armory.internal:8200"
 }
 
 variable "vault_token" {
