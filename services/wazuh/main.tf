@@ -178,6 +178,13 @@ resource "local_file" "ossec_local_config" {
   content         = file("${path.module}/templates/ossec.local.conf")
 }
 
+resource "local_file" "ossec_config" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.config}/ossec.conf"
+  file_permission = "0644"
+  content         = file("${path.module}/templates/ossec.conf")
+}
+
 resource "local_file" "compose" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
@@ -193,7 +200,7 @@ resource "local_file" "compose" {
     auth_proxy_image           = var.auth_proxy_image
     auth_proxy_container_name  = var.auth_proxy_container_name
     vault_agent_addr           = var.vault_agent_addr
-    keycloak_url               = var.keycloak_url
+    keycloak_oidc_issuer_base_url = var.keycloak_oidc_issuer_base_url
     keycloak_realm             = var.keycloak_realm
     keycloak_oidc_client_id    = var.keycloak_oidc_client_id
     required_group             = var.required_group
@@ -210,6 +217,7 @@ resource "local_file" "compose" {
     certs_dir                  = local.dirs.certs
     secrets_dir                = local.dirs.secrets
     observer_dir               = local.dirs.observer
+    ossec_config_file          = local_file.ossec_config.filename
     ossec_local_config_file    = local_file.ossec_local_config.filename
     vault_audit_log_path       = var.vault_audit_log_path
   })
@@ -226,6 +234,7 @@ resource "null_resource" "deploy" {
     local_file.observer_script,
     local_file.observer_log_placeholder,
     local_sensitive_file.oidc_env_bootstrap,
+    local_file.ossec_config,
     local_file.ossec_local_config,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,

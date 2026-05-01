@@ -19,6 +19,7 @@ wazuh_api_port        = 55000
 wazuh_auth_proxy_port = 8550
 
 # Keycloak integration
+keycloak_oidc_issuer_base_url = "https://armory-keycloak:8443"
 keycloak_realm          = "armory"
 keycloak_oidc_client_id = "wazuh-dashboard"
 required_group          = "wazuh-operators"

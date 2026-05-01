@@ -211,7 +211,13 @@ variable "cert_dns_sans" {
 # ---------------------------------------------------------------------------
 
 variable "keycloak_url" {
-  description = "Keycloak URL reachable from the auth proxy container."
+  description = "DEPRECATED: Keycloak URL reachable from the auth proxy container. Prefer keycloak_oidc_issuer_base_url to avoid cross-module TF_VAR collisions."
+  type        = string
+  default     = "https://armory-keycloak:8443"
+}
+
+variable "keycloak_oidc_issuer_base_url" {
+  description = "Keycloak base URL used by oauth2-proxy OIDC discovery/issuer checks. Keep this on the container hostname (for example https://armory-keycloak:8443) so issuer and login redirects are consistent."
   type        = string
   default     = "https://armory-keycloak:8443"
 }

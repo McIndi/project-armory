@@ -39,6 +39,16 @@ The imported `armory` realm already contains:
 4. Web origin `https://127.0.0.1:8550`
 5. Demo user `wazuh-operator` in `wazuh-operators`
 
+### Issuer hostname consistency
+
+If the browser redirects to `https://127.0.0.1:8443` instead of `https://armory-keycloak:8443`, set:
+
+```bash
+export TF_VAR_keycloak_oidc_issuer_base_url="https://armory-keycloak:8443"
+```
+
+This keeps oauth2-proxy discovery and issuer validation on the same hostname used by Keycloak.
+
 ## Vault secret for oauth2-proxy
 
 The module writes these values to Vault KV v2 path `kv/wazuh/oidc` during `tofu apply`.

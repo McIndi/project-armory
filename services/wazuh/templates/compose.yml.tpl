@@ -55,6 +55,7 @@ services:
       - ${certs_dir}:/vault/certs:ro,z
       - ${observer_dir}/armory-observer.log:/var/ossec/logs/armory-observer.log:z
       - ${vault_audit_log_path}:/armory/vault/logs/audit.log:ro,z
+      - ${ossec_config_file}:/var/ossec/etc/ossec.conf:ro,z
       - ${ossec_local_config_file}:/var/ossec/etc/ossec.local.conf:ro,z
 
     networks:
@@ -92,7 +93,7 @@ services:
 
     environment:
       OAUTH2_PROXY_PROVIDER: "keycloak-oidc"
-      OAUTH2_PROXY_OIDC_ISSUER_URL: "${keycloak_url}/realms/${keycloak_realm}"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "${keycloak_oidc_issuer_base_url}/realms/${keycloak_realm}"
       OAUTH2_PROXY_CLIENT_ID: "${keycloak_oidc_client_id}"
       SSL_CERT_FILE: "/vault/ca-bundle.pem"
       OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
@@ -102,7 +103,7 @@ services:
       OAUTH2_PROXY_SSL_UPSTREAM_INSECURE_SKIP_VERIFY: "true"
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
-      OAUTH2_PROXY_SCOPE: "openid profile email groups"
+      OAUTH2_PROXY_SCOPE: "openid profile email"
       OAUTH2_PROXY_ALLOWED_GROUPS: "${required_group}"
       OAUTH2_PROXY_HTTPS_ADDRESS: "0.0.0.0:4443"
       OAUTH2_PROXY_TLS_CERT_FILE: "/vault/certs/wazuh.pem"

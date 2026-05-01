@@ -75,6 +75,7 @@ cp example.armory.env armory.env
 | `TF_VAR_realm_operator_username` | services/keycloak/ | Username for the demo operator user seeded in the Keycloak realm. Default: `operator` |
 | `TF_VAR_realm_operator_password` | services/keycloak/ | Password for the demo operator user. **Required — no default.** |
 | `TF_VAR_keycloak_oidc_client_id` | services/keycloak/, services/wazuh/ | Keycloak OIDC client ID used by oauth2-proxy in front of Wazuh. Default: `wazuh-dashboard` |
+| `TF_VAR_keycloak_oidc_issuer_base_url` | services/wazuh/ | Keycloak base URL used by Wazuh oauth2-proxy for discovery/issuer checks. Set to `https://armory-keycloak:8443` to keep issuer hostname consistent. |
 | `TF_VAR_required_group` | services/keycloak/, services/wazuh/ | Keycloak group required to access Wazuh via oauth2-proxy. Default: `wazuh-operators` |
 | `TF_VAR_wazuh_operator_username` | services/keycloak/ | Username for the seeded Wazuh demo user in the Keycloak realm. Default: `wazuh-operator` |
 | `TF_VAR_wazuh_operator_password` | services/keycloak/ | Password for the seeded Wazuh demo user. **Required — no default.** |

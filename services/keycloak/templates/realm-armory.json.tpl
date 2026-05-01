@@ -30,8 +30,9 @@
     {
       "id": "bbbbbbbb-1001-1001-1001-000000000001",
       "username": "${realm_operator_username}",
+      "email": "${realm_operator_username}@armory.local",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "credentials": [
         {
           "type": "password",
@@ -46,8 +47,9 @@
     {
       "id": "bbbbbbbb-1001-1001-1001-000000000002",
       "username": "${wazuh_operator_username}",
+      "email": "${wazuh_operator_username}@armory.local",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "credentials": [
         {
           "type": "password",
@@ -163,6 +165,18 @@
             "access.token.claim": "true",
             "claim.name": "groups",
             "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "id": "99999999-1001-1001-1001-000000000003",
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "${wazuh_oidc_client_id}",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
           }
         }
       ]
