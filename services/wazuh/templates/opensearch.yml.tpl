@@ -12,7 +12,7 @@
 # ===========================================================================
 
 network.host: "0.0.0.0"
-node.name: "wazuh.indexer"
+node.name: "wazuh-indexer.armory.internal"
 cluster.name: "wazuh"
 discovery.type: "single-node"
 path.data: /var/lib/wazuh-indexer
@@ -28,13 +28,13 @@ plugins.security.ssl.transport.enforce_hostname_verification: false
 plugins.security.ssl.transport.resolve_hostname: false
 
 # The admin DN must match the CN of the certificate used to initialise the
-# security index.  We reuse the indexer server cert (CN=wazuh.indexer) as
+# security index.  We reuse the indexer server cert (CN=wazuh-indexer.armory.internal) as
 # the admin cert — only the DN needs to appear here.
 plugins.security.authcz.admin_dn:
-  - "CN=wazuh.indexer"
+  - "CN=wazuh-indexer.armory.internal"
 
 plugins.security.nodes_dn:
-  - "CN=wazuh.indexer"
+  - "CN=wazuh-indexer.armory.internal"
 
 plugins.security.audit.type: internal_opensearch
 plugins.security.enable_snapshot_restore_privilege: true

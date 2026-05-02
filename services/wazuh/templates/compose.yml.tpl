@@ -65,7 +65,7 @@ services:
   wazuh-indexer:
     image: ${indexer_image}
     container_name: ${indexer_container_name}
-    hostname: wazuh.indexer
+    hostname: wazuh-indexer.armory.internal
     restart: unless-stopped
     depends_on:
       vault-agent:
@@ -85,7 +85,7 @@ services:
     networks:
       wazuh-net:
         aliases:
-          - wazuh.indexer
+          - wazuh-indexer.armory.internal
 
   observer:
     image: ${observer_image}
@@ -115,7 +115,7 @@ services:
         condition: service_started
 
     environment:
-      OPENSEARCH_HOSTS: "https://wazuh.indexer:9200"
+      OPENSEARCH_HOSTS: "https://wazuh-indexer.armory.internal:9200"
       WAZUH_API_URL: "https://${manager_container_name}"
       # Trust the internal CA so the dashboard can verify the indexer's cert.
       NODE_EXTRA_CA_CERTS: "/vault/certs/ca.pem"
