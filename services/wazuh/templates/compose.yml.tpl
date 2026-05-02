@@ -55,7 +55,8 @@ services:
 
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
-      - ${ossec_config_file}:/var/ossec/etc/ossec.conf:ro,z
+      - ${ossec_config_file}:/wazuh-config-mount/etc/ossec.conf:ro,z
+      - ${ossec_local_config_file}:/wazuh-config-mount/etc/ossec.local.conf:ro,z
       - ${observer_dir}/armory-observer.log:/var/ossec/logs/armory-observer.log:z
       - ${vault_audit_log_path}:/armory/vault/logs/audit.log:ro,z
 

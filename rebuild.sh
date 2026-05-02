@@ -220,6 +220,7 @@ if [[ -f "$ARMORY_CONFIG" ]]; then
   source "$ARMORY_CONFIG"
 else
   warn "armory.env not found — falling back to variables.tf defaults. Copy example.armory.env to armory.env to set credentials and ports."
+  exit 1
 fi
 
 # Fallbacks for scripts that source this before armory.env exists.
