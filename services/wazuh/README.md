@@ -5,8 +5,9 @@ Wazuh SIEM service module for Project Armory.
 This module deploys:
 
 - `wazuh-manager` for event ingestion and security analytics
+- `wazuh-dashboard` for browser-based Wazuh UI
 - `vault-agent` sidecar to render TLS material and OIDC secrets from Vault
-- `oauth2-proxy` in front of Wazuh API, integrated with Keycloak OIDC
+- `oauth2-proxy` in front of Wazuh Dashboard UI, integrated with Keycloak OIDC
 - `observer` sidecar that emits JSON health/perf telemetry for Vault, Keycloak, and PostgreSQL
 
 ## What this monitors
@@ -77,4 +78,6 @@ tofu init && tofu apply -auto-approve
 ## Access
 
 - Direct Wazuh API: `https://127.0.0.1:55000`
-- Keycloak-protected endpoint: `https://127.0.0.1:8550`
+- Keycloak-protected Wazuh Dashboard: `https://127.0.0.1:8550`
+
+Note: The Keycloak-protected endpoint now fronts Wazuh Dashboard UI. Use the direct API URL for machine/API workflows.

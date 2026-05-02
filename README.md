@@ -643,11 +643,12 @@ python cli.py --query "SELECT current_user, now() AS ts"
 
 ### Phase 10 — Deploy Wazuh SIEM + Keycloak auth proxy
 
-This phase deploys `services/wazuh/` with four containers:
+This phase deploys `services/wazuh/` with five containers:
 
 - Wazuh manager for SIEM ingestion and analysis
+- Wazuh Dashboard for browser-based UI
 - Vault Agent sidecar for TLS cert and OIDC secret rendering
-- oauth2-proxy for Keycloak-based human authentication
+- oauth2-proxy in front of Wazuh Dashboard for Keycloak-based human authentication
 - Observer sidecar that emits JSON health/perf checks for Vault, Keycloak, and PostgreSQL
 
 ```bash

@@ -21,6 +21,8 @@ auto_auth {
   }
 }
 
+# External cert — used by auth-proxy TLS listener and as the manager→indexer
+# client certificate. Issued by pki_ext so browsers trust it via the external CA.
 template {
   contents = <<EOT
 {{- with pkiCert "${pki_ext_mount}/issue/${pki_ext_role}" "common_name=${server_name}" "ttl=${cert_ttl}" "ip_sans=${ip_sans_str}"%{ if alt_names_str != "" } "alt_names=${alt_names_str}"%{ endif } -}}
@@ -28,6 +30,31 @@ template {
 {{- end }}
 EOT
   destination = "/vault/certs/wazuh.pem"
+  perms       = "0644"
+}
+
+# Internal cert — used by the wazuh-indexer OpenSearch TLS listener.
+# Issued by pki_int (armory-server role) so it is trusted on armory-net.
+template {
+  contents = <<EOT
+{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh.indexer" "ttl=${cert_ttl}" "alt_names=wazuh.indexer,${indexer_container_name}" "ip_sans=127.0.0.1" -}}
+{{ .Cert }}{{ .CA }}
+{{ .Key }}
+{{- end }}
+EOT
+  destination = "/vault/certs/indexer.pem"
+  perms       = "0644"
+}
+
+# CA bundle — cert-only PEM that consumers can use as a trust anchor without
+# needing the full combined wazuh.pem or indexer.pem.
+template {
+  contents = <<EOT
+{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh.indexer" "ttl=${cert_ttl}" -}}
+{{ .CA }}
+{{- end }}
+EOT
+  destination = "/vault/certs/ca.pem"
   perms       = "0644"
 }
 

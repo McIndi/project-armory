@@ -28,7 +28,7 @@ services:
       - ${secrets_dir}:/vault/secrets:z
 
     healthcheck:
-      test: ["CMD-SHELL", "test -f /vault/certs/wazuh.pem && grep -q 'BEGIN CERTIFICATE' /vault/certs/wazuh.pem && test -s /vault/secrets/oidc.env"]
+      test: ["CMD-SHELL", "test -f /vault/certs/wazuh.pem && grep -q 'BEGIN CERTIFICATE' /vault/certs/wazuh.pem && test -f /vault/certs/indexer.pem && test -f /vault/certs/ca.pem && test -s /vault/secrets/oidc.env"]
       interval: 5s
       timeout: 2s
       retries: 24
@@ -44,6 +44,8 @@ services:
     depends_on:
       vault-agent:
         condition: service_healthy
+      wazuh-indexer:
+        condition: service_started
 
     ports:
       - "${host_ip}:${wazuh_api_port}:55000"
@@ -53,11 +55,37 @@ services:
 
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
+      - ${ossec_config_file}:/var/ossec/etc/ossec.conf:ro,z
       - ${observer_dir}/armory-observer.log:/var/ossec/logs/armory-observer.log:z
       - ${vault_audit_log_path}:/armory/vault/logs/audit.log:ro,z
 
     networks:
       - wazuh-net
+
+  wazuh-indexer:
+    image: ${indexer_image}
+    container_name: ${indexer_container_name}
+    hostname: wazuh.indexer
+    restart: unless-stopped
+    depends_on:
+      vault-agent:
+        condition: service_healthy
+
+    environment:
+      OPENSEARCH_JAVA_OPTS: "${indexer_java_opts}"
+
+    volumes:
+      - ${indexer_data_dir}:/var/lib/wazuh-indexer:z
+      # Vault-issued certs — rendered by the vault-agent sidecar before this
+      # container starts.  Mounted read-only at the path opensearch.yml expects.
+      - ${certs_dir}:/usr/share/wazuh-indexer/certs:ro,z
+      # Override the image's opensearch.yml to use our Vault-issued certs.
+      - ${opensearch_yml_file}:/usr/share/wazuh-indexer/opensearch.yml:ro,z
+
+    networks:
+      wazuh-net:
+        aliases:
+          - wazuh.indexer
 
   observer:
     image: ${observer_image}
@@ -76,6 +104,28 @@ services:
     networks:
       - wazuh-net
 
+  wazuh-dashboard:
+    image: ${dashboard_image}
+    container_name: ${dashboard_container_name}
+    restart: unless-stopped
+    depends_on:
+      wazuh-indexer:
+        condition: service_started
+      wazuh-manager:
+        condition: service_started
+
+    environment:
+      OPENSEARCH_HOSTS: "https://wazuh.indexer:9200"
+      WAZUH_API_URL: "https://${manager_container_name}"
+      # Trust the internal CA so the dashboard can verify the indexer's cert.
+      NODE_EXTRA_CA_CERTS: "/vault/certs/ca.pem"
+
+    volumes:
+      - ${certs_dir}:/vault/certs:ro,z
+
+    networks:
+      - wazuh-net
+
   auth-proxy:
     image: ${auth_proxy_image}
     container_name: ${auth_proxy_container_name}
@@ -83,7 +133,7 @@ services:
     depends_on:
       vault-agent:
         condition: service_healthy
-      wazuh-manager:
+      wazuh-dashboard:
         condition: service_started
 
     env_file:
@@ -97,13 +147,10 @@ services:
       OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
       OAUTH2_PROXY_REDIRECT_URL: "https://${host_ip}:${wazuh_auth_proxy_port}/oauth2/callback"
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_UPSTREAMS: "https://${manager_container_name}:55000"
-      OAUTH2_PROXY_SSL_UPSTREAM_INSECURE_SKIP_VERIFY: "true"
+      OAUTH2_PROXY_UPSTREAMS: "http://${dashboard_container_name}:5601"
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
       OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
-      OAUTH2_PROXY_SET_AUTHORIZATION_HEADER: "true"
-      OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "true"
       OAUTH2_PROXY_SCOPE: "openid profile email"
       OAUTH2_PROXY_ALLOWED_GROUPS: "${required_group}"
       OAUTH2_PROXY_HTTPS_ADDRESS: "0.0.0.0:4443"

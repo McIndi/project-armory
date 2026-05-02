@@ -112,9 +112,11 @@
 #             on port 8445 (host binding).
 #             (Skippable with --skip-agent or --skip-keycloak.)
 #
-#   Phase 10  Apply services/wazuh/ — deploys Wazuh manager with:
+#   Phase 10  Apply services/wazuh/ — deploys Wazuh SIEM with:
+#             - Wazuh manager for SIEM ingestion and analysis
+#             - Wazuh Dashboard for browser-based UI
 #             - Vault Agent sidecar for TLS + oauth2-proxy OIDC secrets
-#             - oauth2-proxy integrated with Keycloak for human auth
+#             - oauth2-proxy integrated with Keycloak in front of Wazuh Dashboard
 #             - observer sidecar emitting health/perf JSON checks for
 #               Vault, Keycloak, and PostgreSQL into Wazuh log ingestion.
 #             (Skippable with --skip-wazuh or --skip-keycloak.)
@@ -1722,12 +1724,13 @@ PY
   # ── Phase 10: Deploy Wazuh SIEM layer ─────────────────────────────────────
   # Wazuh deployment includes:
   #   - Wazuh manager for SIEM event processing and security analytics
+  #   - Wazuh Dashboard for browser-based access
   #   - Vault Agent sidecar to render TLS cert + oauth2-proxy OIDC secrets
-  #   - oauth2-proxy in front of Wazuh API, authenticating users via Keycloak
+  #   - oauth2-proxy in front of Wazuh Dashboard, authenticating users via Keycloak
   #   - observer sidecar writing JSON health/perf checks for Vault/Keycloak/
   #     PostgreSQL into Wazuh-monitored log files
   if [[ "$SKIP_WAZUH" == "false" ]]; then
-    header "PHASE 10 — Deploy Wazuh SIEM (manager + Keycloak auth proxy)"
+    header "PHASE 10 — Deploy Wazuh SIEM (manager + dashboard + Keycloak auth proxy)"
 
     ensure_tfvars "services/wazuh"
     (
@@ -1744,7 +1747,7 @@ PY
     )
     success "Wazuh stack deployed"
     log "  Wazuh API: https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_API_PORT}"
-    log "  Keycloak-protected endpoint: https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_AUTH_PORT}"
+    log "  Keycloak-protected Wazuh Dashboard: https://${ARMORY_HOST_IP}:${ARMORY_WAZUH_AUTH_PORT}"
 
     wait_for_wazuh_auth_proxy
   else
@@ -1782,7 +1785,7 @@ print_summary() {
   [[ "$SKIP_WAZUH" == "false" ]] && \
     echo "  Wazuh API     : https://${ARMORY_HOST_IP}:${wazuh_api_port}"
   [[ "$SKIP_WAZUH" == "false" ]] && \
-    echo "  Wazuh (OIDC)  : https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
+    echo "  Wazuh UI      : https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
   echo ""
 
   echo -e "${BOLD}CA certificates — trust anchors:${RESET}"
@@ -1837,7 +1840,7 @@ print_summary() {
 
   if [[ "$SKIP_WAZUH" == "false" ]]; then
     echo ""
-    echo "  Wazuh Keycloak bootstrap is automated. Verify sign-in with:"
+    echo "  Wazuh Keycloak bootstrap is automated. Verify dashboard sign-in with:"
     echo "    URL: https://${ARMORY_HOST_IP}:${wazuh_auth_port}"
     echo "    User: ${TF_VAR_wazuh_operator_username:-wazuh-operator}"
     echo "    Group: ${TF_VAR_required_group:-wazuh-operators}"

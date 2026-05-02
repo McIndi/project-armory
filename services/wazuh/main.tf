@@ -10,6 +10,7 @@ locals {
     secrets      = "${var.deploy_dir}/secrets"
     observer     = "${var.deploy_dir}/observer"
     config       = "${var.deploy_dir}/config"
+    indexer_data = "${var.deploy_dir}/indexer-data"
   }
 
   vault_tls_dir = coalesce(var.vault_tls_dir, "${var.armory_base_dir}/vault/tls")
@@ -27,6 +28,10 @@ resource "vault_policy" "wazuh" {
 
   policy = <<-EOT
     path "${var.pki_ext_mount}/issue/${var.pki_ext_role}" {
+      capabilities = ["create", "update"]
+    }
+
+    path "${var.pki_int_mount}/issue/${var.pki_int_role}" {
       capabilities = ["create", "update"]
     }
 
@@ -88,9 +93,12 @@ resource "null_resource" "create_dirs" {
   provisioner "local-exec" {
     command     = <<-EOT
       set -euo pipefail
-      mkdir -p "${local.dirs.agent_config}" "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}" "${local.dirs.observer}" "${local.dirs.config}"
-      chmod 755 "${local.dirs.agent_config}" "${local.dirs.observer}" "${local.dirs.config}"
+      mkdir -p "${local.dirs.agent_config}" "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}" "${local.dirs.observer}" "${local.dirs.config}" "${local.dirs.indexer_data}"
+      chmod 755 "${local.dirs.agent_config}" "${local.dirs.observer}" "${local.dirs.config}" "${local.dirs.indexer_data}"
       chmod 777 "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}"
+      # wazuh-indexer container runs as uid 1000 inside the rootless Podman user
+      # namespace — use podman unshare so the chown maps to the correct host UID.
+      podman unshare chown 1000:1000 "${local.dirs.indexer_data}"
     EOT
     interpreter = ["bash", "-c"]
   }
@@ -112,15 +120,18 @@ resource "local_file" "agent_config" {
   filename        = "${local.dirs.agent_config}/agent.hcl"
   file_permission = "0644"
   content = templatefile("${path.module}/templates/agent.hcl.tpl", {
-    vault_addr         = var.vault_agent_addr
-    approle_mount_path = var.approle_mount_path
-    pki_ext_mount      = var.pki_ext_mount
-    pki_ext_role       = var.pki_ext_role
-    server_name        = var.server_name
-    cert_ttl           = var.cert_ttl
-    ip_sans_str        = local.ip_sans_str
-    alt_names_str      = local.alt_names_str
-    oidc_kv_path       = var.oidc_kv_path
+    vault_addr             = var.vault_agent_addr
+    approle_mount_path     = var.approle_mount_path
+    pki_ext_mount          = var.pki_ext_mount
+    pki_ext_role           = var.pki_ext_role
+    pki_int_mount          = var.pki_int_mount
+    pki_int_role           = var.pki_int_role
+    indexer_container_name = var.indexer_container_name
+    server_name            = var.server_name
+    cert_ttl               = var.cert_ttl
+    ip_sans_str            = local.ip_sans_str
+    alt_names_str          = local.alt_names_str
+    oidc_kv_path           = var.oidc_kv_path
   })
 }
 
@@ -185,6 +196,13 @@ resource "local_file" "ossec_config" {
   content         = file("${path.module}/templates/ossec.conf")
 }
 
+resource "local_file" "opensearch_config" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.config}/opensearch.yml"
+  file_permission = "0644"
+  content         = file("${path.module}/templates/opensearch.yml.tpl")
+}
+
 resource "local_file" "compose" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
@@ -193,12 +211,17 @@ resource "local_file" "compose" {
     project_name               = var.compose_project_name
     manager_image              = var.manager_image
     manager_container_name     = var.manager_container_name
+    indexer_image              = var.indexer_image
+    indexer_container_name     = var.indexer_container_name
+    indexer_java_opts          = var.indexer_java_opts
     agent_image                = var.agent_image
     vault_agent_container_name = var.vault_agent_container_name
     observer_image             = var.observer_image
     observer_container_name    = var.observer_container_name
     auth_proxy_image           = var.auth_proxy_image
     auth_proxy_container_name  = var.auth_proxy_container_name
+    dashboard_image            = var.dashboard_image
+    dashboard_container_name   = var.dashboard_container_name
     vault_agent_addr           = var.vault_agent_addr
     keycloak_oidc_issuer_base_url = var.keycloak_oidc_issuer_base_url
     keycloak_realm             = var.keycloak_realm
@@ -217,8 +240,10 @@ resource "local_file" "compose" {
     certs_dir                  = local.dirs.certs
     secrets_dir                = local.dirs.secrets
     observer_dir               = local.dirs.observer
+    indexer_data_dir           = local.dirs.indexer_data
     ossec_config_file          = local_file.ossec_config.filename
     ossec_local_config_file    = local_file.ossec_local_config.filename
+    opensearch_yml_file        = local_file.opensearch_config.filename
     vault_audit_log_path       = var.vault_audit_log_path
   })
 }
@@ -236,6 +261,7 @@ resource "null_resource" "deploy" {
     local_sensitive_file.oidc_env_bootstrap,
     local_file.ossec_config,
     local_file.ossec_local_config,
+    local_file.opensearch_config,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,
     vault_kv_secret_v2.wazuh_oidc,

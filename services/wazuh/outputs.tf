@@ -4,7 +4,7 @@ output "wazuh_api_url" {
 }
 
 output "wazuh_auth_url" {
-  description = "Keycloak-protected oauth2-proxy URL for Wazuh access."
+  description = "Keycloak-protected oauth2-proxy URL for Wazuh Dashboard access."
   value       = "https://${var.host_ip}:${var.wazuh_auth_proxy_port}"
 }
 

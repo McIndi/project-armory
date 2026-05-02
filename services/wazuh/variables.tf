@@ -60,6 +60,18 @@ variable "pki_ext_role" {
   default     = "armory-external"
 }
 
+variable "pki_int_mount" {
+  description = "Mount path for the internal intermediate CA (used for indexer server cert)."
+  type        = string
+  default     = "pki_int"
+}
+
+variable "pki_int_role" {
+  description = "PKI role name for issuing internal certificates (indexer server cert)."
+  type        = string
+  default     = "armory-server"
+}
+
 variable "oidc_kv_path" {
   description = "KV v2 path containing oauth2-proxy secret values (client_secret and cookie_secret)."
   type        = string
@@ -113,9 +125,21 @@ variable "observer_container_name" {
 }
 
 variable "auth_proxy_container_name" {
-  description = "Name of the oauth2-proxy container in front of Wazuh API."
+  description = "Name of the oauth2-proxy container in front of Wazuh Dashboard UI."
   type        = string
   default     = "armory-wazuh-auth-proxy"
+}
+
+variable "dashboard_container_name" {
+  description = "Name of the Wazuh Dashboard container."
+  type        = string
+  default     = "armory-wazuh-dashboard"
+}
+
+variable "indexer_container_name" {
+  description = "Name of the Wazuh indexer container."
+  type        = string
+  default     = "armory-wazuh-indexer"
 }
 
 variable "manager_image" {
@@ -142,6 +166,24 @@ variable "auth_proxy_image" {
   default     = "quay.io/oauth2-proxy/oauth2-proxy:v7.8.1"
 }
 
+variable "dashboard_image" {
+  description = "Wazuh Dashboard container image."
+  type        = string
+  default     = "docker.io/wazuh/wazuh-dashboard:4.8.2"
+}
+
+variable "indexer_image" {
+  description = "Wazuh indexer container image."
+  type        = string
+  default     = "docker.io/wazuh/wazuh-indexer:4.8.2"
+}
+
+variable "indexer_java_opts" {
+  description = "JVM options for the single-node Wazuh indexer."
+  type        = string
+  default     = "-Xms1g -Xmx1g"
+}
+
 variable "network_name" {
   description = "Compose network to join. Must be the same network as Vault/Keycloak/PostgreSQL."
   type        = string
@@ -161,7 +203,7 @@ variable "wazuh_api_port" {
 }
 
 variable "wazuh_auth_proxy_port" {
-  description = "Host port to publish for Keycloak-protected oauth2-proxy endpoint."
+  description = "Host port to publish for Keycloak-protected Wazuh Dashboard endpoint."
   type        = number
   default     = 8550
 }
