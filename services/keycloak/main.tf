@@ -214,7 +214,7 @@ resource "null_resource" "deploy" {
   }
 
   provisioner "local-exec" {
-    command     = "podman compose --project-name ${var.compose_project_name} -f ${var.deploy_dir}/compose.yml up -d --pull-always"
+    command     = "podman compose --project-name ${var.compose_project_name} -f ${var.deploy_dir}/compose.yml up -d"
     interpreter = ["bash", "-c"]
   }
 
