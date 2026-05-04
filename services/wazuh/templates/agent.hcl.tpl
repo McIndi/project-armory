@@ -37,7 +37,7 @@ EOT
 # Issued by pki_int (armory-server role) so it is trusted on armory-net.
 template {
   contents = <<EOT
-{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh-indexer.armory.internal" "ttl=${cert_ttl}" "alt_names=wazuh-indexer.armory.internal,wazuh-indexer" "ip_sans=127.0.0.1" "private_key_format=pkcs8" -}}
+{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh-indexer.armory.internal" "ttl=${cert_ttl}" "alt_names=wazuh-indexer.armory.internal" "ip_sans=127.0.0.1" "private_key_format=pkcs8" -}}
 {{ .Cert }}{{ .CA }}
 {{ .Key }}
 {{- end }}

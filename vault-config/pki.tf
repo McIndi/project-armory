@@ -95,7 +95,7 @@ resource "vault_pki_secret_backend_config_issuers" "pki_int" {
 resource "vault_pki_secret_backend_role" "armory_server" {
   backend            = vault_mount.pki_int.path
   name               = "armory-server"
-  allowed_domains    = ["armory.internal", "wazuh-indexer"]
+  allowed_domains    = ["armory.internal"]
   allow_subdomains   = true
   allow_bare_domains = true
   allow_localhost    = true

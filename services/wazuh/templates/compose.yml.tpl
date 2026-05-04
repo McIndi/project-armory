@@ -53,6 +53,13 @@ services:
       - "${host_ip}:${wazuh_events_port}:1514/udp"
       - "${host_ip}:${wazuh_enrollment_port}:1515"
 
+    environment:
+      INDEXER_URL: "https://wazuh-indexer.armory.internal:9200"
+      SSL_CERTIFICATE_AUTHORITIES: "/vault/certs/ca.pem"
+      SSL_CERTIFICATE: "/vault/certs/wazuh.pem"
+      SSL_KEY: "/vault/certs/wazuh.pem"
+      FILEBEAT_SSL_VERIFICATION_MODE: "full"
+
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
       - ${ossec_config_file}:/wazuh-config-mount/etc/ossec.conf:ro,z
@@ -123,6 +130,7 @@ services:
 
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
+      - ${opensearch_dashboards_yml_file}:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml:ro,z
 
     networks:
       - wazuh-net

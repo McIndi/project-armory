@@ -203,6 +203,13 @@ resource "local_file" "opensearch_config" {
   content         = file("${path.module}/templates/opensearch.yml.tpl")
 }
 
+resource "local_file" "dashboard_config" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.config}/opensearch_dashboards.yml"
+  file_permission = "0644"
+  content         = file("${path.module}/templates/opensearch_dashboards.yml.tpl")
+}
+
 resource "local_file" "compose" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
@@ -244,6 +251,7 @@ resource "local_file" "compose" {
     ossec_config_file          = local_file.ossec_config.filename
     ossec_local_config_file    = local_file.ossec_local_config.filename
     opensearch_yml_file        = local_file.opensearch_config.filename
+    opensearch_dashboards_yml_file = local_file.dashboard_config.filename
     vault_audit_log_path       = var.vault_audit_log_path
   })
 }
@@ -262,6 +270,7 @@ resource "null_resource" "deploy" {
     local_file.ossec_config,
     local_file.ossec_local_config,
     local_file.opensearch_config,
+    local_file.dashboard_config,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,
     vault_kv_secret_v2.wazuh_oidc,
