@@ -211,6 +211,13 @@ resource "local_file" "dashboard_config" {
   content         = file("${path.module}/templates/opensearch_dashboards.yml.tpl")
 }
 
+resource "local_file" "security_config" {
+  depends_on      = [null_resource.create_dirs]
+  filename        = "${local.dirs.config}/opensearch_security_config.yml"
+  file_permission = "0644"
+  content         = file("${path.module}/templates/opensearch_security_config.yml.tpl")
+}
+
 resource "local_file" "compose" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${var.deploy_dir}/compose.yml"
@@ -253,6 +260,7 @@ resource "local_file" "compose" {
     ossec_local_config_file    = local_file.ossec_local_config.filename
     opensearch_yml_file        = local_file.opensearch_config.filename
     opensearch_dashboards_yml_file = local_file.dashboard_config.filename
+    opensearch_security_config_file = local_file.security_config.filename
     vault_audit_log_path       = var.vault_audit_log_path
   })
 }
@@ -272,6 +280,7 @@ resource "null_resource" "deploy" {
     local_file.ossec_local_config,
     local_file.opensearch_config,
     local_file.dashboard_config,
+    local_file.security_config,
     local_sensitive_file.role_id,
     local_sensitive_file.wrapped_secret_id,
     vault_kv_secret_v2.wazuh_oidc,
@@ -355,7 +364,7 @@ resource "null_resource" "deploy" {
             --cacert /usr/share/wazuh-indexer/certs/ca-bundle.pem \
             -H "Content-Type: application/json" \
             -d '"'"'{
-              "backend_roles": ["proxy_dashboard_users"],
+              "backend_roles": ["${var.required_group}"],
               "hosts": [],
               "users": [],
               "and_backend_roles": []

@@ -91,6 +91,8 @@ services:
       - ${ca_bundle_file}:/usr/share/wazuh-indexer/certs/ca-bundle.pem:ro,z
       # Override the image's opensearch.yml to use our Vault-issued certs.
       - ${opensearch_yml_file}:/usr/share/wazuh-indexer/opensearch.yml:ro,z
+      # Override the Security plugin config.yml to enable proxy authentication.
+      - ${opensearch_security_config_file}:/usr/share/wazuh-indexer/opensearch-security/config.yml:ro,z
 
     networks:
       wazuh-net:
