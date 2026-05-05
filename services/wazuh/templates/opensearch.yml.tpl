@@ -20,18 +20,17 @@ path.data: /var/lib/wazuh-indexer
 plugins.security.ssl.http.enabled: true
 plugins.security.ssl.http.pemcert_filepath: /usr/share/wazuh-indexer/certs/indexer.pem
 plugins.security.ssl.http.pemkey_filepath: /usr/share/wazuh-indexer/certs/indexer.pem
-plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca-bundle.pem
 plugins.security.ssl.transport.pemcert_filepath: /usr/share/wazuh-indexer/certs/indexer.pem
 plugins.security.ssl.transport.pemkey_filepath: /usr/share/wazuh-indexer/certs/indexer.pem
-plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca-bundle.pem
 plugins.security.ssl.transport.enforce_hostname_verification: false
 plugins.security.ssl.transport.resolve_hostname: false
 
 # The admin DN must match the CN of the certificate used to initialise the
-# security index.  We reuse the indexer server cert (CN=wazuh-indexer.armory.internal) as
-# the admin cert — only the DN needs to appear here.
+# security index. Use a dedicated admin certificate, separate from node certs.
 plugins.security.authcz.admin_dn:
-  - "CN=wazuh-indexer.armory.internal"
+  - "CN=wazuh-admin.armory.internal"
 
 plugins.security.nodes_dn:
   - "CN=wazuh-indexer.armory.internal"

@@ -230,6 +230,7 @@ ARMORY_VAULT_ADDR="${ARMORY_VAULT_ADDR:-https://${ARMORY_HOST_IP}:${ARMORY_VAULT
 ARMORY_VAULT_AGENT_ADDR="${ARMORY_VAULT_AGENT_ADDR:-https://armory-vault.armory.internal:${ARMORY_VAULT_PORT}}"
 ARMORY_WEBSERVER_PORT="${ARMORY_WEBSERVER_PORT:-8000}"
 ARMORY_KEYCLOAK_PORT="${ARMORY_KEYCLOAK_PORT:-8443}"
+ARMORY_KEYCLOAK_WAIT_MAX_ATTEMPTS="${ARMORY_KEYCLOAK_WAIT_MAX_ATTEMPTS:-300}"
 ARMORY_AGENT_PORT="${ARMORY_AGENT_PORT:-8445}"
 ARMORY_PG_PORT="${ARMORY_PG_PORT:-5432}"
 ARMORY_WAZUH_API_PORT="${ARMORY_WAZUH_API_PORT:-55000}"
@@ -634,13 +635,13 @@ wait_for_postgres() {
 # =============================================================================
 
 wait_for_keycloak() {
-  local max_attempts="${1:-180}"  # 180 × 3 seconds = 9 minutes maximum wait
+  local max_attempts="${1:-${ARMORY_KEYCLOAK_WAIT_MAX_ATTEMPTS}}"  # Default: 300 × 3 seconds = 15 minutes maximum wait
   local attempt=0
   local cacert="$SCRIPT_DIR/vault/ca-bundle.pem"
   local keycloak_port="${ARMORY_KEYCLOAK_PORT}"
 
   log "Waiting for Keycloak to become ready on port ${keycloak_port}..."
-  log "(This can take up to 10 minutes while Vault Agent renders TLS cert and DB password)"
+  log "(This can take several minutes while Keycloak runs DB schema updates and realm import)"
 
   until curl -s --cacert "$cacert" \
         "https://127.0.0.1:${keycloak_port}/health/ready" \
@@ -651,8 +652,8 @@ wait_for_keycloak() {
       error "Keycloak did not become ready after $(( max_attempts * 3 ))s"
       log "Last 20 lines from armory-keycloak (if running):"
       podman logs armory-keycloak --tail 20 2>/dev/null || true
-      log "Last 20 lines from armory-keycloak-vault-agent (if running):"
-      podman logs armory-keycloak-vault-agent --tail 20 2>/dev/null || true
+      log "Last 20 lines from armory-vault-agent-keycloak (if running):"
+      podman logs armory-vault-agent-keycloak --tail 20 2>/dev/null || true
       return 1
     fi
     sleep 3

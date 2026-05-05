@@ -28,7 +28,7 @@ services:
       - ${secrets_dir}:/vault/secrets:z
 
     healthcheck:
-      test: ["CMD-SHELL", "test -f /vault/certs/wazuh.pem && grep -q 'BEGIN CERTIFICATE' /vault/certs/wazuh.pem && test -f /vault/certs/indexer.pem && test -f /vault/certs/ca.pem && test -s /vault/secrets/oidc.env"]
+      test: ["CMD-SHELL", "test -f /vault/certs/wazuh.pem && grep -q 'BEGIN CERTIFICATE' /vault/certs/wazuh.pem && test -f /vault/certs/indexer.pem && test -f /vault/certs/admin.pem && test -f /vault/certs/manager.pem && test -f /vault/certs/dashboard.pem && test -f /vault/certs/ca.pem && test -s /vault/secrets/oidc.env"]
       interval: 5s
       timeout: 2s
       retries: 24
@@ -55,13 +55,14 @@ services:
 
     environment:
       INDEXER_URL: "https://wazuh-indexer.armory.internal:9200"
-      SSL_CERTIFICATE_AUTHORITIES: "/vault/certs/ca.pem"
-      SSL_CERTIFICATE: "/vault/certs/wazuh.pem"
-      SSL_KEY: "/vault/certs/wazuh.pem"
+      SSL_CERTIFICATE_AUTHORITIES: "/vault/ca-bundle.pem"
+      SSL_CERTIFICATE: "/vault/certs/manager.pem"
+      SSL_KEY: "/vault/certs/manager.pem"
       FILEBEAT_SSL_VERIFICATION_MODE: "full"
 
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
+      - ${ca_bundle_file}:/vault/ca-bundle.pem:ro,z
       - ${ossec_config_file}:/wazuh-config-mount/etc/ossec.conf:ro,z
       - ${ossec_local_config_file}:/wazuh-config-mount/etc/ossec.local.conf:ro,z
       - ${observer_dir}/armory-observer.log:/var/ossec/logs/armory-observer.log:z
@@ -87,6 +88,7 @@ services:
       # Vault-issued certs — rendered by the vault-agent sidecar before this
       # container starts.  Mounted read-only at the path opensearch.yml expects.
       - ${certs_dir}:/usr/share/wazuh-indexer/certs:ro,z
+      - ${ca_bundle_file}:/usr/share/wazuh-indexer/certs/ca-bundle.pem:ro,z
       # Override the image's opensearch.yml to use our Vault-issued certs.
       - ${opensearch_yml_file}:/usr/share/wazuh-indexer/opensearch.yml:ro,z
 
@@ -115,6 +117,7 @@ services:
   wazuh-dashboard:
     image: ${dashboard_image}
     container_name: ${dashboard_container_name}
+    hostname: wazuh-dashboard.armory.internal
     restart: unless-stopped
     depends_on:
       wazuh-indexer:
@@ -125,15 +128,18 @@ services:
     environment:
       OPENSEARCH_HOSTS: "https://wazuh-indexer.armory.internal:9200"
       WAZUH_API_URL: "https://${manager_container_name}"
-      # Trust the internal CA so the dashboard can verify the indexer's cert.
-      NODE_EXTRA_CA_CERTS: "/vault/certs/ca.pem"
+      # Trust the consolidated CA bundle so the dashboard can verify the indexer's cert.
+      NODE_EXTRA_CA_CERTS: "/vault/ca-bundle.pem"
 
     volumes:
       - ${certs_dir}:/vault/certs:ro,z
+      - ${ca_bundle_file}:/vault/ca-bundle.pem:ro,z
       - ${opensearch_dashboards_yml_file}:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml:ro,z
 
     networks:
-      - wazuh-net
+      wazuh-net:
+        aliases:
+          - wazuh-dashboard.armory.internal
 
   auth-proxy:
     image: ${auth_proxy_image}
@@ -156,10 +162,13 @@ services:
       OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
       OAUTH2_PROXY_REDIRECT_URL: "https://${host_ip}:${wazuh_auth_proxy_port}/oauth2/callback"
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_UPSTREAMS: "http://${dashboard_container_name}:5601"
+      OAUTH2_PROXY_UPSTREAMS: "https://wazuh-dashboard.armory.internal:5601"
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
       OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
+      # Pass identity headers to upstream (dashboard) for proxy-auth integration
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_PASS_HOST_HEADER: "true"
       OAUTH2_PROXY_SCOPE: "openid profile email"
       OAUTH2_PROXY_ALLOWED_GROUPS: "${required_group}"
       OAUTH2_PROXY_HTTPS_ADDRESS: "0.0.0.0:4443"

@@ -127,6 +127,7 @@ resource "local_file" "agent_config" {
     pki_int_mount          = var.pki_int_mount
     pki_int_role           = var.pki_int_role
     indexer_container_name = var.indexer_container_name
+    dashboard_container_name = var.dashboard_container_name
     server_name            = var.server_name
     cert_ttl               = var.cert_ttl
     ip_sans_str            = local.ip_sans_str
@@ -286,6 +287,89 @@ resource "null_resource" "deploy" {
 
   provisioner "local-exec" {
     command     = "podman compose --project-name ${var.compose_project_name} -f ${var.deploy_dir}/compose.yml up -d"
+    interpreter = ["bash", "-c"]
+  }
+
+  provisioner "local-exec" {
+    command     = <<-EOT
+      set -euo pipefail
+
+      for _ in $(seq 1 24); do
+        if podman exec ${var.indexer_container_name} test -f /usr/share/wazuh-indexer/opensearch-security/config.yml; then
+          if podman exec ${var.indexer_container_name} sh -ec '
+            cert_tmp=/tmp/securityadmin-cert.pem
+            key_tmp=/tmp/securityadmin-key.pem
+
+            awk '\''/-----BEGIN CERTIFICATE-----/{flag=1} flag{print} /-----END CERTIFICATE-----/{exit}'\'' \
+              /usr/share/wazuh-indexer/certs/admin.pem > "$cert_tmp"
+
+            awk '\''/-----BEGIN .*PRIVATE KEY-----/{flag=1} flag{print} /-----END .*PRIVATE KEY-----/{exit}'\'' \
+              /usr/share/wazuh-indexer/certs/admin.pem > "$key_tmp"
+
+            env OPENSEARCH_JAVA_HOME=/usr/share/wazuh-indexer/jdk JAVA_HOME=/usr/share/wazuh-indexer/jdk \
+              bash /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
+                -h 127.0.0.1 \
+                -cd /usr/share/wazuh-indexer/opensearch-security \
+                -cacert /usr/share/wazuh-indexer/certs/ca-bundle.pem \
+                -cert "$cert_tmp" \
+                -key "$key_tmp" \
+                -icl -nhnv
+          '; then
+            exit 0
+          fi
+        fi
+
+        sleep 5
+      done
+
+      echo "securityadmin bootstrap failed for ${var.indexer_container_name}" >&2
+      exit 1
+    EOT
+    interpreter = ["bash", "-c"]
+  }
+
+  provisioner "local-exec" {
+    command     = <<-EOT
+      set -euo pipefail
+
+      # Wait for security index to be ready after bootstrap, then configure role mappings
+      # for proxy-auth (oauth2-proxy + Keycloak) users to access the dashboard.
+      for _ in $(seq 1 12); do
+        if podman exec ${var.indexer_container_name} sh -ec '
+          # Extract cert/key from admin.pem for API auth
+          cert_tmp=/tmp/api-cert.pem
+          key_tmp=/tmp/api-key.pem
+
+          awk '\''/-----BEGIN CERTIFICATE-----/{flag=1} flag{print} /-----END CERTIFICATE-----/{exit}'\'' \
+            /usr/share/wazuh-indexer/certs/admin.pem > "$cert_tmp"
+
+          awk '\''/-----BEGIN .*PRIVATE KEY-----/{flag=1} flag{print} /-----END .*PRIVATE KEY-----/{exit}'\'' \
+            /usr/share/wazuh-indexer/certs/admin.pem > "$key_tmp"
+
+          # Configure role mapping to allow proxy-auth users dashboard access
+          # Map any user authenticated via proxy header to the proxy_dashboard_users backend role,
+          # which then maps to kibana_user role for dashboard permissions.
+          curl -s -X PUT "https://127.0.0.1:9200/_plugins/_security/api/rolesmapping/kibana_user" \
+            --cert "$cert_tmp" \
+            --key "$key_tmp" \
+            --cacert /usr/share/wazuh-indexer/certs/ca-bundle.pem \
+            -H "Content-Type: application/json" \
+            -d '"'"'{
+              "backend_roles": ["proxy_dashboard_users"],
+              "hosts": [],
+              "users": [],
+              "and_backend_roles": []
+            }'"'"' || true
+        '; then
+          exit 0
+        fi
+
+        sleep 5
+      done
+
+      echo "Role mapping configuration may have failed, but continuing..." >&2
+      exit 0
+    EOT
     interpreter = ["bash", "-c"]
   }
 

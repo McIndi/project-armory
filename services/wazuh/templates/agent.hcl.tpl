@@ -21,8 +21,8 @@ auto_auth {
   }
 }
 
-# External cert — used by auth-proxy TLS listener and as the manager→indexer
-# client certificate. Issued by pki_ext so browsers trust it via the external CA.
+# External cert — used by the auth-proxy TLS listener. Issued by pki_ext so
+# browsers trust it via the external CA.
 template {
   contents = <<EOT
 {{- with pkiCert "${pki_ext_mount}/issue/${pki_ext_role}" "common_name=${server_name}" "ttl=${cert_ttl}" "ip_sans=${ip_sans_str}"%{ if alt_names_str != "" } "alt_names=${alt_names_str}"%{ endif } -}}
@@ -30,6 +30,19 @@ template {
 {{- end }}
 EOT
   destination = "/vault/certs/wazuh.pem"
+  perms       = "0644"
+}
+
+# Internal cert — used by wazuh-manager when connecting to wazuh-indexer over
+# mutual TLS. Issued by pki_int so the indexer trusts the client cert chain.
+template {
+  contents = <<EOT
+{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh-manager.armory.internal" "ttl=${cert_ttl}" "alt_names=wazuh-manager.armory.internal" "ip_sans=127.0.0.1" "private_key_format=pkcs8" -}}
+{{ .Cert }}{{ .CA }}
+{{ .Key }}
+{{- end }}
+EOT
+  destination = "/vault/certs/manager.pem"
   perms       = "0644"
 }
 
@@ -43,6 +56,33 @@ template {
 {{- end }}
 EOT
   destination = "/vault/certs/indexer.pem"
+  perms       = "0644"
+}
+
+# Internal admin cert — used only by securityadmin.sh for initializing the
+# OpenSearch security index. Keep this separate from the node cert.
+template {
+  contents = <<EOT
+{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh-admin.armory.internal" "ttl=${cert_ttl}" "alt_names=wazuh-admin.armory.internal" "ip_sans=127.0.0.1" "private_key_format=pkcs8" -}}
+{{ .Cert }}{{ .CA }}
+{{ .Key }}
+{{- end }}
+EOT
+  destination = "/vault/certs/admin.pem"
+  perms       = "0644"
+}
+
+# Dashboard cert — used by the wazuh-dashboard HTTPS listener (server.ssl.*).
+# Issued by pki_int so auth-proxy, whose SSL_CERT_FILE points at the consolidated
+# ca-bundle.pem (which includes pki_int), can verify it.
+template {
+  contents = <<EOT
+{{- with pkiCert "${pki_int_mount}/issue/${pki_int_role}" "common_name=wazuh-dashboard.armory.internal" "ttl=${cert_ttl}" "alt_names=wazuh-dashboard.armory.internal" "ip_sans=127.0.0.1" "private_key_format=pkcs8" -}}
+{{ .Cert }}{{ .CA }}
+{{ .Key }}
+{{- end }}
+EOT
+  destination = "/vault/certs/dashboard.pem"
   perms       = "0644"
 }
 
