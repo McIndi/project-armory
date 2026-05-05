@@ -13,7 +13,7 @@ POSTGRES_PORT = ${postgres_port}
 INTERVAL = ${observer_interval_seconds}
 OUT_FILE = "/observer/armory-observer.log"
 
-CTX = ssl.create_default_context(cafile="/vault/tls/ca.crt")
+CTX = ssl.create_default_context(cafile="/vault/tls/ca-bundle.pem")
 
 
 def utc_now() -> str:

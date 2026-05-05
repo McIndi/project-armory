@@ -321,3 +321,20 @@ variable "vault_audit_log_path" {
   type        = string
   default     = "/opt/armory/vault/logs/audit.log"
 }
+
+# ---------------------------------------------------------------------------
+# Indexer credentials (manager -> indexer)
+# ---------------------------------------------------------------------------
+
+variable "wazuh_indexer_username" {
+  description = "Username for Wazuh manager indexer connector authentication."
+  type        = string
+  default     = "admin"
+}
+
+variable "wazuh_indexer_password" {
+  description = "Password for Wazuh manager indexer connector authentication."
+  type        = string
+  sensitive   = true
+  default     = "admin"
+}

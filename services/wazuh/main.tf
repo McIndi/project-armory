@@ -11,6 +11,7 @@ locals {
     observer     = "${var.deploy_dir}/observer"
     config       = "${var.deploy_dir}/config"
     indexer_data = "${var.deploy_dir}/indexer-data"
+    wazuh_logs   = "${var.deploy_dir}/wazuh-logs"
   }
 
   vault_tls_dir = coalesce(var.vault_tls_dir, "${var.armory_base_dir}/vault/tls")
@@ -93,9 +94,13 @@ resource "null_resource" "create_dirs" {
   provisioner "local-exec" {
     command     = <<-EOT
       set -euo pipefail
-      mkdir -p "${local.dirs.agent_config}" "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}" "${local.dirs.observer}" "${local.dirs.config}" "${local.dirs.indexer_data}"
+      mkdir -p "${local.dirs.agent_config}" "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}" "${local.dirs.observer}" "${local.dirs.config}" "${local.dirs.indexer_data}" "${local.dirs.wazuh_logs}"
+      mkdir -p "${local.dirs.wazuh_logs}/archives" "${local.dirs.wazuh_logs}/alerts" "${local.dirs.wazuh_logs}/firewall"
       chmod 755 "${local.dirs.agent_config}" "${local.dirs.observer}" "${local.dirs.config}" "${local.dirs.indexer_data}"
-      chmod 777 "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}"
+      chmod 777 "${local.dirs.approle}" "${local.dirs.certs}" "${local.dirs.secrets}" "${local.dirs.wazuh_logs}"
+      chmod 777 "${local.dirs.wazuh_logs}/archives" "${local.dirs.wazuh_logs}/alerts" "${local.dirs.wazuh_logs}/firewall"
+      # pre-create armory-observer.log as a file so Podman bind-mount doesn't make it a dir
+      touch "${local.dirs.wazuh_logs}/armory-observer.log"
       # wazuh-indexer container runs as uid 1000 inside the rootless Podman user
       # namespace — use podman unshare so the chown maps to the correct host UID.
       podman unshare chown 1000:1000 "${local.dirs.indexer_data}"
@@ -194,7 +199,10 @@ resource "local_file" "ossec_config" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${local.dirs.config}/ossec.conf"
   file_permission = "0644"
-  content         = file("${path.module}/templates/ossec.conf")
+  content = templatefile("${path.module}/templates/ossec.conf", {
+    indexer_username = var.wazuh_indexer_username
+    indexer_password = var.wazuh_indexer_password
+  })
 }
 
 resource "local_file" "opensearch_config" {
@@ -255,6 +263,7 @@ resource "local_file" "compose" {
     certs_dir                  = local.dirs.certs
     secrets_dir                = local.dirs.secrets
     observer_dir               = local.dirs.observer
+    wazuh_logs_dir             = local.dirs.wazuh_logs
     indexer_data_dir           = local.dirs.indexer_data
     ossec_config_file          = local_file.ossec_config.filename
     ossec_local_config_file    = local_file.ossec_local_config.filename
@@ -287,11 +296,13 @@ resource "null_resource" "deploy" {
   ]
 
   triggers = {
-    compose_hash = local_file.compose.content
-    agent_hash   = local_file.agent_config.content
-    observer     = local_file.observer_script.content
-    compose_file = "${var.deploy_dir}/compose.yml"
-    project_name = var.compose_project_name
+    compose_hash  = local_file.compose.content
+    agent_hash    = local_file.agent_config.content
+    observer      = local_file.observer_script.content
+    ossec_conf    = local_file.ossec_config.content
+    ossec_local   = local_file.ossec_local_config.content
+    compose_file  = "${var.deploy_dir}/compose.yml"
+    project_name  = var.compose_project_name
   }
 
   provisioner "local-exec" {

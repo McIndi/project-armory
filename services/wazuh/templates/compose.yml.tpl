@@ -45,7 +45,7 @@ services:
       vault-agent:
         condition: service_healthy
       wazuh-indexer:
-        condition: service_started
+        condition: service_healthy
 
     ports:
       - "${host_ip}:${wazuh_api_port}:55000"
@@ -65,6 +65,7 @@ services:
       - ${ca_bundle_file}:/vault/ca-bundle.pem:ro,z
       - ${ossec_config_file}:/wazuh-config-mount/etc/ossec.conf:ro,z
       - ${ossec_local_config_file}:/wazuh-config-mount/etc/ossec.local.conf:ro,z
+      - ${wazuh_logs_dir}:/var/ossec/logs:z
       - ${observer_dir}/armory-observer.log:/var/ossec/logs/armory-observer.log:z
       - ${vault_audit_log_path}:/armory/vault/logs/audit.log:ro,z
 
@@ -79,6 +80,13 @@ services:
     depends_on:
       vault-agent:
         condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -k -w '%%{http_code}' https://127.0.0.1:9200 2>/dev/null | grep -qv '^000'"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
 
     environment:
       OPENSEARCH_JAVA_OPTS: "${indexer_java_opts}"
