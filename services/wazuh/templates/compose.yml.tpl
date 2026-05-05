@@ -55,6 +55,8 @@ services:
 
     environment:
       INDEXER_URL: "https://wazuh-indexer.armory.internal:9200"
+      INDEXER_USERNAME: "${wazuh_indexer_username}"
+      INDEXER_PASSWORD: "${wazuh_indexer_password}"
       SSL_CERTIFICATE_AUTHORITIES: "/vault/ca-bundle.pem"
       SSL_CERTIFICATE: "/vault/certs/manager.pem"
       SSL_KEY: "/vault/certs/manager.pem"

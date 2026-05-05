@@ -199,10 +199,7 @@ resource "local_file" "ossec_config" {
   depends_on      = [null_resource.create_dirs]
   filename        = "${local.dirs.config}/ossec.conf"
   file_permission = "0644"
-  content = templatefile("${path.module}/templates/ossec.conf", {
-    indexer_username = var.wazuh_indexer_username
-    indexer_password = var.wazuh_indexer_password
-  })
+  content         = file("${path.module}/templates/ossec.conf")
 }
 
 resource "local_file" "opensearch_config" {
@@ -250,6 +247,8 @@ resource "local_file" "compose" {
     keycloak_realm             = var.keycloak_realm
     keycloak_oidc_client_id    = var.keycloak_oidc_client_id
     required_group             = var.required_group
+    wazuh_indexer_username     = var.wazuh_indexer_username
+    wazuh_indexer_password     = var.wazuh_indexer_password
     host_ip                    = var.host_ip
     wazuh_api_port             = var.wazuh_api_port
     wazuh_auth_proxy_port      = var.wazuh_auth_proxy_port
