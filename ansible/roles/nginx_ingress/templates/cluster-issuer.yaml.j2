@@ -1,0 +1,15 @@
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: openbao-pki
+spec:
+  vault:
+    server: {{ nginx_openbao_cluster_addr }}
+    path: {{ nginx_openbao_pki_mount }}/sign/{{ nginx_openbao_pki_cert_role }}
+    auth:
+      kubernetes:
+        role: {{ nginx_openbao_certmanager_k8s_role }}
+        mountPath: /v1/auth/kubernetes
+        serviceAccountRef:
+          name: {{ certmanager_release_name }}

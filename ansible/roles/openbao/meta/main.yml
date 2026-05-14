@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: openbao
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Deploy and configure OpenBao, including PKI and BeeAI credential provisioning."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - openbao
+    - vault
+    - secrets
+    - pki
+dependencies: []

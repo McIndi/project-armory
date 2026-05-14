@@ -1,0 +1,31 @@
+---
+- name: Register ingress namespaces for teardown checks
+  ansible.builtin.set_fact:
+    teardown_role_target_namespaces: >-
+      {{
+        (teardown_role_target_namespaces | default([]))
+        + [nginx_ingress_namespace, certmanager_namespace]
+        | unique
+      }}
+
+- name: Check if ingress stack OpenTofu state exists
+  ansible.builtin.stat:
+    path: "{{ nginx_tofu_work_dir }}/.terraform"
+  register: _nginx_tofu_state
+
+- name: Destroy cert-manager and ingress-nginx via OpenTofu
+  ansible.builtin.command:
+    cmd: tofu destroy -auto-approve -input=false
+    chdir: "{{ nginx_tofu_work_dir }}"
+  register: _nginx_tofu_destroy
+  changed_when: false
+  failed_when: false
+  when: _nginx_tofu_state.stat.exists | default(false)
+
+- name: Debug ingress stack OpenTofu destroy task
+  ansible.builtin.debug:
+    msg:
+      - "Role teardown: nginx_ingress"
+      - "OpenTofu state present: {{ _nginx_tofu_state.stat.exists | default(false) }}"
+      - "OpenTofu destroy rc: {{ _nginx_tofu_destroy.rc | default('skipped') }}"
+  when: (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool

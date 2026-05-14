@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: system_update
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Apply Fedora system package updates via dnf."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - system
+    - updates
+    - dnf
+    - fedora
+dependencies: []

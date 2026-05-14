@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: helm
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Install and validate Helm on Fedora hosts."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - helm
+    - kubernetes
+    - packages
+    - fedora
+dependencies: []

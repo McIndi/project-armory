@@ -1,0 +1,90 @@
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    helm = {
+      source  = "hashicorp/helm"
+      version = ">= 2.12.1"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.24.0"
+    }
+  }
+}
+
+provider "kubernetes" {
+  config_path = var.kubeconfig_path
+}
+
+provider "helm" {
+  kubernetes = {
+    config_path = var.kubeconfig_path
+  }
+}
+
+variable "kubeconfig_path" {
+  type = string
+}
+
+variable "release_name" {
+  type = string
+}
+
+variable "namespace" {
+  type = string
+}
+
+variable "create_namespace" {
+  type = bool
+}
+
+variable "chart_repository" {
+  type = string
+}
+
+variable "chart_name" {
+  type = string
+}
+
+variable "chart_version" {
+  type = string
+}
+
+variable "timeout_seconds" {
+  type = number
+}
+
+variable "wait_for_resources" {
+  type = bool
+}
+
+variable "atomic_install" {
+  type = bool
+}
+
+variable "cleanup_on_fail" {
+  type = bool
+}
+
+variable "chart_values" {
+  type = any
+}
+
+resource "helm_release" "beeai_agentstack" {
+  name             = var.release_name
+  namespace        = var.namespace
+  create_namespace = var.create_namespace
+
+  repository = var.chart_repository
+  chart      = var.chart_name
+  version    = var.chart_version != "" ? var.chart_version : null
+
+  timeout         = var.timeout_seconds
+  wait            = var.wait_for_resources
+  atomic          = var.atomic_install
+  cleanup_on_fail = var.cleanup_on_fail
+  upgrade_install = true
+
+  values = [yamlencode(var.chart_values)]
+}

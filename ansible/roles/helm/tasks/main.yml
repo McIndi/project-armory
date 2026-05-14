@@ -1,0 +1,69 @@
+---
+- name: Resolve ARMORY_BUILD_DEBUG flag
+  ansible.builtin.set_fact:
+    armory_build_debug: "{{ (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool }}"
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Debug logging controls for helm role
+  ansible.builtin.debug:
+    msg:
+      - "Role: helm"
+      - "ARMORY_BUILD_DEBUG: {{ armory_build_debug | default(false) | bool }}"
+      - "ARMORY_LOG_NOLOG: {{ armory_log_nolog | default(false) | bool }}"
+      - "Sensitive task redaction enabled: {{ not (armory_log_nolog | default(false) | bool) }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Install and validate Helm with diagnostics
+  block:
+    - name: Ensure Helm is installed
+      tags:
+        - helm
+        - helm_install
+      ansible.builtin.dnf:
+        name: "{{ helm_package_name }}"
+        state: "{{ helm_package_state }}"
+      register: _helm_install_result
+
+    - name: Debug Helm install task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure Helm is installed"
+          - "Requested package/state: {{ helm_package_name }} / {{ helm_package_state }}"
+          - "Task changed: {{ _helm_install_result.changed | default(false) }}"
+          - "Task failed: {{ _helm_install_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Check Helm version
+      tags:
+        - helm
+        - helm_install
+      ansible.builtin.command: helm version --short
+      register: helm_version_result
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug Helm version task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Check Helm version"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Helm version: {{ helm_version_result.stdout | default('not collected') }}"
+          - "Exit code: {{ helm_version_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug Helm flow failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: helm"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail Helm flow with context
+      ansible.builtin.fail:
+        msg: >-
+          helm role failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

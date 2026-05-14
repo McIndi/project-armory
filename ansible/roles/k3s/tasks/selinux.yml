@@ -1,0 +1,53 @@
+---
+# python3-libselinux is required by the ansible.posix.selinux module.
+- name: Configure SELinux prerequisites with diagnostics
+  block:
+    - name: Ensure SELinux Python bindings are installed
+      ansible.builtin.dnf:
+        name:
+          - python3-libselinux
+          - container-selinux
+        state: present
+      register: _k3s_selinux_packages_result
+
+    - name: Debug SELinux package install task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure SELinux Python bindings are installed"
+          - "Task changed: {{ _k3s_selinux_packages_result.changed | default(false) }}"
+          - "Task failed: {{ _k3s_selinux_packages_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Ensure SELinux is enforcing
+      ansible.posix.selinux:
+        policy: targeted
+        state: enforcing
+      register: _k3s_selinux_state_result
+
+    - name: Debug SELinux enforcing task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure SELinux is enforcing"
+          - "Task changed: {{ _k3s_selinux_state_result.changed | default(false) }}"
+          - "Task failed: {{ _k3s_selinux_state_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug k3s SELinux failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: k3s (selinux.yml)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail k3s SELinux flow with context
+      ansible.builtin.fail:
+        msg: >-
+          k3s SELinux flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

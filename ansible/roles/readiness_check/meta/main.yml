@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: "Armory Project"
+  license: MIT
+  min_ansible_version: "2.9"
+  description: "Validate environment health and readiness after infrastructure deployment"
+  platforms:
+    - name: Fedora
+      versions:
+        - "all"
+
+dependencies: []

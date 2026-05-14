@@ -1,0 +1,67 @@
+---
+# readiness_check role: environment validation defaults
+
+# Component check toggles (enable/disable specific validators)
+readiness_check_host_enabled: true
+readiness_check_k3s_enabled: true
+readiness_check_helm_enabled: true
+readiness_check_openbao_enabled: true
+readiness_check_vso_enabled: true
+readiness_check_nginx_enabled: true
+readiness_check_beeai_enabled: true
+
+# Network connectivity defaults
+readiness_check_connect_timeout: 5
+readiness_check_connect_retries: 2
+
+# TLS/HTTPS validation. Set to false (default) because the ingress uses a
+# self-signed CA; the readiness check verifies connectivity, not CA trust chain.
+readiness_check_validate_tls: false
+readiness_check_insecure_skip_verify: false
+
+# Host checks
+readiness_check_required_packages:
+  - k3s
+  - helm
+  - opentofu
+
+# k3s / Kubernetes settings
+readiness_check_k3s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+# OpenBao / Vault settings
+readiness_check_openbao_addr: http://127.0.0.1:32200
+readiness_check_openbao_health_endpoint: /v1/sys/health
+readiness_check_openbao_api_timeout: 10
+
+# VSO / Vault Secrets Operator settings
+readiness_check_vso_namespace: vault-secrets-operator-system
+readiness_check_vso_deployment_name: vault-secrets-operator-controller-manager
+
+# nginx ingress settings
+readiness_check_nginx_namespace: ingress-nginx
+readiness_check_nginx_controller_label: "app.kubernetes.io/name=ingress-nginx"
+
+# BeeAI / Agent Stack settings
+readiness_check_beeai_namespace: agentstack
+readiness_check_beeai_url: "https://armory.local"
+readiness_check_beeai_readiness_timeout: 30
+readiness_check_beeai_nodeport_url: "https://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:30443"
+readiness_check_beeai_host_header: "armory.local"
+
+# Credential validation: attempt to use credentials to verify they work
+# Set to false to skip credential tests (only check file/secret existence)
+readiness_check_validate_credentials: false
+
+# Overall role behavior: fail at end with aggregated results?
+readiness_check_fail_on_issues: true
+
+# Role tags
+readiness_check_default_tags:
+  - readiness
+  - readiness_check
+  - post_deploy
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

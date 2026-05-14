@@ -1,0 +1,13 @@
+---
+# Name of the environment variable that must be exported before running Ansible.
+# Default matches the project .env sentinel variable.
+env_guard_sentry_var_name: ARMORY_ENV_SOURCED
+
+# Expected value for the sentinel variable.
+# Change this only if .env.example uses a different sentinel string.
+env_guard_expected_value: armory2-env-loaded-v1
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

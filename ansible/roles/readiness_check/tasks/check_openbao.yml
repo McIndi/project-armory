@@ -1,0 +1,79 @@
+---
+# readiness_check/tasks/check_openbao.yml
+# Validate OpenBao connectivity, health, and unsealed status
+
+- name: Resolve OpenBao API address from environment
+  ansible.builtin.set_fact:
+    _rc_openbao_addr: "{{ lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true) }}"
+    _rc_openbao_port: "{{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true)).split(':')[-1].split('/')[0] | int }}"
+  changed_when: false
+
+- name: Check OpenBao TCP port reachable
+  ansible.builtin.wait_for:
+    host: "{{ _rc_openbao_addr.split('://')[1].split(':')[0] }}"
+    port: "{{ _rc_openbao_port }}"
+    timeout: "{{ readiness_check_connect_timeout }}"
+    state: started
+  register: _rc_openbao_tcp
+  changed_when: false
+  failed_when: false
+
+- name: Add OpenBao TCP check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'TCP port ' + (_rc_openbao_port | string) + ' reachable',
+        'status': 'pass' if _rc_openbao_tcp is not failed else 'fail',
+        'detail': 'port open',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check OpenBao health endpoint
+  ansible.builtin.uri:
+    url: "{{ _rc_openbao_addr }}{{ readiness_check_openbao_health_endpoint }}"
+    method: GET
+    validate_certs: false
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 429, 473, 501, 503]
+  register: _rc_openbao_health
+  changed_when: false
+  failed_when: false
+
+- name: Add OpenBao health check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'Health endpoint responding',
+        'status': 'pass' if _rc_openbao_health.status in [200, 429, 473, 501, 503] else 'fail',
+        'detail': 'HTTP ' + (_rc_openbao_health.status | string) if _rc_openbao_health.status is defined else 'no response',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check OpenBao sealed status
+  ansible.builtin.set_fact:
+    _rc_openbao_sealed: "{{ _rc_openbao_health.json.sealed | default(true) }}"
+  changed_when: false
+  when: _rc_openbao_health.status in [200, 473]
+
+- name: Add OpenBao sealed check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'OpenBao unsealed',
+        'status': 'pass' if _rc_openbao_sealed is defined and not (_rc_openbao_sealed | bool) else 'fail',
+        'detail': 'unsealed' if (_rc_openbao_sealed is defined and not (_rc_openbao_sealed | bool)) else 'sealed',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Debug OpenBao checks
+  ansible.builtin.debug:
+    msg:
+      - "OpenBao checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'OpenBao') | list | length }} checks"
+      - "OpenBao address: {{ _rc_openbao_addr }}"
+  when: armory_build_debug | default(false) | bool

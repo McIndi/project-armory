@@ -1,0 +1,19 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: beeai_agentstack_tofu
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Deploy BeeAI Agent Stack with OpenTofu, Helm, OpenBao, and VSO integration."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - agentstack
+    - beeai
+    - opentofu
+    - kubernetes
+    - helm
+dependencies: []

@@ -1,0 +1,104 @@
+---
+- name: Resolve ARMORY_BUILD_DEBUG flag
+  ansible.builtin.set_fact:
+    armory_build_debug: "{{ (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool }}"
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Debug logging controls for opentofu role
+  ansible.builtin.debug:
+    msg:
+      - "Role: opentofu"
+      - "ARMORY_BUILD_DEBUG: {{ armory_build_debug | default(false) | bool }}"
+      - "ARMORY_LOG_NOLOG: {{ armory_log_nolog | default(false) | bool }}"
+      - "Sensitive task redaction enabled: {{ not (armory_log_nolog | default(false) | bool) }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Install and validate OpenTofu with diagnostics
+  tags:
+    - opentofu
+    - tofu_install
+  block:
+    - name: Install OpenTofu package
+      ansible.builtin.dnf:
+        name: "{{ opentofu_package_name }}"
+        state: "{{ opentofu_package_state }}"
+        update_cache: true
+      register: _opentofu_install_result
+
+    - name: Debug OpenTofu package install task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Install OpenTofu package"
+          - "Requested package/state: {{ opentofu_package_name }} / {{ opentofu_package_state }}"
+          - "Task changed: {{ _opentofu_install_result.changed | default(false) }}"
+          - "Task failed: {{ _opentofu_install_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Clean DNF caches after package verification failure
+      ansible.builtin.command: dnf clean all
+      register: _opentofu_clean_cache
+      changed_when: false
+      failed_when: false
+
+    - name: Debug dnf clean task for OpenTofu recovery
+      ansible.builtin.debug:
+        msg:
+          - "Task: Clean DNF caches after package verification failure"
+          - "Exit code: {{ _opentofu_clean_cache.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Remove cached OpenTofu RPM artifacts
+      ansible.builtin.command:
+        argv:
+          - find
+          - /var/cache/libdnf5
+          - -type
+          - f
+          - -name
+          - opentofu-*.rpm
+          - -delete
+      register: _opentofu_remove_cached_rpms
+      changed_when: false
+      failed_when: false
+
+    - name: Debug cached RPM cleanup task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Remove cached OpenTofu RPM artifacts"
+          - "Exit code: {{ _opentofu_remove_cached_rpms.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Retry OpenTofu package installation
+      ansible.builtin.dnf:
+        name: "{{ opentofu_package_name }}"
+        state: "{{ opentofu_package_state }}"
+        update_cache: true
+      register: _opentofu_retry_install_result
+
+    - name: Debug OpenTofu retry install task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Retry OpenTofu package installation"
+          - "Task changed: {{ _opentofu_retry_install_result.changed | default(false) }}"
+          - "Task failed: {{ _opentofu_retry_install_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+- name: Check OpenTofu version
+  tags:
+    - opentofu
+    - tofu_install
+  ansible.builtin.command: tofu version
+  register: opentofu_version_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Debug OpenTofu version task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Check OpenTofu version"
+      - "Executed: {{ not ansible_check_mode }}"
+      - "OpenTofu version: {{ opentofu_version_result.stdout | default('not collected') }}"
+      - "Exit code: {{ opentofu_version_result.rc | default('n/a') }}"
+  when: armory_build_debug | default(false) | bool

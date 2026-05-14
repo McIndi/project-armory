@@ -1,0 +1,265 @@
+---
+- name: Render OpenTofu configuration for OpenBao Helm release
+  ansible.builtin.template:
+    src: main.tf.j2
+    dest: "{{ openbao_work_dir }}/main.tf"
+    mode: "0644"
+  register: _openbao_main_tf_result
+
+- name: Debug OpenBao OpenTofu configuration render task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Render OpenTofu configuration for OpenBao Helm release"
+      - "File: {{ openbao_work_dir }}/main.tf"
+      - "Task changed: {{ _openbao_main_tf_result.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Render OpenBao Helm values
+  ansible.builtin.template:
+    src: values.yaml.j2
+    dest: "{{ openbao_work_dir }}/values.yaml"
+    mode: "0644"
+  register: _openbao_values_rendered
+
+- name: Debug OpenBao values render task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Render OpenBao Helm values"
+      - "File: {{ openbao_work_dir }}/values.yaml"
+      - "Task changed: {{ _openbao_values_rendered.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Render OpenTofu variables file for OpenBao
+  ansible.builtin.copy:
+    dest: "{{ openbao_work_dir }}/terraform.tfvars.json"
+    mode: "0600"
+    content: |
+      {{ {
+        "kubeconfig_path": "/etc/rancher/k3s/k3s.yaml",
+        "release_name": openbao_release_name,
+        "namespace": openbao_namespace,
+        "chart_repository": openbao_chart_repo,
+        "chart_name": openbao_chart_name,
+        "chart_version": openbao_chart_version,
+        "values_file_path": openbao_work_dir ~ "/values.yaml"
+      } | to_nice_json }}
+  register: _openbao_tfvars_result
+
+- name: Debug OpenBao tfvars render task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Render OpenTofu variables file for OpenBao"
+      - "File: {{ openbao_work_dir }}/terraform.tfvars.json"
+      - "Task changed: {{ _openbao_tfvars_result.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Initialize OpenTofu in OpenBao working directory
+  ansible.builtin.command:
+    cmd: tofu init -input=false
+    chdir: "{{ openbao_work_dir }}"
+  register: _openbao_tofu_init_result
+  changed_when: "'Terraform has been successfully initialized' in _openbao_tofu_init_result.stdout"
+  when: not ansible_check_mode
+
+- name: Debug OpenBao OpenTofu init task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Initialize OpenTofu in OpenBao working directory"
+      - "Executed: {{ not ansible_check_mode }}"
+      - "Task changed: {{ _openbao_tofu_init_result.changed | default(false) }}"
+      - "Exit code: {{ _openbao_tofu_init_result.rc | default('n/a') }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Deploy OpenBao via OpenTofu helm provider
+  ansible.builtin.command:
+    cmd: tofu apply -auto-approve -input=false
+    chdir: "{{ openbao_work_dir }}"
+  register: _openbao_tofu_apply_result
+  changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _openbao_tofu_apply_result.stdout"
+  when: not ansible_check_mode
+
+- name: Debug OpenBao OpenTofu apply task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Deploy OpenBao via OpenTofu helm provider"
+      - "Executed: {{ not ansible_check_mode }}"
+      - "Release/namespace: {{ openbao_release_name }}/{{ openbao_namespace }}"
+      - "Task changed: {{ _openbao_tofu_apply_result.changed | default(false) }}"
+      - "Exit code: {{ _openbao_tofu_apply_result.rc | default('n/a') }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Create ClusterRoleBinding for OpenBao SA (token review)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl create clusterrolebinding openbao-tokenreview
+      --clusterrole=system:auth-delegator
+      --serviceaccount={{ openbao_namespace }}:openbao
+      --dry-run=client -o yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_crb_yaml
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Debug OpenBao ClusterRoleBinding generation task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Create ClusterRoleBinding for OpenBao SA"
+      - "Executed: {{ not ansible_check_mode }}"
+      - "Exit code: {{ _openbao_crb_yaml.rc | default('n/a') }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Apply ClusterRoleBinding for OpenBao SA
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl apply -f -
+    stdin: "{{ _openbao_crb_yaml.stdout }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_crb_apply
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Debug OpenBao ClusterRoleBinding apply task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Apply ClusterRoleBinding for OpenBao SA"
+      - "Executed: {{ not ansible_check_mode }}"
+      - "Exit code: {{ _openbao_crb_apply.rc | default('n/a') }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Wait for OpenBao pod to be ready
+  block:
+    - name: Wait for OpenBao pod to be created
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get pod
+          --selector app.kubernetes.io/name=openbao
+          --namespace {{ openbao_namespace }}
+          -o name
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _openbao_pod_names
+      changed_when: false
+      until: (_openbao_pod_names.stdout | trim) != ''
+      retries: 60
+      delay: 5
+
+    - name: Debug OpenBao pod creation wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for OpenBao pod to be created"
+          - "Pod selector output length: {{ (_openbao_pod_names.stdout | default('') | length) }}"
+          - "Exit code: {{ _openbao_pod_names.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for OpenBao pod phase Running
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait pod
+          --for=jsonpath='{.status.phase}'=Running
+          --selector app.kubernetes.io/name=openbao
+          --namespace {{ openbao_namespace }}
+          --timeout={{ openbao_startup_wait_timeout }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _openbao_wait_running
+      changed_when: false
+
+    - name: Debug OpenBao pod running wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for OpenBao pod phase Running"
+          - "Exit code: {{ _openbao_wait_running.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for OpenBao API to respond before init
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/seal-status"
+        method: GET
+        status_code: [200, 429, 472, 473, 501, 503]
+      register: _openbao_api_preinit_status
+      until: _openbao_api_preinit_status.status in [200, 429, 472, 473, 501, 503]
+      retries: 60
+      delay: 5
+      changed_when: false
+
+    - name: Debug OpenBao API readiness task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for OpenBao API to respond before init"
+          - "HTTP status: {{ _openbao_api_preinit_status.status | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Capture OpenBao pod details after readiness timeout
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl describe pod
+          --selector app.kubernetes.io/name=openbao
+          --namespace {{ openbao_namespace }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _openbao_pod_describe
+      changed_when: false
+      failed_when: false
+
+    - name: Debug OpenBao pod describe capture task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Capture OpenBao pod details after readiness timeout"
+          - "Exit code: {{ _openbao_pod_describe.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Capture OpenBao logs after readiness timeout
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl logs
+          --selector app.kubernetes.io/name=openbao
+          --namespace {{ openbao_namespace }}
+          --all-containers=true
+          --tail=200
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _openbao_pod_logs
+      changed_when: false
+      failed_when: false
+
+    - name: Debug OpenBao pod log capture task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Capture OpenBao logs after readiness timeout"
+          - "Exit code: {{ _openbao_pod_logs.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail with OpenBao readiness diagnostics
+      ansible.builtin.fail:
+        msg: |
+          OpenBao pod did not become reachable for bootstrap within {{ openbao_startup_wait_timeout }}.
+
+          Pod describe output:
+          {{ _openbao_pod_describe.stdout | default('n/a') }}
+
+          Pod logs (last 200 lines):
+          {{ _openbao_pod_logs.stdout | default('n/a') }}
+  when: not ansible_check_mode
+
+- name: Open OpenBao firewall port
+  ansible.posix.firewalld:
+    zone: "{{ openbao_firewall_zone }}"
+    port: "{{ openbao_node_port }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  register: _openbao_firewall_port_result
+  when: openbao_firewall_manage | bool
+
+- name: Debug OpenBao firewall task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Open OpenBao firewall port"
+      - "Executed: {{ openbao_firewall_manage | bool }}"
+      - "Zone/port: {{ openbao_firewall_zone }} / {{ openbao_node_port }}/tcp"
+      - "Task changed: {{ _openbao_firewall_port_result.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool
+

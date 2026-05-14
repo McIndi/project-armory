@@ -1,0 +1,14 @@
+---
+# OpenTofu package name installed via the OS package manager.
+# Override only if a platform uses a different package name.
+opentofu_package_name: opentofu
+
+# Desired package state.
+# Typical values: present, latest, absent.
+# Default present installs OpenTofu without forcing upgrades each run.
+opentofu_package_state: present
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

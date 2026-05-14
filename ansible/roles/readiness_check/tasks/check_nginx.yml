@@ -1,0 +1,77 @@
+---
+# readiness_check/tasks/check_nginx.yml
+# Validate nginx ingress controller and TLS certificates
+
+- name: Check nginx ingress controller pods running
+  ansible.builtin.command: >-
+    k3s kubectl get pods -n {{ readiness_check_nginx_namespace }}
+    -l {{ readiness_check_nginx_controller_label }}
+    --field-selector=status.phase=Running
+    --no-headers
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_nginx_pods
+  changed_when: false
+  failed_when: false
+
+- name: Add nginx controller pods check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'nginx ingress',
+        'check_name': 'Controller pods running',
+        'status': 'pass' if (_rc_nginx_pods.stdout_lines | length) > 0 else 'fail',
+        'detail': (_rc_nginx_pods.stdout_lines | length | string) + ' pods running',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check ingress rules for BeeAI
+  ansible.builtin.command: >-
+    k3s kubectl get ingress -n agentstack
+    -o jsonpath='{range .items[*]}{range .spec.rules[*]}{.host}{"\n"}{end}{end}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_nginx_ingress_rules
+  changed_when: false
+  failed_when: false
+
+- name: Add ingress rules check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'nginx ingress',
+        'check_name': 'BeeAI ingress rules present',
+        'status': 'pass' if 'armory.local' in (_rc_nginx_ingress_rules.stdout_lines | default([])) else 'warn',
+        'detail': (_rc_nginx_ingress_rules.stdout_lines | select('equalto', 'armory.local') | list | length | string) + ' ingress rules for armory.local',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check TLS secret for BeeAI ingress
+  ansible.builtin.command: >-
+    k3s kubectl get secret -n agentstack
+    -o jsonpath='{range .items[?(@.type=="kubernetes.io/tls")]}{.metadata.name}{"\n"}{end}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_nginx_tls_secrets
+  changed_when: false
+  failed_when: false
+
+- name: Add TLS secrets check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'nginx ingress',
+        'check_name': 'TLS secrets configured',
+        'status': 'pass' if (_rc_nginx_tls_secrets.stdout_lines | length) > 0 else 'warn',
+        'detail': (_rc_nginx_tls_secrets.stdout_lines | length | string) + ' TLS secrets found',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Debug nginx checks
+  ansible.builtin.debug:
+    msg:
+      - "nginx checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'nginx ingress') | list | length }} checks"
+  when: armory_build_debug | default(false) | bool

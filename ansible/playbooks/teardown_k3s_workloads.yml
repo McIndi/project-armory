@@ -1,0 +1,43 @@
+---
+- name: Tear down k3s workload state through OpenTofu-managed releases
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    teardown_confirm: false
+    teardown_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    teardown_keep_namespaces:
+      - default
+      - kube-system
+      - kube-public
+      - kube-node-lease
+      - local-path-storage
+
+  tasks:
+    - name: Require explicit teardown confirmation
+      ansible.builtin.fail:
+        msg: >-
+          Refusing teardown because teardown_confirm is false.
+          Re-run with -e teardown_confirm=true to continue.
+      when: not (teardown_confirm | bool)
+
+    - name: Run BeeAI teardown tasks
+      ansible.builtin.include_role:
+        name: beeai_agentstack_tofu
+        tasks_from: teardown
+
+    - name: Run ingress teardown tasks
+      ansible.builtin.include_role:
+        name: nginx_ingress
+        tasks_from: teardown
+
+    - name: Run OpenBao teardown tasks
+      ansible.builtin.include_role:
+        name: openbao
+        tasks_from: teardown
+
+    - name: Run cluster teardown verification tasks
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: teardown_workloads

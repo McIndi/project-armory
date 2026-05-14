@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: k3s
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Install and configure k3s with SELinux and firewalld settings."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - k3s
+    - kubernetes
+    - selinux
+    - firewall
+dependencies: []

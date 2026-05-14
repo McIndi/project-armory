@@ -1,0 +1,6 @@
+---
+# Fallback path to OpenBao init keys (Ansible-vault encrypted YAML).
+common_openbao_init_keys_file: /opt/openbao/init-keys.yml
+
+# Fallback path to vault password file used to decrypt init keys.
+common_openbao_vault_pass_file: /opt/openbao/.vault-pass

@@ -1,0 +1,47 @@
+---
+- name: Register BeeAI namespaces for teardown checks
+  ansible.builtin.set_fact:
+    teardown_role_target_namespaces: >-
+      {{
+        (teardown_role_target_namespaces | default([]))
+        + [beeai_tofu_namespace, beeai_vso_namespace]
+        | unique
+      }}
+
+- name: Check if BeeAI OpenTofu state exists
+  ansible.builtin.stat:
+    path: "{{ beeai_tofu_work_dir }}/.terraform"
+  register: _beeai_tofu_state
+
+- name: Destroy BeeAI Agent Stack via OpenTofu
+  ansible.builtin.command:
+    cmd: tofu destroy -auto-approve -input=false
+    chdir: "{{ beeai_tofu_work_dir }}"
+  register: _beeai_tofu_destroy
+  changed_when: false
+  failed_when: false
+  when: _beeai_tofu_state.stat.exists | default(false)
+
+- name: Check if VSO OpenTofu state exists
+  ansible.builtin.stat:
+    path: "{{ beeai_vso_tofu_work_dir }}/.terraform"
+  register: _beeai_vso_tofu_state
+
+- name: Destroy Vault Secrets Operator via OpenTofu
+  ansible.builtin.command:
+    cmd: tofu destroy -auto-approve -input=false
+    chdir: "{{ beeai_vso_tofu_work_dir }}"
+  register: _beeai_vso_tofu_destroy
+  changed_when: false
+  failed_when: false
+  when: _beeai_vso_tofu_state.stat.exists | default(false)
+
+- name: Debug BeeAI and VSO OpenTofu destroy tasks
+  ansible.builtin.debug:
+    msg:
+      - "Role teardown: beeai_agentstack_tofu"
+      - "BeeAI OpenTofu state present: {{ _beeai_tofu_state.stat.exists | default(false) }}"
+      - "BeeAI OpenTofu destroy rc: {{ _beeai_tofu_destroy.rc | default('skipped') }}"
+      - "VSO OpenTofu state present: {{ _beeai_vso_tofu_state.stat.exists | default(false) }}"
+      - "VSO OpenTofu destroy rc: {{ _beeai_vso_tofu_destroy.rc | default('skipped') }}"
+  when: (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool

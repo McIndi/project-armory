@@ -1,0 +1,16 @@
+---
+- name: Readiness-only validation for local Fedora VM
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: env_guard
+      tags:
+        - always
+        - env_guard
+        - preflight
+    - role: readiness_check
+      tags:
+        - readiness
+        - readiness_check
+        - post_deploy
+      when: not ansible_check_mode

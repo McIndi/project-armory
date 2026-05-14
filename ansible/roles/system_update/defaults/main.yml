@@ -1,0 +1,18 @@
+---
+# Desired package version policy for system updates.
+# Typical values: latest, present.
+# Default latest applies available updates during the run.
+system_update_package_state: latest
+
+# When true, only update already installed packages.
+# Set false only if you also want new dependencies pulled as needed.
+system_update_update_only: true
+
+# Refresh package metadata before updating.
+# Keep true to avoid stale repository state in long-lived VMs.
+system_update_update_cache: true
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

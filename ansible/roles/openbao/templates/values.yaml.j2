@@ -1,0 +1,38 @@
+# Managed by Ansible — do not edit manually
+server:
+  standalone:
+    enabled: true
+    config: |
+      ui = false
+
+      listener "tcp" {
+        tls_disable     = 1
+        address         = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+
+      storage "file" {
+        path = "/openbao/data"
+      }
+
+  service:
+    enabled: true
+    type: NodePort
+    publishNotReadyAddresses: true
+    port: 8200
+    targetPort: 8200
+    nodePort: {{ openbao_node_port }}
+
+  dataStorage:
+    enabled: true
+    size: 1Gi
+
+  serviceAccount:
+    create: true
+    name: openbao
+
+ui:
+  enabled: false
+
+injector:
+  enabled: false

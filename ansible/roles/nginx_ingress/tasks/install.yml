@@ -1,0 +1,173 @@
+---
+# ── cert-manager ─────────────────────────────────────────────────────────────
+
+- name: Install nginx ingress dependencies with diagnostics
+  block:
+    - name: Ensure nginx ingress OpenTofu working directory exists
+      ansible.builtin.file:
+        path: "{{ nginx_tofu_work_dir }}"
+        state: directory
+        mode: "0755"
+      register: _nginx_tofu_workdir_result
+
+    - name: Debug nginx ingress OpenTofu workdir task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure nginx ingress OpenTofu working directory exists"
+          - "Directory: {{ nginx_tofu_work_dir }}"
+          - "Task changed: {{ _nginx_tofu_workdir_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Render OpenTofu configuration for ingress stack
+      ansible.builtin.template:
+        src: main.tf.j2
+        dest: "{{ nginx_tofu_work_dir }}/main.tf"
+        mode: "0644"
+      register: _nginx_tofu_main_tf_result
+
+    - name: Debug ingress stack OpenTofu configuration render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Render OpenTofu configuration for ingress stack"
+          - "File: {{ nginx_tofu_work_dir }}/main.tf"
+          - "Task changed: {{ _nginx_tofu_main_tf_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Render OpenTofu variables file for ingress stack
+      ansible.builtin.copy:
+        dest: "{{ nginx_tofu_work_dir }}/terraform.tfvars.json"
+        mode: "0600"
+        content: |
+          {{ {
+            "kubeconfig_path": "/etc/rancher/k3s/k3s.yaml",
+            "certmanager_release_name": certmanager_release_name,
+            "certmanager_namespace": certmanager_namespace,
+            "certmanager_chart_repo": certmanager_chart_repo,
+            "certmanager_chart_name": certmanager_chart_name,
+            "certmanager_chart_version": certmanager_chart_version,
+            "certmanager_chart_values": certmanager_tofu_chart_values,
+            "nginx_release_name": nginx_ingress_release_name,
+            "nginx_namespace": nginx_ingress_namespace,
+            "nginx_chart_repo": nginx_ingress_chart_repo,
+            "nginx_chart_name": nginx_ingress_chart_name,
+            "nginx_chart_version": nginx_ingress_chart_version,
+            "nginx_chart_values": nginx_tofu_chart_values
+          } | to_nice_json }}
+      register: _nginx_tofu_tfvars_result
+
+    - name: Debug ingress stack tfvars render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Render OpenTofu variables file for ingress stack"
+          - "File: {{ nginx_tofu_work_dir }}/terraform.tfvars.json"
+          - "Task changed: {{ _nginx_tofu_tfvars_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Initialize OpenTofu in ingress stack working directory
+      ansible.builtin.command:
+        cmd: tofu init -input=false
+        chdir: "{{ nginx_tofu_work_dir }}"
+      register: _nginx_tofu_init_result
+      changed_when: "'Terraform has been successfully initialized' in _nginx_tofu_init_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug ingress stack OpenTofu init task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Initialize OpenTofu in ingress stack working directory"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _nginx_tofu_init_result.changed | default(false) }}"
+          - "Exit code: {{ _nginx_tofu_init_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Deploy cert-manager and ingress-nginx via OpenTofu helm provider
+      ansible.builtin.command:
+        cmd: tofu apply -auto-approve -input=false
+        chdir: "{{ nginx_tofu_work_dir }}"
+      register: _nginx_tofu_apply_result
+      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _nginx_tofu_apply_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug ingress stack OpenTofu apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Deploy cert-manager and ingress-nginx via OpenTofu helm provider"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _nginx_tofu_apply_result.changed | default(false) }}"
+          - "Exit code: {{ _nginx_tofu_apply_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for cert-manager webhook to be ready
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait deployment cert-manager-webhook
+          --for=condition=Available
+          --namespace {{ certmanager_namespace }}
+          --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certmanager_wait_result
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug cert-manager webhook wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for cert-manager webhook to be ready"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _certmanager_wait_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Open HTTP firewall port (80 → NodePort 30080)
+      ansible.posix.firewalld:
+        zone: "{{ nginx_ingress_firewall_zone }}"
+        port: "30080/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+      register: _nginx_http_port_result
+      when: nginx_ingress_firewall_manage | bool
+
+    - name: Debug HTTP firewall task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Open HTTP firewall port (30080/tcp)"
+          - "Executed: {{ nginx_ingress_firewall_manage | bool }}"
+          - "Zone: {{ nginx_ingress_firewall_zone }}"
+          - "Task changed: {{ _nginx_http_port_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Open HTTPS firewall port (443 → NodePort 30443)
+      ansible.posix.firewalld:
+        zone: "{{ nginx_ingress_firewall_zone }}"
+        port: "30443/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+      register: _nginx_https_port_result
+      when: nginx_ingress_firewall_manage | bool
+
+    - name: Debug HTTPS firewall task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Open HTTPS firewall port (30443/tcp)"
+          - "Executed: {{ nginx_ingress_firewall_manage | bool }}"
+          - "Zone: {{ nginx_ingress_firewall_zone }}"
+          - "Task changed: {{ _nginx_https_port_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug nginx install flow failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: nginx_ingress (install.yml)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail nginx install flow with context
+      ansible.builtin.fail:
+        msg: >-
+          nginx_ingress install flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

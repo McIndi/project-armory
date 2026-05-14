@@ -1,0 +1,103 @@
+---
+# Base directory used by this role for generated files and local state.
+openbao_work_dir: /opt/openbao
+
+# File that stores initialization output (unseal keys and root token metadata).
+# Related to openbao_work_dir and consumed by follow-up tasks.
+openbao_init_keys_file: "{{ openbao_work_dir }}/init-keys.yml"
+
+# Vault password file used to encrypt/decrypt local vaulted artifacts.
+openbao_vault_pass_file: "{{ openbao_work_dir }}/.vault-pass"
+
+# Kubernetes namespace where OpenBao is deployed.
+openbao_namespace: openbao
+
+# Helm release name for the OpenBao chart.
+# Keep stable unless you intentionally deploy multiple releases.
+openbao_release_name: openbao
+
+# Helm repository URL containing the OpenBao chart.
+openbao_chart_repo: https://openbao.github.io/openbao-helm
+
+# Chart name in the repository.
+openbao_chart_name: openbao
+
+# Chart version to install.
+# Empty string allows Helm to resolve the latest available version.
+openbao_chart_version: ""
+
+# Timeout for initial pod startup wait checks.
+# Accepts duration strings supported by kubectl/Ansible wait operations.
+openbao_startup_wait_timeout: 300s
+
+# Timeout for readiness checks before init/unseal/configure steps.
+openbao_ready_wait_timeout: 600s
+
+# NodePort used to access OpenBao API from the host VM.
+# Must stay within the cluster NodePort range.
+openbao_node_port: 32200
+
+# API URL used by Ansible tasks running on the VM host.
+# Built from openbao_node_port to keep one source of truth.
+openbao_api_addr: "http://127.0.0.1:{{ openbao_node_port }}"
+
+# In-cluster service URL used by cert-manager, VSO, and application workloads.
+# Must align with service/namespace naming in this role.
+openbao_cluster_addr: "http://openbao.openbao.svc.cluster.local:8200"
+
+# Number of key shares generated during initialization.
+# Must be greater than or equal to openbao_key_threshold.
+openbao_key_shares: 5
+
+# Minimum number of shares required to unseal OpenBao.
+# Must be less than or equal to openbao_key_shares.
+openbao_key_threshold: 3
+
+# Mount path for KV secrets engine (used for application credentials).
+openbao_kv_mount: secret
+
+# Mount path for PKI secrets engine (used for certificate issuance).
+openbao_pki_mount: pki
+
+# Common name for the root certificate authority generated in PKI setup.
+openbao_pki_common_name: "Armory Root CA"
+
+# Root CA validity period.
+# Default 87600h is approximately 10 years.
+openbao_pki_ttl: "87600h"
+
+# Role name used for issuing service/ingress certificates from PKI.
+openbao_pki_cert_role: armory-dot-local
+
+# Allowed DNS domain suffix for issued certificates.
+openbao_pki_allowed_domains: "armory.local"
+
+# Default leaf certificate validity period.
+# Default 8760h is approximately 1 year.
+openbao_pki_cert_ttl: "8760h"
+
+# Namespace where BeeAI workloads run.
+# Must match beeai_tofu_namespace in beeai_agentstack_tofu defaults.
+openbao_beeai_namespace: agentstack
+
+# Service account in BeeAI namespace used for VSO authentication to OpenBao.
+# Must match beeai_openbao_vso_sa_name in beeai_agentstack_tofu defaults.
+openbao_vso_sa_name: beeai-vso
+
+# Namespace where cert-manager runs.
+openbao_certmanager_namespace: cert-manager
+
+# cert-manager service account bound to OpenBao Kubernetes auth role.
+openbao_certmanager_sa_name: cert-manager
+
+# Whether this role manages firewalld rules for OpenBao access.
+# Disable if firewall is managed externally.
+openbao_firewall_manage: true
+
+# firewalld zone used when firewall management is enabled.
+openbao_firewall_zone: public
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

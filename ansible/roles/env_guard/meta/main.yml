@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: env_guard
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Run preflight checks for required environment variables before play execution."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - preflight
+    - validation
+    - environment
+    - ansible
+dependencies: []

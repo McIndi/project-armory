@@ -1,0 +1,38 @@
+---
+- name: Base configuration for local Fedora VM
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: env_guard
+      tags:
+        - always
+        - env_guard
+        - preflight
+    - role: system_update
+      tags:
+        - system_update
+        - dnf_update
+    - role: opentofu
+      tags:
+        - opentofu
+        - tofu_install
+    - role: k3s
+      tags:
+        - k3s
+    - role: openbao
+      tags:
+        - openbao
+    - role: nginx_ingress
+      tags:
+        - nginx_ingress
+    - role: beeai_agentstack_tofu
+      tags:
+        - beeai
+        - beeai_tofu
+        - beeai_install
+    - role: readiness_check
+      tags:
+        - readiness
+        - readiness_check
+        - post_deploy
+      when: not ansible_check_mode

@@ -1,0 +1,158 @@
+---
+# readiness_check/tasks/check_beeai.yml
+# Validate BeeAI Agent Stack pod status, services, and HTTPS connectivity
+
+- name: Check BeeAI namespace exists
+  ansible.builtin.command: >-
+    k3s kubectl get namespace {{ readiness_check_beeai_namespace }}
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_beeai_namespace
+  changed_when: false
+  failed_when: false
+
+- name: Add namespace check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'BeeAI Agent Stack',
+        'check_name': 'Namespace exists',
+        'status': 'pass' if _rc_beeai_namespace.rc == 0 else 'fail',
+        'detail': readiness_check_beeai_namespace,
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check BeeAI pods running
+  ansible.builtin.command: >-
+    k3s kubectl get pods -n {{ readiness_check_beeai_namespace }}
+    --field-selector=status.phase=Running
+    --no-headers
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_beeai_pods
+  changed_when: false
+  failed_when: false
+
+- name: Add BeeAI pods check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'BeeAI Agent Stack',
+        'check_name': 'Pods running',
+        'status': 'pass' if (_rc_beeai_pods.stdout_lines | length) > 3 else 'warn' if (_rc_beeai_pods.stdout_lines | length) > 0 else 'fail',
+        'detail': (_rc_beeai_pods.stdout_lines | length | string) + ' pods running',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check BeeAI services have endpoints
+  ansible.builtin.command: >-
+    k3s kubectl get endpoints -n {{ readiness_check_beeai_namespace }}
+    -o jsonpath='{range .items[?(@.subsets)]}{.metadata.name}{"\n"}{end}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_beeai_endpoints
+  changed_when: false
+  failed_when: false
+
+- name: Add service endpoints check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'BeeAI Agent Stack',
+        'check_name': 'Service endpoints available',
+        'status': 'pass' if (_rc_beeai_endpoints.stdout_lines | length) > 2 else 'warn',
+        'detail': (_rc_beeai_endpoints.stdout_lines | length | string) + ' services with endpoints',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check BeeAI HTTPS connectivity
+  ansible.builtin.uri:
+    url: "{{ readiness_check_beeai_url }}"
+    method: GET
+    validate_certs: "{{ readiness_check_validate_tls }}"
+    timeout: "{{ readiness_check_beeai_readiness_timeout }}"
+    status_code: [200, 301, 302, 401, 403, 502]
+  register: _rc_beeai_https
+  changed_when: false
+  failed_when: false
+  until: _rc_beeai_https.status is defined
+  retries: 5
+  delay: 2
+
+- name: Check BeeAI HTTPS connectivity via ingress NodePort when DNS fails
+  ansible.builtin.uri:
+    url: "https://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:30443"
+    method: GET
+    headers:
+      Host: "{{ readiness_check_beeai_host_header }}"
+    validate_certs: false
+    follow_redirects: none
+    timeout: "{{ readiness_check_beeai_readiness_timeout }}"
+    # 307 is included because nginx redirects armory.local to the app path;
+    # follow_redirects: none stops urllib from chasing the redirect to
+    # armory.local:443 which fails DNS inside the VM.
+    status_code: [200, 301, 302, 307, 401, 403, 502]
+  register: _rc_beeai_https_nodeport
+  changed_when: false
+  failed_when: false
+  when: "'name resolution' in ((_rc_beeai_https.msg | default('')) | lower)"
+
+- name: Add HTTPS connectivity check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'BeeAI Agent Stack',
+        'check_name': 'HTTPS connectivity to ' + readiness_check_beeai_url,
+        'status': 'pass'
+          if (_rc_beeai_https.status | default(-1) in [200, 301, 302, 307, 401, 403])
+          else 'pass'
+          if (_rc_beeai_https_nodeport is defined and (_rc_beeai_https_nodeport.status | default(-1)) in [200, 301, 302, 307, 401, 403])
+          else 'fail'
+          if (_rc_beeai_https.status | default(-1)) == 502
+          or (_rc_beeai_https_nodeport is defined and (_rc_beeai_https_nodeport.status | default(-1)) == 502)
+          else 'warn'
+          if ('name resolution' in ((_rc_beeai_https.msg | default('')) | lower))
+          else 'fail',
+        'detail': 'HTTP ' + ((_rc_beeai_https_nodeport.status | default(-1)) | string) + ' via nodeport fallback'
+          if ('name resolution' in ((_rc_beeai_https.msg | default('')) | lower)) and (_rc_beeai_https_nodeport is defined)
+          else 'HTTP ' + ((_rc_beeai_https.status | default(-1)) | string),
+        'error': (_rc_beeai_https.msg | default('')) + ' | nodeport fallback HTTP ' + ((_rc_beeai_https_nodeport.status | default(-1)) | string)
+          if ('name resolution' in ((_rc_beeai_https.msg | default('')) | lower)) and (_rc_beeai_https_nodeport is defined)
+          and (_rc_beeai_https_nodeport.status | default(-1)) not in [200, 301, 302, 307, 401, 403]
+          else (_rc_beeai_https.msg | default(''))
+          if (_rc_beeai_https.status | default(-1)) not in [200, 301, 302, 307, 401, 403]
+          else ''
+      }] }}
+  changed_when: false
+
+- name: Check BeeAI credentials secret exists
+  ansible.builtin.command: >-
+    k3s kubectl get secret beeai-credentials
+    -n {{ readiness_check_beeai_namespace }}
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_beeai_creds_secret
+  changed_when: false
+  failed_when: false
+
+- name: Add credentials secret check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'BeeAI Agent Stack',
+        'check_name': 'Credentials secret synced',
+        'status': 'pass' if _rc_beeai_creds_secret.rc == 0 else 'warn',
+        'detail': 'beeai-credentials present' if _rc_beeai_creds_secret.rc == 0 else 'not yet synced',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Debug BeeAI checks
+  ansible.builtin.debug:
+    msg:
+      - "BeeAI checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'BeeAI Agent Stack') | list | length }} checks"
+      - "BeeAI URL: {{ readiness_check_beeai_url }}"
+  when: armory_build_debug | default(false) | bool

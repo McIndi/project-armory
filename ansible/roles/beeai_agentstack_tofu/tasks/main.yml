@@ -1,0 +1,1640 @@
+---
+- name: Resolve ARMORY_BUILD_DEBUG flag
+  ansible.builtin.set_fact:
+    armory_build_debug: "{{ (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool }}"
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Debug logging controls for beeai role
+  ansible.builtin.debug:
+    msg:
+      - "Role: beeai_agentstack_tofu"
+      - "ARMORY_BUILD_DEBUG: {{ armory_build_debug | default(false) | bool }}"
+      - "ARMORY_LOG_NOLOG: {{ armory_log_nolog | default(false) | bool }}"
+      - "Sensitive task redaction enabled: {{ not (armory_log_nolog | default(false) | bool) }}"
+  when: armory_build_debug | default(false) | bool
+
+# ── Vault Secrets Operator (VSO) ─────────────────────────────────────────────
+
+- name: Configure Vault Secrets Operator with diagnostics
+  tags: [beeai, beeai_tofu, beeai_install, beeai_vso]
+  block:
+    - name: Ensure VSO OpenTofu working directory exists
+      ansible.builtin.file:
+        path: "{{ beeai_vso_tofu_work_dir }}"
+        state: directory
+        mode: "0755"
+      register: _beeai_vso_work_dir_result
+
+    - name: Debug VSO work directory task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure VSO OpenTofu working directory exists"
+          - "Directory: {{ beeai_vso_tofu_work_dir }}"
+          - "Task changed: {{ _beeai_vso_work_dir_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Render OpenTofu configuration for Vault Secrets Operator
+      ansible.builtin.template:
+        src: vso_main.tf.j2
+        dest: "{{ beeai_vso_tofu_work_dir }}/main.tf"
+        mode: "0644"
+      register: _beeai_vso_main_tf_result
+
+    - name: Debug VSO OpenTofu configuration render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Render OpenTofu configuration for Vault Secrets Operator"
+          - "File: {{ beeai_vso_tofu_work_dir }}/main.tf"
+          - "Task changed: {{ _beeai_vso_main_tf_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Render OpenTofu variables file for Vault Secrets Operator
+      ansible.builtin.copy:
+        dest: "{{ beeai_vso_tofu_work_dir }}/terraform.tfvars.json"
+        mode: "0600"
+        content: |
+          {{ {
+            "kubeconfig_path": beeai_tofu_kubeconfig_path,
+            "release_name": beeai_vso_release_name,
+            "namespace": beeai_vso_namespace,
+            "chart_repository": beeai_vso_chart_repo,
+            "chart_name": beeai_vso_chart_name,
+            "chart_version": beeai_vso_chart_version,
+            "chart_values": {
+              "defaultVaultConnection": {
+                "enabled": true,
+                "address": beeai_openbao_cluster_addr,
+                "skipTLSVerify": false
+              }
+            }
+          } | to_nice_json }}
+      register: _beeai_vso_tfvars_result
+
+    - name: Debug VSO tfvars render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Render OpenTofu variables file for Vault Secrets Operator"
+          - "File: {{ beeai_vso_tofu_work_dir }}/terraform.tfvars.json"
+          - "Task changed: {{ _beeai_vso_tfvars_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Initialize OpenTofu in VSO working directory
+      ansible.builtin.command:
+        cmd: tofu init -input=false
+        chdir: "{{ beeai_vso_tofu_work_dir }}"
+      register: _beeai_vso_tofu_init_result
+      changed_when: "'Terraform has been successfully initialized' in _beeai_vso_tofu_init_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug VSO OpenTofu init task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Initialize OpenTofu in VSO working directory"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_vso_tofu_init_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_vso_tofu_init_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Deploy Vault Secrets Operator via OpenTofu helm provider
+      ansible.builtin.command:
+        cmd: tofu apply -auto-approve -input=false
+        chdir: "{{ beeai_vso_tofu_work_dir }}"
+      register: _beeai_vso_tofu_apply_result
+      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _beeai_vso_tofu_apply_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug VSO OpenTofu apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Deploy Vault Secrets Operator via OpenTofu helm provider"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Release/namespace: {{ beeai_vso_release_name }}/{{ beeai_vso_namespace }}"
+          - "Task changed: {{ _beeai_vso_tofu_apply_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_vso_tofu_apply_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug VSO flow failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (VSO section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail VSO flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI VSO section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+# ── Firewall ──────────────────────────────────────────────────────────────────
+
+- name: Configure BeeAI firewall with diagnostics
+  tags:
+    - beeai
+    - beeai_tofu
+    - beeai_install
+    - beeai_firewall
+  block:
+    - name: Ensure firewalld is installed for BeeAI firewall management
+      ansible.builtin.dnf:
+        name:
+          - firewalld
+          - python3-firewall
+        state: present
+      register: _beeai_firewalld_packages_result
+      when: beeai_firewall_manage | bool
+
+    - name: Debug BeeAI firewalld package task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure firewalld is installed for BeeAI firewall management"
+          - "Executed: {{ beeai_firewall_manage | bool }}"
+          - "Task changed: {{ _beeai_firewalld_packages_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Ensure firewalld is running for BeeAI firewall management
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
+      register: _beeai_firewalld_service_result
+      when: beeai_firewall_manage | bool
+
+    - name: Debug BeeAI firewalld service task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure firewalld is running for BeeAI firewall management"
+          - "Executed: {{ beeai_firewall_manage | bool }}"
+          - "Task changed: {{ _beeai_firewalld_service_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Open BeeAI Agent Stack firewall ports
+      ansible.posix.firewalld:
+        zone: "{{ beeai_firewall_zone }}"
+        port: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop: "{{ beeai_firewall_ports }}"
+      register: _beeai_firewall_ports_result
+      when: beeai_firewall_manage | bool
+
+    - name: Debug BeeAI firewall ports task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Open BeeAI Agent Stack firewall ports"
+          - "Executed: {{ beeai_firewall_manage | bool }}"
+          - "Zone: {{ beeai_firewall_zone }}"
+          - "Ports configured: {{ beeai_firewall_ports | join(', ') if (beeai_firewall_ports | length > 0) else 'none' }}"
+          - "Result records: {{ (_beeai_firewall_ports_result.results | default([])) | length }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug BeeAI firewall flow failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (firewall section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail BeeAI firewall flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI firewall section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+# ── agentstack namespace + VSO service account ────────────────────────────────
+
+- name: Prepare namespace and VSO sync resources with diagnostics
+  tags: [beeai, beeai_tofu, beeai_install, beeai_vso]
+  block:
+    - name: Ensure agentstack namespace exists
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create namespace {{ beeai_tofu_namespace }}
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_ns_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug namespace manifest generation task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure agentstack namespace exists"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Namespace: {{ beeai_tofu_namespace }}"
+          - "Exit code: {{ _beeai_ns_yaml.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Apply agentstack namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _beeai_ns_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_ns_apply
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug namespace apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply agentstack namespace"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_ns_apply.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Apply VaultConnection and VaultAuth resources
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'vaultconnection.yaml.j2') }}\n---\n{{ lookup('template', 'vaultauth.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vault_auth_result
+      changed_when: >-
+        'configured' in _beeai_vault_auth_result.stdout or
+        'created' in _beeai_vault_auth_result.stdout
+      when: not ansible_check_mode
+
+    - name: Debug VaultConnection and VaultAuth task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply VaultConnection and VaultAuth resources"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_vault_auth_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Apply VaultStaticSecret resources
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'vaultstaticsecrets.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vss_result
+      changed_when: >-
+        'configured' in _beeai_vss_result.stdout or
+        'created' in _beeai_vss_result.stdout
+      when: not ansible_check_mode
+
+    - name: Debug VaultStaticSecret apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply VaultStaticSecret resources"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_vss_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for beeai-credentials secret to be synced by VSO
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_vso_credentials_secret }}
+          --namespace {{ beeai_tofu_namespace }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_creds_secret_check
+      until: _beeai_creds_secret_check.rc == 0
+      retries: 20
+      delay: 6
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug beeai-credentials secret wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for beeai-credentials secret to be synced by VSO"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_creds_secret_check.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for beeai-encryption-key secret to be synced by VSO
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_vso_enckey_secret }}
+          --namespace {{ beeai_tofu_namespace }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_enckey_secret_check
+      until: _beeai_enckey_secret_check.rc == 0
+      retries: 20
+      delay: 6
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug beeai-encryption-key secret wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for beeai-encryption-key secret to be synced by VSO"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_enckey_secret_check.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug namespace/VSO sync failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (namespace and VSO sync section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail namespace/VSO sync flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI namespace/VSO sync section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+# ── Read credentials from VSO-synced k8s Secrets ─────────────────────────────
+
+- name: Read BeeAI secrets from Kubernetes with diagnostics
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Read beeai-credentials from k8s Secret
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_vso_credentials_secret }}
+          --namespace {{ beeai_tofu_namespace }}
+          -o json
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_k8s_creds_raw
+      changed_when: false
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug beeai-credentials read task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Read beeai-credentials from k8s Secret"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_k8s_creds_raw.rc | default('n/a') }}"
+          - "Payload captured: {{ (_beeai_k8s_creds_raw.stdout | default('') | length) > 0 }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Set BeeAI admin password fact from k8s Secret
+      ansible.builtin.set_fact:
+        beeai_admin_password: >-
+          {{ (_beeai_k8s_creds_raw.stdout | from_json).data.admin_password | b64decode }}
+        beeai_pg_admin_password: >-
+          {{ (_beeai_k8s_creds_raw.stdout | from_json).data.pg_admin_password | b64decode }}
+        beeai_pg_user_password: >-
+          {{ (_beeai_k8s_creds_raw.stdout | from_json).data.pg_user_password | b64decode }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI credential fact load task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Set BeeAI admin password fact from k8s Secret"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Admin password loaded: {{ beeai_admin_password is defined }}"
+          - "PostgreSQL passwords loaded: {{ (beeai_pg_admin_password is defined) and (beeai_pg_user_password is defined) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Read beeai-encryption-key from k8s Secret
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_vso_enckey_secret }}
+          --namespace {{ beeai_tofu_namespace }}
+          -o jsonpath={.data.value}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_enckey_raw
+      changed_when: false
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI encryption key read task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Read beeai-encryption-key from k8s Secret"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_enckey_raw.rc | default('n/a') }}"
+          - "Payload captured: {{ (_beeai_enckey_raw.stdout | default('') | length) > 0 }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Set BeeAI encryption key fact from k8s Secret
+      ansible.builtin.set_fact:
+        beeai_encryption_key: "{{ _beeai_enckey_raw.stdout | b64decode }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI encryption key fact task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Set BeeAI encryption key fact from k8s Secret"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Encryption key loaded: {{ beeai_encryption_key is defined }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug BeeAI secret read failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (secret read section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail BeeAI secret read flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI secret read section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+# ── OpenTofu / Helm deployment ────────────────────────────────────────────────
+
+- name: Prepare BeeAI OpenTofu deployment inputs with diagnostics
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Ensure BeeAI OpenTofu working directory exists
+      ansible.builtin.file:
+        path: "{{ beeai_tofu_work_dir }}"
+        state: directory
+        mode: "0755"
+      register: _beeai_work_dir_result
+
+    - name: Debug BeeAI work directory task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure BeeAI OpenTofu working directory exists"
+          - "Directory: {{ beeai_tofu_work_dir }}"
+          - "Task changed: {{ _beeai_work_dir_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Render OpenTofu configuration for BeeAI Agent Stack
+      ansible.builtin.template:
+        src: main.tf.j2
+        dest: "{{ beeai_tofu_work_dir }}/main.tf"
+        mode: "0644"
+      register: _beeai_main_tf_result
+
+    - name: Debug OpenTofu configuration render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Render OpenTofu configuration for BeeAI Agent Stack"
+          - "File: {{ beeai_tofu_work_dir }}/main.tf"
+          - "Task changed: {{ _beeai_main_tf_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Build effective BeeAI Helm values
+      ansible.builtin.set_fact:
+        beeai_tofu_effective_chart_values: >-
+          {{
+            beeai_tofu_chart_values
+            | combine(
+                {
+                  'encryptionKey': beeai_encryption_key,
+                  'keycloak': {
+                    'auth': {
+                      'seedAgentstackUsers': [
+                        {
+                          'username': beeai_admin_username,
+                          'password': beeai_admin_password,
+                          'email': beeai_admin_email,
+                          'firstName': beeai_admin_first_name,
+                          'lastName': beeai_admin_last_name,
+                          'roles': ['agentstack-admin'],
+                          'enabled': true
+                        }
+                      ]
+                    }
+                  },
+                  'postgresql': {
+                    'auth': {
+                      'postgresPassword': beeai_pg_admin_password,
+                      'password': beeai_pg_user_password
+                    }
+                  }
+                },
+                recursive=True
+              )
+          }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug effective Helm values task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Build effective BeeAI Helm values"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Top-level value keys: {{ beeai_tofu_effective_chart_values.keys() | list | join(', ') if beeai_tofu_effective_chart_values is defined else 'n/a' }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Render OpenTofu variables file for BeeAI Agent Stack
+      ansible.builtin.copy:
+        dest: "{{ beeai_tofu_work_dir }}/terraform.tfvars.json"
+        mode: "0600"
+        content: |
+          {{ {
+            "kubeconfig_path": beeai_tofu_kubeconfig_path,
+            "release_name": beeai_tofu_release_name,
+            "namespace": beeai_tofu_namespace,
+            "create_namespace": beeai_tofu_create_namespace,
+            "chart_repository": beeai_tofu_chart_repository,
+            "chart_name": beeai_tofu_chart_name,
+            "chart_version": beeai_tofu_chart_version,
+            "timeout_seconds": beeai_tofu_timeout_seconds,
+            "wait_for_resources": beeai_tofu_wait,
+            "atomic_install": beeai_tofu_atomic,
+            "cleanup_on_fail": beeai_tofu_cleanup_on_fail,
+            "chart_values": beeai_tofu_effective_chart_values
+          } | to_nice_json }}
+      register: _beeai_tfvars_result
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug tfvars render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Render OpenTofu variables file for BeeAI Agent Stack"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "File: {{ beeai_tofu_work_dir }}/terraform.tfvars.json"
+          - "Task changed: {{ _beeai_tfvars_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Remove stale PostgreSQL password update secret if present
+      ansible.builtin.command:
+        cmd: k3s kubectl delete secret postgresql-new-secret -n "{{ beeai_tofu_namespace }}" --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_remove_pg_secret_result
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug stale PostgreSQL secret cleanup task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Remove stale PostgreSQL password update secret if present"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_remove_pg_secret_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Initialize OpenTofu in BeeAI working directory
+      ansible.builtin.command:
+        cmd: tofu init -input=false
+        chdir: "{{ beeai_tofu_work_dir }}"
+      register: beeai_tofu_init_result
+      changed_when: "'Terraform has been successfully initialized' in beeai_tofu_init_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug OpenTofu init task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Initialize OpenTofu in BeeAI working directory"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ beeai_tofu_init_result.changed | default(false) }}"
+          - "Exit code: {{ beeai_tofu_init_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug BeeAI OpenTofu prep failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (OpenTofu prep section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail BeeAI OpenTofu prep flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI OpenTofu prep section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+- name: Clean up stale BeeAI release state with diagnostics
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Check if BeeAI Helm release exists
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get deployment/agentstack-server
+          --namespace {{ beeai_tofu_namespace }}
+        chdir: "{{ beeai_tofu_work_dir }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_helm_check
+      changed_when: false
+      failed_when: false
+
+    - name: Debug BeeAI Helm release check task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Check if BeeAI Helm release exists"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Release present: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else 'unknown' }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Delete stuck BeeAI release state via OpenTofu destroy
+      ansible.builtin.command:
+        cmd: tofu destroy -auto-approve -input=false
+        chdir: "{{ beeai_tofu_work_dir }}"
+      register: _beeai_tofu_destroy_stale
+      when: _beeai_helm_check.rc == 0
+      changed_when: true
+      failed_when: false
+
+    - name: Debug stale BeeAI OpenTofu destroy task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Delete stuck BeeAI release state via OpenTofu destroy"
+          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
+          - "Exit code: {{ _beeai_tofu_destroy_stale.rc | default('n/a') }}"
+          - "stdout (trimmed): {{ _beeai_tofu_destroy_stale.stdout | default('') | trim }}"
+          - "stderr (trimmed): {{ _beeai_tofu_destroy_stale.stderr | default('') | trim }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Force delete stale PostgreSQL StatefulSet before PVC cleanup
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl delete statefulset postgresql
+          --namespace {{ beeai_tofu_namespace }}
+          --wait=false
+          --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_delete_postgresql_sts
+      when: _beeai_helm_check.rc == 0
+      changed_when: false
+      failed_when: false
+
+    - name: Debug PostgreSQL StatefulSet delete task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Force delete stale PostgreSQL StatefulSet before PVC cleanup"
+          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
+          - "Exit code: {{ _beeai_delete_postgresql_sts.rc | default('n/a') }}"
+          - "stdout (trimmed): {{ _beeai_delete_postgresql_sts.stdout | default('') | trim }}"
+          - "stderr (trimmed): {{ _beeai_delete_postgresql_sts.stderr | default('') | trim }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for PostgreSQL pods to fully terminate before PVC deletion
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get pods
+          --namespace {{ beeai_tofu_namespace }}
+          --selector app.kubernetes.io/instance=agentstack,app.kubernetes.io/name=postgresql
+          --output=name
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_postgresql_pods_check
+      until: _beeai_postgresql_pods_check.stdout | length == 0
+      retries: 30
+      delay: 4
+      when: _beeai_helm_check.rc == 0
+      changed_when: false
+
+    - name: Debug PostgreSQL pod termination task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for PostgreSQL pods to fully terminate before PVC deletion"
+          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
+          - "Final pod count: {{ _beeai_postgresql_pods_check.stdout_lines | length | default('n/a') }}"
+          - "Pod list: {{ _beeai_postgresql_pods_check.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Remove stale PostgreSQL PVC when reinstalling BeeAI release
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl delete pvc data-postgresql-0
+          --namespace {{ beeai_tofu_namespace }}
+          --wait=false
+          --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_delete_pvc_result
+      when: _beeai_helm_check.rc == 0
+      changed_when: false
+      failed_when: false
+
+    - name: Debug stale PVC delete task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Remove stale PostgreSQL PVC when reinstalling BeeAI release"
+          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
+          - "Exit code: {{ _beeai_delete_pvc_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for stale PostgreSQL PVC to be removed
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get pvc data-postgresql-0
+          --namespace {{ beeai_tofu_namespace }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_postgresql_pvc_check
+      until: _beeai_postgresql_pvc_check.rc != 0
+      retries: 30
+      delay: 4
+      when: _beeai_helm_check.rc == 0
+      changed_when: false
+      failed_when: false
+
+    - name: Debug stale PVC wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for stale PostgreSQL PVC to be removed"
+          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
+          - "Final exit code: {{ _beeai_postgresql_pvc_check.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug stale release cleanup failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (cleanup section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail stale release cleanup flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI cleanup section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+  when: not ansible_check_mode
+
+- name: Ensure BeeAI credentials include all required keys
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Ensure OpenBao root token is available via shared common task
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: load_openbao_root_token.yml
+
+    - name: Read current BeeAI credentials from OpenBao
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/{{ openbao_kv_mount }}/data/beeai/credentials"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        status_code: [200, 404]
+      register: _openbao_beeai_creds_current
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug current BeeAI credential read task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Read current BeeAI credentials from OpenBao"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Credential record exists: {{ (_openbao_beeai_creds_current.status | default(404)) == 200 if _openbao_beeai_creds_current is defined else 'unknown' }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Set BeeAI credentials baseline and required keys
+      ansible.builtin.set_fact:
+        _beeai_required_credential_keys:
+          - admin_password
+          - pg_admin_password
+          - pg_user_password
+          - sqlConnection
+          - sqlConnectionSuperuser
+          - seaweedfs_secret
+        _beeai_creds_final: "{{ (_openbao_beeai_creds_current.json.data.data | default({})) if (_openbao_beeai_creds_current.status | default(404)) == 200 else {} }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI credential baseline task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Set BeeAI credentials baseline and required keys"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Required key count: {{ _beeai_required_credential_keys | length if _beeai_required_credential_keys is defined else 'n/a' }}"
+          - "Existing key count: {{ _beeai_creds_final.keys() | list | length if _beeai_creds_final is defined else 'n/a' }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Add any missing BeeAI credential keys
+      ansible.builtin.set_fact:
+        _beeai_creds_final: >-
+          {{
+            _beeai_creds_final
+            | combine({
+                item: lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits')
+              })
+          }}
+      loop: "{{ _beeai_required_credential_keys }}"
+      when:
+        - not ansible_check_mode
+        - item not in _beeai_creds_final
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+    - name: Debug missing BeeAI credential key generation task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Add any missing BeeAI credential keys"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Final key count after fill: {{ _beeai_creds_final.keys() | list | length if _beeai_creds_final is defined else 'n/a' }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Ensure BeeAI SQL connection URLs are consistent with PostgreSQL credentials
+      ansible.builtin.set_fact:
+        _beeai_creds_final: >-
+          {{
+            _beeai_creds_final
+            | combine({
+                'sqlConnection':
+                  'postgresql+psycopg://agentstack-user:'
+                  ~ _beeai_creds_final.pg_user_password
+                  ~ '@postgresql:5432/agentstack',
+                'sqlConnectionSuperuser':
+                  'postgresql+psycopg://postgres:'
+                  ~ _beeai_creds_final.pg_admin_password
+                  ~ '@postgresql:5432/agentstack'
+              })
+          }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug SQL connection normalization task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure BeeAI SQL connection URLs are consistent with PostgreSQL credentials"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "sqlConnection present: {{ 'sqlConnection' in _beeai_creds_final if _beeai_creds_final is defined else 'unknown' }}"
+          - "sqlConnectionSuperuser present: {{ 'sqlConnectionSuperuser' in _beeai_creds_final if _beeai_creds_final is defined else 'unknown' }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Store complete BeeAI credentials in OpenBao
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/{{ openbao_kv_mount }}/data/beeai/credentials"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          data: "{{ _beeai_creds_final }}"
+        status_code: [200, 204]
+      register: _beeai_store_creds_result
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI credential store task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Store complete BeeAI credentials in OpenBao"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "HTTP status: {{ _beeai_store_creds_result.status | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Force VSO to refresh beeai-credentials Secret
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl delete secret {{ beeai_vso_credentials_secret }}
+          --namespace {{ beeai_tofu_namespace }}
+          --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_refresh_secret_result
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug VSO credential refresh task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Force VSO to refresh beeai-credentials Secret"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_refresh_secret_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for sqlConnectionSuperuser key in beeai-credentials Secret
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_vso_credentials_secret }}
+          --namespace {{ beeai_tofu_namespace }}
+          -o jsonpath={.data.sqlConnectionSuperuser}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_sql_superuser_key
+      until: _beeai_sql_superuser_key.rc == 0 and (_beeai_sql_superuser_key.stdout | length) > 0
+      retries: 30
+      delay: 4
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug sqlConnectionSuperuser wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for sqlConnectionSuperuser key in beeai-credentials Secret"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _beeai_sql_superuser_key.rc | default('n/a') }}"
+          - "Key present: {{ (_beeai_sql_superuser_key.stdout | default('') | length) > 0 }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Ensure keycloak-secret uses the current BeeAI PostgreSQL user password
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: |
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: keycloak-secret
+            namespace: {{ beeai_tofu_namespace }}
+            labels:
+              app.kubernetes.io/managed-by: Helm
+            annotations:
+              meta.helm.sh/release-name: {{ beeai_tofu_release_name | quote }}
+              meta.helm.sh/release-namespace: {{ beeai_tofu_namespace | quote }}
+          type: Opaque
+          stringData:
+            admin-password: {{ beeai_admin_password | quote }}
+            db-password: {{ beeai_pg_user_password | quote }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_keycloak_secret_apply
+      changed_when: >-
+        'configured' in _beeai_keycloak_secret_apply.stdout or
+        'created' in _beeai_keycloak_secret_apply.stdout
+      when: not ansible_check_mode
+
+    - name: Debug keycloak-secret apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure keycloak-secret uses the current BeeAI PostgreSQL user password"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_keycloak_secret_apply.changed | default(false) }}"
+          - "Exit code: {{ _beeai_keycloak_secret_apply.rc | default('n/a') }}"
+          - "stdout (trimmed): {{ _beeai_keycloak_secret_apply.stdout | default('') | trim }}"
+          - "stderr (trimmed): {{ _beeai_keycloak_secret_apply.stderr | default('') | trim }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug BeeAI credential reconciliation failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (credential reconciliation section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail BeeAI credential reconciliation with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI credential reconciliation section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+  when: not ansible_check_mode
+
+- name: Apply BeeAI Agent Stack Helm release via OpenTofu
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Run OpenTofu apply for BeeAI Agent Stack
+      ansible.builtin.command:
+        cmd: tofu apply -auto-approve -input=false
+        chdir: "{{ beeai_tofu_work_dir }}"
+      register: beeai_tofu_apply_result
+      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in beeai_tofu_apply_result.stdout"
+
+    - name: Debug BeeAI OpenTofu apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Run OpenTofu apply for BeeAI Agent Stack"
+          - "Task changed: {{ beeai_tofu_apply_result.changed | default(false) }}"
+          - "Exit code: {{ beeai_tofu_apply_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Capture BeeAI namespace workload summary after OpenTofu failure
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get pods,deploy,sts,svc,ingress,job
+          --namespace {{ beeai_tofu_namespace }}
+          -o wide
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_apply_diag_workloads
+      changed_when: false
+      failed_when: false
+
+    - name: Debug BeeAI workload capture task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Capture BeeAI namespace workload summary after OpenTofu failure"
+          - "Exit code: {{ _beeai_apply_diag_workloads.rc | default('n/a') }}"
+          - "stdout lines: {{ _beeai_apply_diag_workloads.stdout_lines | default([]) | length }}"
+          - "stderr (trimmed): {{ _beeai_apply_diag_workloads.stderr | default('') | trim }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Capture BeeAI namespace events after OpenTofu failure
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get events
+          --namespace {{ beeai_tofu_namespace }}
+          --sort-by=.metadata.creationTimestamp
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_apply_diag_events
+      changed_when: false
+      failed_when: false
+
+    - name: Debug BeeAI event capture task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Capture BeeAI namespace events after OpenTofu failure"
+          - "Exit code: {{ _beeai_apply_diag_events.rc | default('n/a') }}"
+          - "stdout lines: {{ _beeai_apply_diag_events.stdout_lines | default([]) | length }}"
+          - "stderr (trimmed): {{ _beeai_apply_diag_events.stderr | default('') | trim }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail with BeeAI OpenTofu diagnostics
+      ansible.builtin.fail:
+        msg: |
+          OpenTofu apply for BeeAI Agent Stack failed.
+
+          OpenTofu command:
+          {{ beeai_tofu_apply_result.cmd | default('n/a') }}
+
+          OpenTofu return code:
+          {{ beeai_tofu_apply_result.rc | default('n/a') }}
+
+          OpenTofu stderr:
+          {{ beeai_tofu_apply_result.stderr | default('n/a') }}
+
+          OpenTofu stdout:
+          {{ beeai_tofu_apply_result.stdout | default('n/a') }}
+
+          Workload summary:
+          {{ _beeai_apply_diag_workloads.stdout | default(_beeai_apply_diag_workloads.stderr | default('n/a')) }}
+
+          Recent namespace events:
+          {{ _beeai_apply_diag_events.stdout | default(_beeai_apply_diag_events.stderr | default('n/a')) }}
+  when: not ansible_check_mode
+
+# ── Keycloak hostname fix + second-pass apply ─────────────────────────────────
+# The BeeAI chart hardcodes KC_HOSTNAME_STRICT=true and a 600-second startup
+# probe, both of which break in-cluster access:
+#   • KC_HOSTNAME_STRICT=true redirects every http://keycloak:8336 call to
+#     https://armory.local, which is NXDOMAIN inside the cluster.  This causes
+#     the keycloak-provision post-install hook and the agentstack-server to loop
+#     forever and triggers the Helm "context deadline exceeded" timeout.
+#   • The 600-second startup probe kills Keycloak before it finishes its first
+#     cold-JVM startup (Quarkus augmentation alone takes ~237 s on this host).
+# The patch below sets KC_HOSTNAME_STRICT=false and raises the probe limit to
+# beeai_tofu_keycloak_startup_probe_failurethreshold. When the patch triggers a
+# StatefulSet rollout the block waits for it, then re-runs tofu apply so that
+# the post-upgrade hook (keycloak-provision) can reach Keycloak and succeed.
+
+- name: Patch Keycloak StatefulSet for in-cluster hostname accessibility
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Patch Keycloak KC_HOSTNAME_STRICT and startup probe
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl patch statefulset {{ beeai_keycloak_service_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --type=strategic
+          --patch
+          {{ ({
+               "spec": {
+                 "template": {
+                   "spec": {
+                     "containers": [{
+                       "name": "keycloak",
+                       "env": [{"name": "KC_HOSTNAME_STRICT", "value": "false"}],
+                       "startupProbe": {"failureThreshold": beeai_tofu_keycloak_startup_probe_failurethreshold}
+                     }]
+                   }
+                 }
+               }
+             }) | to_json | quote }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _keycloak_patch_result
+      changed_when: "'(no change)' not in _keycloak_patch_result.stdout"
+      failed_when:
+        - _keycloak_patch_result.rc != 0
+        - "'not found' not in (_keycloak_patch_result.stderr | default(''))"
+      when: not ansible_check_mode
+
+    - name: Debug Keycloak StatefulSet patch task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Patch Keycloak KC_HOSTNAME_STRICT and startup probe"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _keycloak_patch_result.changed | default(false) }}"
+          - "stdout: {{ _keycloak_patch_result.stdout | default('n/a') }}"
+          - "rc: {{ _keycloak_patch_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for Keycloak StatefulSet rollout after patch
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status statefulset/{{ beeai_keycloak_service_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --timeout={{ beeai_tofu_keycloak_startup_probe_failurethreshold }}s
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _keycloak_rollout_result
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - _keycloak_patch_result.changed | default(false)
+
+    - name: Debug Keycloak rollout wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for Keycloak StatefulSet rollout after patch"
+          - "Executed: {{ _keycloak_patch_result.changed | default(false) }}"
+          - "stdout: {{ _keycloak_rollout_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug Keycloak patch failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (Keycloak patch section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail Keycloak patch flow with context
+      ansible.builtin.fail:
+        msg: >-
+          Keycloak StatefulSet patch section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+  when: not ansible_check_mode
+
+- name: Patch UI deployment for HTTPS OIDC issuer resolution
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Patch UI OIDC issuer and host alias
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl patch deployment {{ beeai_ui_deployment_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --type=strategic
+          --patch
+          {{ ({
+               "spec": {
+                 "template": {
+                   "spec": {
+                     "hostAliases": [{
+                       "ip": beeai_oidc_resolver_ip,
+                       "hostnames": [beeai_oidc_resolver_host]
+                     }],
+                     "containers": [{
+                       "name": beeai_ui_deployment_name,
+                       "volumeMounts": [{
+                         "name": "armory-oidc-ca",
+                         "mountPath": beeai_oidc_ca_mount_path,
+                         "readOnly": True
+                       }],
+                       "env": [{
+                         "name": "OIDC_PROVIDER_ISSUER",
+                         "value": beeai_oidc_internal_issuer_url
+                       }, {
+                         "name": "AUTH_SECRET",
+                         "valueFrom": {
+                           "secretKeyRef": {
+                             "name": beeai_ui_secret_name,
+                             "key": beeai_ui_auth_secret_key
+                           }
+                         }
+                       }, {
+                         "name": "AUTH_TRUST_HOST",
+                         "value": (beeai_ui_auth_trust_host | ternary('true', 'false'))
+                       }, {
+                         "name": "TRUST_PROXY_HEADERS",
+                         "value": (beeai_ui_trust_proxy_headers | ternary('true', 'false'))
+                       }, {
+                         "name": "NODE_EXTRA_CA_CERTS",
+                         "value": beeai_oidc_ca_file_path
+                       }]
+                     }]
+                     ,
+                     "volumes": [{
+                       "name": "armory-oidc-ca",
+                       "secret": {
+                         "secretName": beeai_oidc_ca_secret_name,
+                         "items": [{
+                           "key": beeai_oidc_ca_secret_key,
+                           "path": beeai_oidc_ca_secret_key
+                         }]
+                       }
+                     }]
+                   }
+                 }
+               }
+             }) | to_json | quote }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_ui_patch_result
+      changed_when: "'(no change)' not in (_beeai_ui_patch_result.stdout | default(''))"
+      when: not ansible_check_mode
+
+    - name: Debug UI OIDC patch task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Patch UI OIDC issuer and host alias"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_ui_patch_result.changed | default(false) }}"
+          - "Issuer URL: {{ beeai_oidc_internal_issuer_url }}"
+          - "Resolver host/ip: {{ beeai_oidc_resolver_host }}/{{ beeai_oidc_resolver_ip }}"
+          - "Auth trust host: {{ beeai_ui_auth_trust_host | bool }}"
+          - "Trust proxy headers: {{ beeai_ui_trust_proxy_headers | bool }}"
+          - "Trusted CA file: {{ beeai_oidc_ca_file_path }}"
+          - "stdout: {{ _beeai_ui_patch_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for UI deployment rollout after OIDC patch
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status deployment/{{ beeai_ui_deployment_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --timeout=300s
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_ui_rollout_result
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - _beeai_ui_patch_result.changed | default(false)
+
+    - name: Debug UI rollout wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for UI deployment rollout after OIDC patch"
+          - "Executed: {{ _beeai_ui_patch_result.changed | default(false) }}"
+          - "stdout: {{ _beeai_ui_rollout_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug UI OIDC patch failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (UI OIDC patch section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail UI OIDC patch flow with context
+      ansible.builtin.fail:
+        msg: >-
+          UI OIDC patch section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+  when: not ansible_check_mode
+
+- name: Patch API deployment for HTTPS OIDC and proxy-aware metadata
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Patch API OIDC issuer, trust proxy headers, and CA trust
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl patch deployment {{ beeai_server_deployment_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --type=strategic
+          --patch
+          {{ ({
+               "spec": {
+                 "template": {
+                   "spec": {
+                     "hostAliases": [{
+                       "ip": beeai_oidc_resolver_ip,
+                       "hostnames": [beeai_oidc_resolver_host]
+                     }],
+                     "containers": [{
+                       "name": "agentstack",
+                       "volumeMounts": [{
+                         "name": "armory-oidc-ca",
+                         "mountPath": beeai_oidc_ca_mount_path,
+                         "readOnly": True
+                       }],
+                       "env": [{
+                         "name": "AUTH__OIDC__ISSUER",
+                         "value": beeai_server_oidc_issuer_url
+                       }, {
+                         "name": "AUTH__OIDC__EXTERNAL_ISSUER",
+                         "value": beeai_server_oidc_external_issuer_url
+                       }, {
+                         "name": "AUTH__OIDC__INSECURE_TRANSPORT",
+                         "value": (beeai_server_oidc_insecure_transport | ternary('true', 'false'))
+                       }, {
+                         "name": "TRUST_PROXY_HEADERS",
+                         "value": (beeai_server_trust_proxy_headers | ternary('true', 'false'))
+                       }, {
+                         "name": "NODE_EXTRA_CA_CERTS",
+                         "value": beeai_oidc_ca_file_path
+                       }]
+                     }],
+                     "volumes": [{
+                       "name": "armory-oidc-ca",
+                       "secret": {
+                         "secretName": beeai_oidc_ca_secret_name,
+                         "items": [{
+                           "key": beeai_oidc_ca_secret_key,
+                           "path": beeai_oidc_ca_secret_key
+                         }]
+                       }
+                     }]
+                   }
+                 }
+               }
+             }) | to_json | quote }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_api_patch_result
+      changed_when: "'(no change)' not in (_beeai_api_patch_result.stdout | default(''))"
+      when: not ansible_check_mode
+
+    - name: Debug API OIDC patch task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Patch API OIDC issuer, trust proxy headers, and CA trust"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_api_patch_result.changed | default(false) }}"
+          - "Issuer URL: {{ beeai_server_oidc_issuer_url }}"
+          - "External issuer URL: {{ beeai_server_oidc_external_issuer_url }}"
+          - "Trust proxy headers: {{ beeai_server_trust_proxy_headers | bool }}"
+          - "Trusted CA file: {{ beeai_oidc_ca_file_path }}"
+          - "stdout: {{ _beeai_api_patch_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for API deployment rollout after OIDC patch
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status deployment/{{ beeai_server_deployment_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --timeout=300s
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_api_rollout_result
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - _beeai_api_patch_result.changed | default(false)
+
+    - name: Debug API rollout wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for API deployment rollout after OIDC patch"
+          - "Executed: {{ _beeai_api_patch_result.changed | default(false) }}"
+          - "stdout: {{ _beeai_api_rollout_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug API OIDC patch failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (API OIDC patch section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail API OIDC patch flow with context
+      ansible.builtin.fail:
+        msg: >-
+          API OIDC patch section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+  when: not ansible_check_mode
+
+- name: Second-pass BeeAI Helm release apply after Keycloak hostname fix
+  tags: [beeai, beeai_tofu, beeai_install]
+  block:
+    - name: Check BeeAI Helm release status
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret
+          --namespace {{ beeai_tofu_namespace }}
+          -l owner=helm,name={{ beeai_tofu_release_name }}
+          -o jsonpath={.items[-1:].metadata.labels.status}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_helm_release_status
+      changed_when: false
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI Helm release status check
+      ansible.builtin.debug:
+        msg:
+          - "Task: Check BeeAI Helm release status"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Status: {{ _beeai_helm_release_status.stdout | default('unknown') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Update OpenTofu tfvars with extended timeout for second-pass apply
+      ansible.builtin.copy:
+        dest: "{{ beeai_tofu_work_dir }}/terraform.tfvars.json"
+        mode: "0600"
+        content: |
+          {{ {
+            "kubeconfig_path": beeai_tofu_kubeconfig_path,
+            "release_name": beeai_tofu_release_name,
+            "namespace": beeai_tofu_namespace,
+            "create_namespace": beeai_tofu_create_namespace,
+            "chart_repository": beeai_tofu_chart_repository,
+            "chart_name": beeai_tofu_chart_name,
+            "chart_version": beeai_tofu_chart_version,
+            "timeout_seconds": beeai_tofu_post_patch_timeout_seconds,
+            "wait_for_resources": beeai_tofu_wait,
+            "atomic_install": beeai_tofu_atomic,
+            "cleanup_on_fail": beeai_tofu_cleanup_on_fail,
+            "chart_values": beeai_tofu_effective_chart_values
+          } | to_nice_json }}
+      when:
+        - not ansible_check_mode
+        - _beeai_helm_release_status.stdout | default('') != 'deployed'
+
+    - name: Run second-pass OpenTofu apply for BeeAI Agent Stack
+      ansible.builtin.command:
+        cmd: tofu apply -auto-approve -input=false
+        chdir: "{{ beeai_tofu_work_dir }}"
+      register: _beeai_tofu_reapply_result
+      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _beeai_tofu_reapply_result.stdout"
+      when:
+        - not ansible_check_mode
+        - _beeai_helm_release_status.stdout | default('') != 'deployed'
+
+    - name: Debug second-pass OpenTofu apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Run second-pass OpenTofu apply for BeeAI Agent Stack"
+          - "Executed: {{ _beeai_helm_release_status.stdout | default('') != 'deployed' }}"
+          - "Task changed: {{ _beeai_tofu_reapply_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_tofu_reapply_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Capture BeeAI namespace workload summary after second-pass failure
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get pods,deploy,sts,svc,job
+          --namespace {{ beeai_tofu_namespace }}
+          -o wide
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_reapply_diag_workloads
+      changed_when: false
+      failed_when: false
+
+    - name: Debug second-pass workload capture task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Capture BeeAI namespace workload summary after second-pass failure"
+          - "Exit code: {{ _beeai_reapply_diag_workloads.rc | default('n/a') }}"
+          - "stdout lines: {{ _beeai_reapply_diag_workloads.stdout_lines | default([]) | length }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail second-pass BeeAI apply with context
+      ansible.builtin.fail:
+        msg: |
+          Second-pass OpenTofu apply for BeeAI Agent Stack failed.
+
+          Return code:
+          {{ _beeai_tofu_reapply_result.rc | default('n/a') }}
+
+          stderr:
+          {{ _beeai_tofu_reapply_result.stderr | default('n/a') }}
+
+          stdout:
+          {{ _beeai_tofu_reapply_result.stdout | default('n/a') }}
+
+          Workload summary:
+          {{ _beeai_reapply_diag_workloads.stdout | default(_beeai_reapply_diag_workloads.stderr | default('n/a')) }}
+
+  when: not ansible_check_mode
+
+# ── Keycloak OIDC audience fix ────────────────────────────────────────────────
+
+- name: Fix Keycloak OIDC audience mapper for agentstack-server
+  tags: [beeai, beeai_tofu, beeai_install, beeai_keycloak_fix]
+  block:
+    - name: Apply Keycloak OIDC audience fix tasks
+      ansible.builtin.include_tasks:
+        file: keycloak_oidc_fix.yml
+
+  rescue:
+    - name: Debug Keycloak OIDC fix failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (keycloak_oidc_fix section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail Keycloak OIDC fix flow with context
+      ansible.builtin.fail:
+        msg: >-
+          Keycloak OIDC audience fix failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
+  when: not ansible_check_mode
+
+# ── Ingress resources ─────────────────────────────────────────────────────────
+
+- name: Apply BeeAI ingress resources with diagnostics
+  tags: [beeai, beeai_tofu, beeai_install, beeai_ingress]
+  block:
+    - name: Remove legacy split BeeAI ingress resources (migration safety)
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl delete ingress
+          agentstack-auth
+          agentstack-api
+          agentstack-keycloak
+          --ignore-not-found=true
+          -n {{ beeai_tofu_namespace }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_ingress_cleanup_result
+      changed_when: >-
+        'deleted' in (_beeai_ingress_cleanup_result.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Apply BeeAI Ingress resources
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'ingress.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_ingress_result
+      changed_when: >-
+        'configured' in _beeai_ingress_result.stdout or
+        'created' in _beeai_ingress_result.stdout
+      when: not ansible_check_mode
+
+    - name: Debug BeeAI ingress apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply BeeAI Ingress resources"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Task changed: {{ _beeai_ingress_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_ingress_result.rc | default('n/a') }}"
+          - "Public URL: {{ beeai_public_base_url }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug BeeAI ingress failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: beeai_agentstack_tofu (ingress section)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail BeeAI ingress flow with context
+      ansible.builtin.fail:
+        msg: >-
+          BeeAI ingress section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

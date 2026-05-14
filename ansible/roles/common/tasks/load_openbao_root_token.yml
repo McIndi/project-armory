@@ -1,0 +1,32 @@
+---
+- name: Decrypt OpenBao init keys when root token is undefined
+  ansible.builtin.command:
+    cmd: >-
+      ansible-vault decrypt
+      --vault-password-file {{ openbao_vault_pass_file | default(common_openbao_vault_pass_file) }}
+      --output -
+      {{ openbao_init_keys_file | default(common_openbao_init_keys_file) }}
+  register: _common_openbao_init_keys_decrypted
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - openbao_root_token is not defined
+
+- name: Set OpenBao root token fact from decrypted init keys
+  ansible.builtin.set_fact:
+    openbao_root_token: "{{ (_common_openbao_init_keys_decrypted.stdout | from_yaml).root_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - openbao_root_token is not defined
+
+- name: Validate OpenBao root token availability
+  ansible.builtin.assert:
+    that:
+      - openbao_root_token is defined
+      - (openbao_root_token | string | length) > 0
+    fail_msg: >-
+      OpenBao root token is not available.
+      Run with --tags openbao,<target-tag> or ensure vaulted init keys are accessible.
+  when: not ansible_check_mode

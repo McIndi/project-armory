@@ -1,0 +1,160 @@
+---
+# unseal.yml — Runs on every Ansible execution. Decrypts init-keys from the
+# Vault-encrypted file on disk and submits unseal shards via the REST API.
+# No-ops when OpenBao is already unsealed.
+
+- name: Unseal OpenBao with diagnostics
+  block:
+    - name: Check current seal status
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/seal-status"
+        method: GET
+        status_code: [200, 429, 472, 473, 503]
+      register: _openbao_current_seal
+      when: not ansible_check_mode
+
+    - name: Debug seal status task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Check current seal status"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "HTTP status: {{ _openbao_current_seal.status | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Set sealed fact
+      ansible.builtin.set_fact:
+        openbao_is_sealed: "{{ _openbao_current_seal.json.sealed | default(true) }}"
+      when: not ansible_check_mode
+
+    - name: Debug sealed fact task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Set sealed fact"
+          - "OpenBao sealed: {{ openbao_is_sealed | default(true) }}"
+      when: armory_build_debug | default(false) | bool
+
+    # Read init keys from encrypted file only when we actually need to unseal
+    # AND keys were not already loaded during this play by init.yml.
+    - name: Decrypt init-keys file
+      ansible.builtin.command:
+        cmd: >-
+          ansible-vault decrypt
+          --vault-password-file {{ openbao_vault_pass_file }}
+          --output -
+          {{ openbao_init_keys_file }}
+      register: _openbao_decrypted
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      changed_when: false
+      when:
+        - openbao_is_sealed | default(true)
+        - openbao_unseal_keys is not defined
+        - not ansible_check_mode
+
+    - name: Debug decrypt init-keys task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Decrypt init-keys file"
+          - "Executed: {{ (openbao_is_sealed | default(true)) and (openbao_unseal_keys is not defined) and (not ansible_check_mode) }}"
+          - "Exit code: {{ _openbao_decrypted.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Set unseal key and root token facts from decrypted file
+      ansible.builtin.set_fact:
+        openbao_unseal_keys: "{{ (_openbao_decrypted.stdout | from_yaml).unseal_keys }}"
+        openbao_root_token: "{{ (_openbao_decrypted.stdout | from_yaml).root_token }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - openbao_is_sealed | default(true)
+        - openbao_unseal_keys is not defined
+        - not ansible_check_mode
+
+    - name: Debug decrypted fact load task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Set unseal key and root token facts from decrypted file"
+          - "Executed: {{ (openbao_is_sealed | default(true)) and (openbao_unseal_keys is not defined) and (not ansible_check_mode) }}"
+          - "Unseal keys loaded in memory: {{ openbao_unseal_keys is defined }}"
+          - "Root token loaded in memory: {{ openbao_root_token is defined }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Submit unseal shards
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/unseal"
+        method: POST
+        body_format: json
+        body:
+          key: "{{ item }}"
+        status_code: 200
+      loop: "{{ openbao_unseal_keys[:openbao_key_threshold] }}"
+      register: _openbao_unseal_submit_result
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - openbao_is_sealed | default(false)
+        - not ansible_check_mode
+
+    - name: Debug unseal shard submission task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Submit unseal shards"
+          - "Executed: {{ (openbao_is_sealed | default(false)) and (not ansible_check_mode) }}"
+          - "Shard submissions attempted: {{ openbao_key_threshold }}"
+          - "Result records captured: {{ (_openbao_unseal_submit_result.results | default([])) | length }}"
+      when: armory_build_debug | default(false) | bool
+
+    # If the vault was already unsealed, the root_token fact may not yet be set.
+    # Load it now so configure.yml and credentials.yml can use it.
+    - name: Decrypt init-keys to load root token (vault already unsealed)
+      ansible.builtin.command:
+        cmd: >-
+          ansible-vault decrypt
+          --vault-password-file {{ openbao_vault_pass_file }}
+          --output -
+          {{ openbao_init_keys_file }}
+      register: _openbao_decrypted_for_token
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      changed_when: false
+      when:
+        - not (openbao_is_sealed | default(true))
+        - openbao_root_token is not defined
+        - not ansible_check_mode
+
+    - name: Debug root token decrypt task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Decrypt init-keys to load root token (vault already unsealed)"
+          - "Executed: {{ (not (openbao_is_sealed | default(true))) and (openbao_root_token is not defined) and (not ansible_check_mode) }}"
+          - "Exit code: {{ _openbao_decrypted_for_token.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Set root token fact (vault already unsealed path)
+      ansible.builtin.set_fact:
+        openbao_root_token: "{{ (_openbao_decrypted_for_token.stdout | from_yaml).root_token }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - not (openbao_is_sealed | default(true))
+        - openbao_root_token is not defined
+        - not ansible_check_mode
+
+    - name: Debug root token fact task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Set root token fact (vault already unsealed path)"
+          - "Executed: {{ (not (openbao_is_sealed | default(true))) and (openbao_root_token is not defined) and (not ansible_check_mode) }}"
+          - "Root token loaded in memory: {{ openbao_root_token is defined }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug OpenBao unseal flow failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: openbao (unseal.yml)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail OpenBao unseal flow with context
+      ansible.builtin.fail:
+        msg: >-
+          openbao unseal flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

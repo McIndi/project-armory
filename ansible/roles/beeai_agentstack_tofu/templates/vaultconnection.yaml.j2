@@ -1,0 +1,9 @@
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: default
+  namespace: {{ beeai_tofu_namespace }}
+spec:
+  address: {{ beeai_openbao_cluster_addr }}
+  skipTLSVerify: false

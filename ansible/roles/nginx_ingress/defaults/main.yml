@@ -1,0 +1,97 @@
+---
+# Namespace where ingress-nginx is installed.
+nginx_ingress_namespace: ingress-nginx
+
+# Working directory for OpenTofu state and rendered files.
+nginx_tofu_work_dir: /opt/nginx-ingress-tofu
+
+# Helm release name for ingress-nginx.
+nginx_ingress_release_name: ingress-nginx
+
+# Helm repository URL for ingress-nginx chart.
+nginx_ingress_chart_repo: https://kubernetes.github.io/ingress-nginx
+
+# Chart name in the ingress-nginx repository.
+nginx_ingress_chart_name: ingress-nginx
+
+# Chart version to install.
+# Empty string lets Helm choose the latest available version.
+nginx_ingress_chart_version: ""
+
+# Namespace for cert-manager installation.
+certmanager_namespace: cert-manager
+
+# Helm release name for cert-manager.
+certmanager_release_name: cert-manager
+
+# Helm repository URL for cert-manager chart.
+certmanager_chart_repo: https://charts.jetstack.io
+
+# Chart name in the cert-manager repository.
+certmanager_chart_name: cert-manager
+
+# cert-manager chart version.
+# Empty string lets Helm choose the latest available version.
+certmanager_chart_version: ""
+
+# Helm values passed to cert-manager via OpenTofu helm provider.
+certmanager_tofu_chart_values:
+  crds:
+    enabled: true
+
+# Helm values passed to ingress-nginx via OpenTofu helm provider.
+nginx_tofu_chart_values:
+  controller:
+    service:
+      type: NodePort
+      nodePorts:
+        http: 30080
+        https: 30443
+      externalIPs:
+        - "{{ nginx_ingress_ip }}"
+
+# Primary DNS name included in TLS certificates and ingress host rules.
+nginx_ingress_domain: armory.local
+
+# Host VM IP added as a certificate SAN for local testing access.
+nginx_ingress_ip: "192.168.0.150"
+
+# OpenBao in-cluster API address used by cert-manager issuer integration.
+# Must match openbao_cluster_addr in openbao defaults.
+nginx_openbao_cluster_addr: "http://openbao.openbao.svc.cluster.local:8200"
+
+# PKI mount path used in OpenBao for certificate issuance.
+# Must match openbao_pki_mount in openbao defaults.
+nginx_openbao_pki_mount: pki
+
+# OpenBao PKI role used to sign ingress certificates.
+# Must match openbao_pki_cert_role in openbao defaults.
+nginx_openbao_pki_cert_role: armory-dot-local
+
+# Kubernetes auth role in OpenBao bound to cert-manager service account.
+# Must align with configuration created by the openbao role.
+nginx_openbao_certmanager_k8s_role: cert-manager
+
+# Requested certificate lifetime.
+# Default 8760h is approximately 1 year.
+nginx_ingress_cert_duration: "8760h"
+
+# Renewal window before expiry.
+# Default 720h is approximately 30 days.
+nginx_ingress_cert_renew_before: "720h"
+
+# Namespace where the armory.local TLS Certificate and secret are created.
+# Must match the namespace of ingress resources referencing secretName: armory-tls.
+nginx_ingress_tls_namespace: agentstack
+
+# Whether this role manages firewalld rules for ingress traffic.
+# Disable if firewall is managed outside Ansible.
+nginx_ingress_firewall_manage: true
+
+# firewalld zone where ingress HTTP/HTTPS rules are applied.
+nginx_ingress_firewall_zone: public
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

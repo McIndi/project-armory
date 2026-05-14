@@ -1,0 +1,57 @@
+---
+# k3s version to install.
+# Accepts a release string such as v1.32.4+k3s1.
+# Empty string installs the latest channel version.
+# Reference: https://docs.k3s.io/installation/configuration
+k3s_version: ""
+
+# Directory where the k3s binary is placed.
+# Keep default unless your host layout requires a custom binary path.
+k3s_install_dir: /usr/local/bin
+
+# Directory for k3s runtime configuration files.
+# Related to k3s_config_dir/config.yaml.j2 template rendering.
+k3s_config_dir: /etc/rancher/k3s
+
+# Built-in components disabled at install time.
+# Accepts list values supported by k3s --disable.
+# Traefik is disabled because this stack uses ingress-nginx.
+# Reference: https://docs.k3s.io/installation/configuration#configuration-file
+k3s_disable:
+  - traefik
+
+# Enable etcd secrets encryption at rest.
+# Recommended true for production-style clusters handling credentials.
+k3s_secrets_encryption: true
+
+# Firewalld zone that receives k3s service port rules.
+# Must match an existing zone on the target host.
+k3s_firewall_zone: public
+
+# Kubernetes API server port opened when firewall management is enabled.
+k3s_api_port: 6443
+
+# Kubelet metrics/health endpoint port.
+k3s_kubelet_port: 10250
+
+# Flannel VXLAN UDP port used for pod networking.
+k3s_flannel_port: 8472
+
+# k3s default pod network CIDR.
+k3s_pod_cidr: 10.42.0.0/16
+
+# k3s default service CIDR.
+k3s_service_cidr: 10.43.0.0/16
+
+# When true, add explicit firewalld source allowances for k3s cluster CIDRs.
+k3s_firewall_allow_cluster_cidrs: true
+
+# Firewalld zone for cluster CIDR source allowances.
+# Must be 'trusted' (target: ACCEPT) so firewalld's filter_FORWARD chain
+# accepts pod-to-pod traffic; the public zone only forwards through physical NICs.
+k3s_firewall_cluster_cidrs_zone: trusted
+
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

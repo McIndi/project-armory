@@ -1,0 +1,133 @@
+---
+beeai_tofu_work_dir: /opt/beeai-agentstack-tofu
+beeai_vso_tofu_work_dir: /opt/beeai-vso-tofu
+beeai_tofu_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+
+# Firewall: HTTP/HTTPS are handled by nginx_ingress; only keep ports that
+# must remain directly accessible (none by default with Ingress).
+beeai_firewall_manage: false
+beeai_firewall_zone: public
+beeai_firewall_ports: []
+
+beeai_tofu_release_name: agentstack
+beeai_tofu_namespace: agentstack
+beeai_tofu_create_namespace: true
+
+beeai_tofu_chart_repository: oci://ghcr.io/i-am-bee/agentstack/chart
+beeai_tofu_chart_name: agentstack
+beeai_tofu_chart_version: ""
+
+beeai_tofu_timeout_seconds: 1200
+beeai_tofu_wait: true
+beeai_tofu_atomic: false
+beeai_tofu_cleanup_on_fail: false
+
+# Seed admin user created in the agentstack Keycloak realm on deploy.
+# Credentials are sourced from OpenBao KV via VSO — no local files.
+beeai_admin_username: admin
+beeai_admin_email: admin@armory.local
+beeai_admin_first_name: Admin
+beeai_admin_last_name: User
+
+# VSO (Vault Secrets Operator) settings
+beeai_vso_chart_repo: https://helm.releases.hashicorp.com
+beeai_vso_release_name: vault-secrets-operator
+beeai_vso_chart_name: vault-secrets-operator
+beeai_vso_chart_version: ""
+beeai_vso_namespace: vault-secrets-operator-system
+
+# OpenBao connection for VSO (must match openbao role defaults)
+beeai_openbao_cluster_addr: "http://openbao.openbao.svc.cluster.local:8200"
+beeai_openbao_vso_sa_name: beeai-vso
+beeai_openbao_k8s_role: beeai-vso
+
+# Name of the k8s Secret that VSO syncs from OpenBao KV
+beeai_vso_credentials_secret: beeai-credentials
+beeai_vso_enckey_secret: beeai-encryption-key
+
+# Public URLs — served through nginx Ingress with TLS
+beeai_public_base_url: "https://armory.local"
+beeai_ingress_class: nginx
+beeai_ingress_tls_secret: armory-tls
+
+# Ingress proxy response-header buffer tuning. Increase when upstream
+# responses include large Set-Cookie headers (for example encrypted sessions).
+beeai_ingress_proxy_buffer_size: "64k"
+beeai_ingress_proxy_buffers_number: "8"
+beeai_ingress_proxy_busy_buffers_size: "128k"
+
+# Override with Helm values map if you want non-default Agent Stack settings.
+beeai_tofu_chart_values:
+  auth:
+    nextauthUrl: "{{ beeai_public_base_url }}"
+    apiUrl: "{{ beeai_public_base_url }}"
+  service:
+    type: ClusterIP
+  ui:
+    service:
+      type: ClusterIP
+  keycloak:
+    publicIssuerUrl: "{{ beeai_public_base_url }}/realms/agentstack"
+    service:
+      type: ClusterIP
+    auth:
+      seedAgentstackUsers:
+        - username: "{{ beeai_admin_username }}"
+          email: "{{ beeai_admin_email }}"
+          firstName: "{{ beeai_admin_first_name }}"
+          lastName: "{{ beeai_admin_last_name }}"
+          roles:
+            - agentstack-admin
+          enabled: true
+  postgresql:
+    auth:
+      existingSecret: "{{ beeai_vso_credentials_secret }}"
+      secretKeys:
+        adminPasswordKey: pg_admin_password
+        userPasswordKey: pg_user_password
+    passwordUpdateJob:
+      enabled: false  # Bitnami bug: hook secret persists across upgrades
+  seaweedfs:
+    auth:
+      admin:
+        existingSecret: "{{ beeai_vso_credentials_secret }}"
+        existingSecretKey: seaweedfs_secret
+
+# Keycloak StatefulSet patch — raises startup probe so Quarkus cold-JVM start
+# (~237 s) doesn't hit the chart's default probe limit before it's ready.
+# failurethreshold is also used (in seconds) as the rollout wait timeout.
+beeai_tofu_keycloak_startup_probe_failurethreshold: 600
+
+# Timeout (seconds) for the second-pass tofu apply after the Keycloak patch.
+# Needs to cover Keycloak startup + keycloak-provision hook execution.
+beeai_tofu_post_patch_timeout_seconds: 1200
+
+# UI (Next.js / Auth.js) deployment patch settings
+beeai_ui_deployment_name: agentstack-ui
+beeai_oidc_internal_issuer_url: "{{ beeai_public_base_url }}/realms/agentstack"
+beeai_oidc_resolver_host: "{{ beeai_public_base_url | urlsplit('hostname') }}"
+beeai_oidc_resolver_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.address | default('127.0.0.1')) }}"
+beeai_oidc_ca_secret_name: armory-tls
+beeai_oidc_ca_secret_key: ca.crt
+beeai_oidc_ca_mount_path: /etc/armory-ca
+beeai_oidc_ca_file_path: "{{ beeai_oidc_ca_mount_path }}/{{ beeai_oidc_ca_secret_key }}"
+beeai_ui_secret_name: agentstack-ui-secret
+beeai_ui_auth_secret_key: authSecret
+beeai_ui_auth_trust_host: true
+beeai_ui_trust_proxy_headers: true
+
+# API (agentstack-server) deployment patch settings
+beeai_server_deployment_name: agentstack-server
+beeai_server_oidc_issuer_url: "{{ beeai_public_base_url }}/realms/agentstack"
+beeai_server_oidc_external_issuer_url: "{{ beeai_public_base_url }}/realms/agentstack"
+beeai_server_oidc_insecure_transport: false
+beeai_server_trust_proxy_headers: true
+
+# Service names created by the agentstack Helm chart — adjust if the chart
+# uses a different naming convention.
+beeai_api_service_name: "agentstack-server-svc"
+beeai_api_service_port: 8333
+beeai_ui_service_name: "agentstack-ui-svc"
+beeai_ui_service_port: 8334
+beeai_keycloak_service_name: "keycloak"
+beeai_keycloak_service_port: 8336

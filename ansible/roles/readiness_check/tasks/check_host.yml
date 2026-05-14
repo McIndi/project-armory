@@ -1,0 +1,89 @@
+---
+# readiness_check/tasks/check_host.yml
+# Validate host-level readiness: firewall, SELinux, DNS, packages
+
+- name: Check firewall status
+  ansible.builtin.command: sudo firewall-cmd --state
+  register: _rc_firewall_status
+  changed_when: false
+  failed_when: false
+
+- name: Add firewall check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Host',
+        'check_name': 'Firewall enabled',
+        'status': 'pass' if _rc_firewall_status.rc == 0 else 'warn',
+        'detail': _rc_firewall_status.stdout | default('not running'),
+        'error': _rc_firewall_status.stderr | default('')
+      }] }}
+  changed_when: false
+
+- name: Check SELinux status
+  ansible.builtin.command: getenforce
+  register: _rc_selinux_status
+  changed_when: false
+  failed_when: false
+
+- name: Add SELinux check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Host',
+        'check_name': 'SELinux status',
+        'status': 'pass' if _rc_selinux_status.stdout | trim in ['Enforcing', 'Permissive'] else 'warn',
+        'detail': _rc_selinux_status.stdout | trim,
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Debug host checks
+  ansible.builtin.debug:
+    msg:
+      - "Host readiness checks complete"
+      - "Firewall: {{ _rc_firewall_status.stdout | default('unknown') }}"
+      - "SELinux: {{ _rc_selinux_status.stdout | trim | default('unknown') }}"
+  when: armory_build_debug | default(false) | bool
+
+- name: Check DNS resolution for armory.local
+  ansible.builtin.command: getent hosts armory.local
+  register: _rc_dns_check
+  changed_when: false
+  failed_when: false
+
+- name: Add DNS check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Host',
+        'check_name': 'DNS resolution (armory.local)',
+        'status': 'pass' if _rc_dns_check.rc == 0 else 'warn',
+        'detail': _rc_dns_check.stdout | default('unresolved'),
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check k3s service status from host
+  ansible.builtin.command: systemctl status k3s
+  register: _rc_k3s_host_service
+  changed_when: false
+  failed_when: false
+
+- name: Add k3s host service check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Host',
+        'check_name': 'k3s installed',
+        'status': 'pass' if _rc_k3s_host_service.rc == 0 else 'fail',
+        'detail': 'systemd unit present and active' if _rc_k3s_host_service.rc == 0 else 'k3s service not found or not active',
+        'error': _rc_k3s_host_service.stderr | default('')
+      }] }}
+  changed_when: false
+
+- name: Debug host final checks
+  ansible.builtin.debug:
+    msg:
+      - "Host checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Host') | list | length }} checks"
+  when: armory_build_debug | default(false) | bool

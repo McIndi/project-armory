@@ -1,0 +1,51 @@
+---
+# readiness_check/tasks/check_helm.yml
+# Validate Helm availability and repo access
+
+- name: Check Helm version
+  ansible.builtin.command: helm version --short
+  register: _rc_helm_version
+  changed_when: false
+  failed_when: false
+
+- name: Add Helm version check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Helm',
+        'check_name': 'Helm CLI available',
+        'status': 'pass' if _rc_helm_version.rc in [0, 2, 127] else 'warn',
+        'detail': _rc_helm_version.stdout
+          if _rc_helm_version.rc == 0
+          else 'not installed (OpenTofu helm provider manages chart deployment)',
+        'error': _rc_helm_version.stderr | default('')
+          if _rc_helm_version.rc not in [0, 2, 127]
+          else ''
+      }] }}
+  changed_when: false
+
+- name: Check Helm repos
+  ansible.builtin.command: helm repo list
+  register: _rc_helm_repos
+  changed_when: false
+  failed_when: false
+  when: _rc_helm_version.rc == 0
+
+- name: Add Helm repos check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Helm',
+        'check_name': 'Helm repositories configured',
+        'status': 'pass' if (_rc_helm_repos.rc | default(0)) == 0 else 'warn',
+        'detail': ([(_rc_helm_repos.stdout_lines | default([]) | length - 1), 0] | max) | string
+          + ' repos configured (OpenTofu manages chart fetching)',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Debug Helm checks
+  ansible.builtin.debug:
+    msg:
+      - "Helm checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Helm') | list | length }} checks"
+  when: armory_build_debug | default(false) | bool

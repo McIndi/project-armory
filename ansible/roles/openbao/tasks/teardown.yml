@@ -1,0 +1,31 @@
+---
+- name: Register OpenBao namespace for teardown checks
+  ansible.builtin.set_fact:
+    teardown_role_target_namespaces: >-
+      {{
+        (teardown_role_target_namespaces | default([]))
+        + [openbao_namespace]
+        | unique
+      }}
+
+- name: Check if OpenBao OpenTofu state exists
+  ansible.builtin.stat:
+    path: "{{ openbao_work_dir }}/.terraform"
+  register: _openbao_tofu_state
+
+- name: Destroy OpenBao helm release via OpenTofu
+  ansible.builtin.command:
+    cmd: tofu destroy -auto-approve -input=false
+    chdir: "{{ openbao_work_dir }}"
+  register: _openbao_tofu_destroy
+  changed_when: false
+  failed_when: false
+  when: _openbao_tofu_state.stat.exists | default(false)
+
+- name: Debug OpenBao OpenTofu destroy task
+  ansible.builtin.debug:
+    msg:
+      - "Role teardown: openbao"
+      - "OpenTofu state present: {{ _openbao_tofu_state.stat.exists | default(false) }}"
+      - "OpenTofu destroy rc: {{ _openbao_tofu_destroy.rc | default('skipped') }}"
+  when: (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool

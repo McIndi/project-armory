@@ -1,0 +1,32 @@
+---
+- name: List current namespaces after OpenTofu teardown
+  ansible.builtin.command:
+    argv:
+      - k3s
+      - kubectl
+      - get
+      - namespaces
+      - -o
+      - jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}
+  environment:
+    KUBECONFIG: "{{ teardown_kubeconfig_path }}"
+  register: _teardown_namespaces_after
+  changed_when: false
+  failed_when: false
+
+- name: Build remaining application namespace list
+  ansible.builtin.set_fact:
+    teardown_remaining_namespaces: >-
+      {{
+        (_teardown_namespaces_after.stdout_lines | default([]))
+        | map('trim')
+        | reject('equalto', '')
+        | difference(teardown_keep_namespaces | default([]))
+        | sort
+      }}
+
+- name: Report teardown completion state
+  ansible.builtin.debug:
+    msg:
+      - "Remaining non-system namespaces after OpenTofu teardown: {{ teardown_remaining_namespaces | join(', ') if (teardown_remaining_namespaces | length > 0) else 'none' }}"
+      - "If any remain, inspect those namespaces for finalizers before using targeted kubectl remediation."

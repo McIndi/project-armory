@@ -1,0 +1,54 @@
+---
+# readiness_check/tasks/check_vso.yml
+# Validate Vault Secrets Operator deployment and vaultconnection resources
+
+- name: Check VSO deployment running
+  ansible.builtin.command: >-
+    k3s kubectl get deployment {{ readiness_check_vso_deployment_name }}
+    -n {{ readiness_check_vso_namespace }}
+    -o jsonpath='{.status.readyReplicas}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_vso_deployment
+  changed_when: false
+  failed_when: false
+
+- name: Add VSO deployment check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Vault Secrets Operator',
+        'check_name': 'Deployment ready',
+        'status': 'pass' if (_rc_vso_deployment.stdout | int) > 0 else 'fail',
+        'detail': (_rc_vso_deployment.stdout | default('0')) + ' replicas ready',
+        'error': _rc_vso_deployment.stderr | default('')
+      }] }}
+  changed_when: false
+
+- name: Check VaultConnection resources exist
+  ansible.builtin.command: >-
+    k3s kubectl get vaultconnection -A
+    -o name
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_vaultconnection
+  changed_when: false
+  failed_when: false
+
+- name: Add VaultConnection check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Vault Secrets Operator',
+        'check_name': 'VaultConnection resources configured',
+        'status': 'pass' if (_rc_vaultconnection.stdout_lines | length) > 0 else 'warn',
+        'detail': (_rc_vaultconnection.stdout_lines | length | string) + ' resources found',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Debug VSO checks
+  ansible.builtin.debug:
+    msg:
+      - "VSO checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Vault Secrets Operator') | list | length }} checks"
+  when: armory_build_debug | default(false) | bool

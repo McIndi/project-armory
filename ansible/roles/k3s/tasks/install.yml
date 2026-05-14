@@ -1,0 +1,160 @@
+---
+- name: Install and configure k3s with diagnostics
+  block:
+    - name: Check if k3s binary is already installed
+      ansible.builtin.stat:
+        path: "{{ k3s_install_dir }}/k3s"
+      register: k3s_binary
+
+    - name: Debug check for existing k3s binary
+      ansible.builtin.debug:
+        msg:
+          - "Task: Check if k3s binary is already installed"
+          - "Path checked: {{ k3s_install_dir }}/k3s"
+          - "Binary exists: {{ k3s_binary.stat.exists | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    # Config directory and config.yaml must exist BEFORE the install script runs
+    # so that k3s picks up disable/secrets-encryption on first start.
+    - name: Ensure k3s config directory exists
+      ansible.builtin.file:
+        path: "{{ k3s_config_dir }}"
+        state: directory
+        mode: "0755"
+      register: _k3s_config_dir_result
+
+    - name: Debug config directory task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure k3s config directory exists"
+          - "Directory: {{ k3s_config_dir }}"
+          - "Task changed: {{ _k3s_config_dir_result.changed | default(false) }}"
+          - "Task failed: {{ _k3s_config_dir_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Write k3s config file
+      ansible.builtin.template:
+        src: config.yaml.j2
+        dest: "{{ k3s_config_dir }}/config.yaml"
+        mode: "0644"
+      register: _k3s_config_file
+      notify: restart k3s
+
+    - name: Debug config file render task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Write k3s config file"
+          - "File: {{ k3s_config_dir }}/config.yaml"
+          - "Task changed: {{ _k3s_config_file.changed | default(false) }}"
+          - "Traefik disabled in config: {{ 'traefik' in k3s_disable }}"
+          - "Secrets encryption enabled: {{ k3s_secrets_encryption | bool }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Download k3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: "0700"
+      register: _k3s_install_script_download
+      when: not k3s_binary.stat.exists
+
+    - name: Debug install script download task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Download k3s install script"
+          - "Skipped (already installed): {{ k3s_binary.stat.exists | default(false) }}"
+          - "Task changed: {{ _k3s_install_script_download.changed | default(false) }}"
+          - "Destination: /tmp/k3s-install.sh"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Run k3s install script
+      ansible.builtin.command:
+        cmd: /tmp/k3s-install.sh
+      environment:
+        # INSTALL_K3S_VERSION: set empty to get latest stable release.
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        # We manage container-selinux ourselves; warn but don't abort if
+        # the rancher k3s-selinux RPM is unavailable on this distro.
+        INSTALL_K3S_SELINUX_WARN: "true"
+      register: _k3s_install_result
+      when: not k3s_binary.stat.exists
+      notify: restart k3s
+
+    - name: Debug install script execution task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Run k3s install script"
+          - "Skipped (already installed): {{ k3s_binary.stat.exists | default(false) }}"
+          - "Requested k3s version input: {{ k3s_version if (k3s_version | default('') | length > 0) else 'latest channel' }}"
+          - "Task changed: {{ _k3s_install_result.changed | default(false) }}"
+          - "Exit code: {{ _k3s_install_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    # On existing installs where Traefik was already running, remove its HelmChart
+    # resources so k3s stops managing and eventually removes the deployment.
+    - name: Remove Traefik HelmChart resources when Traefik is disabled
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl delete helmchart traefik traefik-crd
+          --namespace kube-system
+          --ignore-not-found
+      register: _k3s_traefik_cleanup
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - "'traefik' in k3s_disable"
+
+    - name: Debug Traefik cleanup task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Remove Traefik HelmChart resources"
+          - "Executed: {{ (not ansible_check_mode) and ('traefik' in k3s_disable) }}"
+          - "Task changed: {{ _k3s_traefik_cleanup.changed | default(false) }}"
+          - "Exit code: {{ _k3s_traefik_cleanup.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Ensure k3s service is enabled and started
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+        enabled: true
+        daemon_reload: true
+      register: _k3s_service_result
+
+    - name: Debug k3s service state task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Ensure k3s service is enabled and started"
+          - "Service: k3s"
+          - "Task changed: {{ _k3s_service_result.changed | default(false) }}"
+          - "Task failed: {{ _k3s_service_result.failed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug k3s install failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: k3s (install.yml)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail k3s install block with context
+      ansible.builtin.fail:
+        msg: >-
+          k3s install task flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Enable ARMORY_BUILD_DEBUG=true to print companion diagnostics for each task.
+
+  always:
+    - name: Debug final k3s install summary
+      ansible.builtin.debug:
+        msg:
+          - "Role: k3s (install.yml) summary"
+          - "k3s previously installed: {{ k3s_binary.stat.exists | default(false) }}"
+          - "Config file changed: {{ _k3s_config_file.changed | default(false) }}"
+          - "Install script executed: {{ _k3s_install_result is defined }}"
+          - "Service task changed: {{ _k3s_service_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool

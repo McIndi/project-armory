@@ -1,0 +1,117 @@
+---
+- name: Provision TLS resources with diagnostics
+  block:
+    - name: Generate TLS target namespace manifest
+      ansible.builtin.command:
+        cmd: k3s kubectl create namespace {{ nginx_ingress_tls_namespace }} --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _nginx_tls_ns_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug TLS namespace manifest generation task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Generate TLS target namespace manifest"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Namespace: {{ nginx_ingress_tls_namespace }}"
+          - "Exit code: {{ _nginx_tls_ns_yaml.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Apply TLS target namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _nginx_tls_ns_yaml.stdout }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _nginx_tls_ns_apply
+      changed_when: "'created' in _nginx_tls_ns_apply.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug TLS namespace apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply TLS target namespace"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Namespace: {{ nginx_ingress_tls_namespace }}"
+          - "Task changed: {{ _nginx_tls_ns_apply.changed | default(false) }}"
+          - "Exit code: {{ _nginx_tls_ns_apply.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Apply cert-manager ClusterIssuer for OpenBao PKI
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'cluster-issuer.yaml.j2') }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _cluster_issuer_result
+      changed_when: "'configured' in _cluster_issuer_result.stdout or 'created' in _cluster_issuer_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug ClusterIssuer apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply cert-manager ClusterIssuer for OpenBao PKI"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "OpenBao cluster address: {{ nginx_openbao_cluster_addr }}"
+          - "Task changed: {{ _cluster_issuer_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Apply TLS Certificate resource for armory.local
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'certificate.yaml.j2') }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certificate_result
+      changed_when: "'configured' in _certificate_result.stdout or 'created' in _certificate_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Debug certificate apply task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply TLS Certificate resource"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Domain/SAN IP: {{ nginx_ingress_domain }} / {{ nginx_ingress_ip }}"
+          - "Duration/RenewBefore: {{ nginx_ingress_cert_duration }} / {{ nginx_ingress_cert_renew_before }}"
+          - "Task changed: {{ _certificate_result.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for TLS certificate to be issued
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait certificate armory-tls
+          --for=condition=Ready
+          --namespace {{ nginx_ingress_tls_namespace }}
+          --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certificate_wait_result
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug certificate readiness wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for TLS certificate to be issued"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Namespace: {{ nginx_ingress_tls_namespace }}"
+          - "Exit code: {{ _certificate_wait_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug TLS flow failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: nginx_ingress (tls.yml)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail TLS flow with context
+      ansible.builtin.fail:
+        msg: >-
+          nginx_ingress TLS flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

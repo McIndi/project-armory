@@ -1,0 +1,100 @@
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    helm = {
+      source  = "hashicorp/helm"
+      version = ">= 2.12.1"
+    }
+  }
+}
+
+provider "helm" {
+  kubernetes = {
+    config_path = var.kubeconfig_path
+  }
+}
+
+variable "kubeconfig_path" {
+  type = string
+}
+
+variable "certmanager_release_name" {
+  type = string
+}
+
+variable "certmanager_namespace" {
+  type = string
+}
+
+variable "certmanager_chart_repo" {
+  type = string
+}
+
+variable "certmanager_chart_name" {
+  type = string
+}
+
+variable "certmanager_chart_version" {
+  type = string
+}
+
+variable "certmanager_chart_values" {
+  type = any
+}
+
+variable "nginx_release_name" {
+  type = string
+}
+
+variable "nginx_namespace" {
+  type = string
+}
+
+variable "nginx_chart_repo" {
+  type = string
+}
+
+variable "nginx_chart_name" {
+  type = string
+}
+
+variable "nginx_chart_version" {
+  type = string
+}
+
+variable "nginx_chart_values" {
+  type = any
+}
+
+resource "helm_release" "certmanager" {
+  name             = var.certmanager_release_name
+  namespace        = var.certmanager_namespace
+  create_namespace = true
+
+  repository = var.certmanager_chart_repo
+  chart      = var.certmanager_chart_name
+  version    = var.certmanager_chart_version != "" ? var.certmanager_chart_version : null
+
+  wait    = true
+  timeout = 300
+
+  values = [yamlencode(var.certmanager_chart_values)]
+}
+
+resource "helm_release" "nginx_ingress" {
+  name             = var.nginx_release_name
+  namespace        = var.nginx_namespace
+  create_namespace = true
+
+  repository = var.nginx_chart_repo
+  chart      = var.nginx_chart_name
+  version    = var.nginx_chart_version != "" ? var.nginx_chart_version : null
+
+  wait    = true
+  timeout = 300
+
+  values = [yamlencode(var.nginx_chart_values)]
+
+  depends_on = [helm_release.certmanager]
+}
