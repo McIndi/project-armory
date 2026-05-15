@@ -25,7 +25,7 @@ beeai_tofu_cleanup_on_fail: false
 # Seed admin user created in the agentstack Keycloak realm on deploy.
 # Credentials are sourced from OpenBao KV via VSO — no local files.
 beeai_admin_username: admin
-beeai_admin_email: admin@armory.local
+beeai_admin_email: "{{ lookup('ansible.builtin.env', 'BEEAI_ADMIN_EMAIL') | default('admin@armory.dev', true) }}"
 beeai_admin_first_name: Admin
 beeai_admin_last_name: User
 
@@ -118,7 +118,7 @@ beeai_ui_trust_proxy_headers: true
 
 # API (agentstack-server) deployment patch settings
 beeai_server_deployment_name: agentstack-server
-beeai_server_oidc_issuer_url: "{{ beeai_public_base_url }}/realms/agentstack"
+beeai_server_oidc_issuer_url: "http://{{ beeai_keycloak_service_name }}:{{ beeai_keycloak_service_port }}/realms/agentstack"
 beeai_server_oidc_external_issuer_url: "{{ beeai_public_base_url }}/realms/agentstack"
 beeai_server_oidc_insecure_transport: false
 beeai_server_trust_proxy_headers: true

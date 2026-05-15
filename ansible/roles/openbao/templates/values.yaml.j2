@@ -27,6 +27,12 @@ server:
     enabled: true
     size: 1Gi
 
+  readinessProbe:
+    enabled: true
+    periodSeconds: {{ openbao_readiness_period_seconds }}
+    timeoutSeconds: {{ openbao_readiness_timeout_seconds }}
+    failureThreshold: {{ openbao_readiness_failure_threshold }}
+
   serviceAccount:
     create: true
     name: openbao

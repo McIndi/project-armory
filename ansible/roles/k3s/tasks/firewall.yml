@@ -38,9 +38,9 @@
         port: "{{ k3s_api_port }}/tcp"
         zone: "{{ k3s_firewall_zone }}"
         permanent: true
+        immediate: true
         state: enabled
       register: _k3s_firewall_api_port_result
-      notify: reload firewalld
 
     - name: Debug API port firewall task
       ansible.builtin.debug:
@@ -55,9 +55,9 @@
         port: "{{ k3s_kubelet_port }}/tcp"
         zone: "{{ k3s_firewall_zone }}"
         permanent: true
+        immediate: true
         state: enabled
       register: _k3s_firewall_kubelet_port_result
-      notify: reload firewalld
 
     - name: Debug kubelet port firewall task
       ansible.builtin.debug:
@@ -72,9 +72,9 @@
         port: "{{ k3s_flannel_port }}/udp"
         zone: "{{ k3s_firewall_zone }}"
         permanent: true
+        immediate: true
         state: enabled
       register: _k3s_firewall_flannel_port_result
-      notify: reload firewalld
 
     - name: Debug Flannel port firewall task
       ansible.builtin.debug:
@@ -89,9 +89,9 @@
         source: "{{ k3s_pod_cidr }}"
         zone: "{{ k3s_firewall_cluster_cidrs_zone }}"
         permanent: true
+        immediate: true
         state: enabled
       register: _k3s_firewall_pod_cidr_result
-      notify: reload firewalld
       when: k3s_firewall_allow_cluster_cidrs | default(true) | bool
 
     - name: Debug k3s pod CIDR firewall task
@@ -109,9 +109,9 @@
         source: "{{ k3s_service_cidr }}"
         zone: "{{ k3s_firewall_cluster_cidrs_zone }}"
         permanent: true
+        immediate: true
         state: enabled
       register: _k3s_firewall_service_cidr_result
-      notify: reload firewalld
       when: k3s_firewall_allow_cluster_cidrs | default(true) | bool
 
     - name: Debug k3s service CIDR firewall task

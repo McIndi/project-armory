@@ -33,6 +33,11 @@ openbao_startup_wait_timeout: 300s
 # Timeout for readiness checks before init/unseal/configure steps.
 openbao_ready_wait_timeout: 600s
 
+# Readiness probe tuning to avoid tight retry loops on slow VMs.
+openbao_readiness_period_seconds: 10
+openbao_readiness_timeout_seconds: 10
+openbao_readiness_failure_threshold: 6
+
 # NodePort used to access OpenBao API from the host VM.
 # Must stay within the cluster NodePort range.
 openbao_node_port: 32200
