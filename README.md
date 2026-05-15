@@ -242,6 +242,150 @@ vagrant ssh -c "sudo k3s kubectl get secret -n agentstack keycloak-secret -o jso
 | **Username** | `admin` |
 | **Password** | See command above to retrieve from VM |
 
+## Agent Stack CLI and Authentication Setup
+
+This section documents the recommended end-to-end flow for using the Agent Stack CLI against this deployment.
+
+### 1. Prerequisites
+
+1. Ensure host name resolution for `armory.local` points to the VM IP.
+2. Ensure the platform is deployed and reachable at `https://armory.local`.
+3. Run commands from the host unless noted as VM-only.
+
+### 2. Install Agent Stack CLI
+
+#### Windows (PowerShell)
+
+```powershell
+uv python install --quiet --python-preference=only-managed --no-bin 3.14
+uv tool install --refresh --force --python-preference=only-managed --python=3.14 agentstack-cli
+agentstack self install
+agentstack self version -v
+```
+
+#### Linux/macOS
+
+```bash
+uv python install --quiet --python-preference=only-managed --no-bin 3.14
+uv tool install --refresh --force --python-preference=only-managed --python=3.14 agentstack-cli
+agentstack self install
+agentstack self version -v
+```
+
+### 3. Export and Trust the Armory Root CA
+
+The deployment uses a private PKI chain for `armory.local`. Trust the CA on clients that run `agentstack`.
+
+#### Export CA from VM
+
+```bash
+vagrant ssh -c "curl -s http://127.0.0.1:32200/v1/pki/ca/pem" > armory-ca.pem
+```
+
+#### Trust CA on Windows (Current User)
+
+```powershell
+certutil -addstore -f Root .\armory-ca.pem
+```
+
+#### Trust CA on Fedora VM (system-wide)
+
+```bash
+sudo cp armory-ca.pem /etc/pki/ca-trust/source/anchors/armory-ca.pem
+sudo update-ca-trust
+```
+
+### 4. Verify OIDC and API Reachability
+
+```bash
+curl -vk https://armory.local/realms/agentstack/.well-known/openid-configuration
+curl -vk https://armory.local/api/
+```
+
+Expected:
+- OIDC discovery returns `200` with JSON.
+- `/api/` may redirect, but should be reachable through the same host.
+
+### 5. Recommended Login: Interactive User Login
+
+Use this for normal operator usage:
+
+```bash
+agentstack server login https://armory.local --auth-server https://armory.local/realms/agentstack
+```
+
+When prompted, authenticate with the seeded user (`admin`) and password from `beeai-credentials`.
+
+### 6. Optional Login: OAuth Client Credentials
+
+Use this for automation/service-account style workflows.
+
+#### 6.1 Get Keycloak admin password (VM)
+
+```bash
+KC_ADMIN_PASSWORD="$(sudo k3s kubectl get secret -n agentstack keycloak-secret -o jsonpath='{.data.admin-password}' | base64 -d)"
+```
+
+#### 6.2 Discover Keycloak internal service endpoint (VM)
+
+```bash
+KC_SVC_IP="$(sudo k3s kubectl get svc -n agentstack keycloak -o jsonpath='{.spec.clusterIP}')"
+KC_SVC_PORT="$(sudo k3s kubectl get svc -n agentstack keycloak -o jsonpath='{.spec.ports[0].port}')"
+```
+
+#### 6.3 Obtain short-lived admin API token (VM)
+
+```bash
+KC_TOKEN="$(curl -s "http://$KC_SVC_IP:$KC_SVC_PORT/realms/master/protocol/openid-connect/token" \
+   -d client_id=admin-cli \
+   -d username=admin \
+   -d password="$KC_ADMIN_PASSWORD" \
+   -d grant_type=password | jq -r '.access_token // empty')"
+```
+
+#### 6.4 Find the CLI client and inspect whether it is confidential (VM)
+
+```bash
+CLI_UUID="$(curl -s -H "Authorization: Bearer $KC_TOKEN" \
+   "http://$KC_SVC_IP:$KC_SVC_PORT/admin/realms/agentstack/clients?clientId=agentstack-cli" \
+   | jq -r '.[0].id // empty')"
+
+curl -s -H "Authorization: Bearer $KC_TOKEN" \
+   "http://$KC_SVC_IP:$KC_SVC_PORT/admin/realms/agentstack/clients/$CLI_UUID" \
+   | jq '{clientId, publicClient, serviceAccountsEnabled}'
+```
+
+If `publicClient` is `true`, the client has no secret by design. Use interactive login or create a dedicated confidential client.
+
+If `publicClient` is `false`, fetch its secret:
+
+```bash
+KC_TOKEN="$(curl -s "http://$KC_SVC_IP:$KC_SVC_PORT/realms/master/protocol/openid-connect/token" \
+   -d client_id=admin-cli \
+   -d username=admin \
+   -d password="$KC_ADMIN_PASSWORD" \
+   -d grant_type=password | jq -r '.access_token // empty')"
+
+CLI_SECRET="$(curl -s -H "Authorization: Bearer $KC_TOKEN" \
+   "http://$KC_SVC_IP:$KC_SVC_PORT/admin/realms/agentstack/clients/$CLI_UUID/client-secret" \
+   | jq -r '.value // empty')"
+```
+
+#### 6.5 Login with client credentials
+
+```bash
+agentstack server login https://armory.local \
+   --auth-server https://armory.local/realms/agentstack \
+   --client-id agentstack-cli \
+   --client-secret "$CLI_SECRET"
+```
+
+### 7. Security Notes
+
+1. Do not commit client secrets, tokens, or passwords to the repository.
+2. Treat any secret pasted into chat or logs as exposed and rotate it.
+3. Keycloak admin tokens are intentionally short-lived; refresh before admin API calls.
+
 ### Troubleshooting 503 Service Unavailable
 
 If you get a 503 error when accessing the UI, the nginx ingress cannot reach the backend services. Use these commands from the Vagrant VM to diagnose:
