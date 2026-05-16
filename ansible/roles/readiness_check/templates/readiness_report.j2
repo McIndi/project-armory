@@ -1,0 +1,64 @@
+{% set total_checks = _readiness_results | length %}
+{% set passed_checks = _readiness_results | selectattr('status', 'equalto', 'pass') | list | length %}
+{% set warned_checks = _readiness_results | selectattr('status', 'equalto', 'warn') | list | length %}
+{% set failed_checks = _readiness_results | selectattr('status', 'equalto', 'fail') | list | length %}
+{% set component_names = _readiness_results | map(attribute='component') | unique | sort %}
+
+================================================================================
+                         READINESS CHECK SUMMARY
+================================================================================
+
+Total Checks: {{ total_checks }} | Passed: {{ passed_checks }} | Warned: {{ warned_checks }} | Failed: {{ failed_checks }}
+
+{% if failed_checks > 0 %}
+STATUS: ❌ FAILED ({{ failed_checks }} critical issues found)
+{% elif warned_checks > 0 %}
+STATUS: ⚠️  WARNED ({{ warned_checks }} warnings, but no critical failures)
+{% else %}
+STATUS: ✅ PASSED (all checks successful)
+{% endif %}
+
+================================================================================
+                         COMPONENT BREAKDOWN
+================================================================================
+
+{% for component_name in component_names %}
+{% set component_checks = _readiness_results | selectattr('component', 'equalto', component_name) | list %}
+{% set component_fails = component_checks | selectattr('status', 'equalto', 'fail') | list | length %}
+{% set component_warns = component_checks | selectattr('status', 'equalto', 'warn') | list | length %}
+{% set component_status = 'fail' if component_fails > 0 else 'warn' if component_warns > 0 else 'pass' %}
+
+{{ component_name | upper }}
+{{ '-' * (component_name | length) }}
+Status: {{ component_status | upper }}
+Checks: {{ component_checks | length }} total
+
+{% for check in component_checks %}
+  • {{ check.check_name }}
+    Status: {{ check.status | upper }}
+{% if check.detail %}    Detail: {{ check.detail }}{% endif %}
+{% if check.error %}    Error: {{ check.error }}{% endif %}
+{% endfor %}
+
+{% endfor %}
+
+================================================================================
+                        NEXT STEPS / RECOMMENDATIONS
+================================================================================
+
+{% if failed_checks == 0 and warned_checks == 0 %}
+✅ Environment is ready for use.
+   - Access BeeAI UI at: https://armory.local (username: admin)
+   - Retrieve credentials using commands in README.md
+{% elif failed_checks == 0 and warned_checks > 0 %}
+⚠️  Environment is mostly ready, but review warnings above.
+   - Address warnings before proceeding to production use.
+   - Set ARMORY_BUILD_DEBUG=true and rerun for detailed diagnostics.
+{% else %}
+❌ Critical issues detected. Environment is not ready.
+   - Fix failed checks above before retrying.
+   - Set ARMORY_BUILD_DEBUG=true and rerun for detailed diagnostics.
+   - If problems persist, review role logs and check component READMEs.
+{% endif %}
+
+================================================================================

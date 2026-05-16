@@ -6,4 +6,3 @@ research/
 ansible.cfg
 .env
 *.log
-readiness_report.j2
