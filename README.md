@@ -380,7 +380,40 @@ agentstack server login https://armory.local \
    --client-secret "$CLI_SECRET"
 ```
 
-### 7. Security Notes
+
+## TLS Status by Communication Path
+
+### ✅ Encrypted (TLS)
+| Path | Protocol | Notes |
+|------|----------|-------|
+| Client → nginx ingress | HTTPS/443 | TLS terminated at ingress using `armory-tls` cert from OpenBao PKI |
+| nginx → Keycloak (OIDC) | HTTPS | `armory.local/realms` routed via ingress with TLS |
+| agentstack-ui → OIDC issuer | HTTPS | `OIDC_PROVIDER_ISSUER=https://armory.local/realms/agentstack`, with private CA mounted at `/etc/armory-ca/ca.crt` |
+| agentstack-server → external OIDC | HTTPS | `AUTH__OIDC__EXTERNAL_ISSUER=https://armory.local/realms/agentstack` |
+| metrics-server | HTTPS/10250 | TLS always on for kubelet metrics |
+| cert-manager webhook | HTTPS/443 | Standard cert-manager behaviour |
+| VSO metrics | HTTPS/8443 | |
+| ingress-nginx admission | HTTPS/443 | |
+
+### ⚠️ Unencrypted (plain HTTP) — internal cluster only
+| Path | Protocol | Notes |
+|------|----------|-------|
+| VSO → OpenBao | **HTTP** `http://openbao.openbao.svc.cluster.local:8200` | OpenBao has `tls_disable=1`; traffic stays within the cluster pod network |
+| agentstack-server → Keycloak (in-cluster) | **HTTP** `http://keycloak:8336/realms/agentstack` | Intentional — the Keycloak patch sets `KC_HOSTNAME_STRICT=false` specifically to allow this HTTP in-cluster path |
+| agentstack-server → PostgreSQL | **Plain** `postgresql+psycopg://...@postgresql:5432` | Standard unencrypted PostgreSQL; in-cluster only |
+| agentstack-server → SeaweedFS S3 | **HTTP** `http://seaweedfs-all-in-one:9009` | S3-compatible endpoint, in-cluster only |
+| otel-collector → agentstack-server | **HTTP** `http://agentstack-server-svc:8333` | Telemetry collection, in-cluster only |
+
+---
+
+## Summary
+
+All **external-facing** traffic is TLS-encrypted. The unencrypted paths are all **intentional, internal cluster-only** communications that never leave the Kubernetes pod network. The most notable ones worth being aware of:
+
+- **OpenBao runs without TLS** (`tls_disable=1`) — this is a common pattern for in-cluster deployments where the pod network is trusted, but it means secrets transit in plaintext between VSO and OpenBao within the cluster.
+- **Keycloak's in-cluster HTTP path** is a deliberate workaround (documented in the `beeai_agentstack_tofu` role) to avoid the `KC_HOSTNAME_STRICT` redirect loop.
+
+## 7. Security Notes
 
 1. Do not commit client secrets, tokens, or passwords to the repository.
 2. Treat any secret pasted into chat or logs as exposed and rotate it.
