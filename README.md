@@ -242,6 +242,51 @@ vagrant ssh -c "sudo k3s kubectl get secret -n agentstack keycloak-secret -o jso
 | **Username** | `admin` |
 | **Password** | See command above to retrieve from VM |
 
+## Access Headlamp Kubernetes Dashboard
+
+Headlamp is deployed as part of the stack to provide a modern Kubernetes dashboard with out-of-the-box visibility into k3s and BeeAI components. It is integrated with:
+
+- **OIDC authentication via Keycloak** (same realm as BeeAI)
+- **PKI/TLS via OpenBao** (cert-manager issues ingress certs)
+- **nginx ingress** for external HTTPS access
+- **Plugin manager** enabled by default (with official `cert-manager` plugin)
+
+### Headlamp Access URL
+
+- **URL:** `https://headlamp.armory.local`
+- **OIDC Issuer:** `https://armory.local/realms/agentstack`
+
+### Prerequisites
+
+1. Add these entries to your hosts file (see BeeAI UI section above for details):
+   ```
+   <vagrant_vm_ip> armory.local
+   <vagrant_vm_ip> headlamp.armory.local
+   ```
+2. Trust the Armory Root CA (see instructions above).
+
+### Retrieve Headlamp OIDC Credentials
+
+The OIDC client secret for Headlamp is generated and stored in OpenBao, then synced into a Kubernetes Secret by VSO. To retrieve the credentials:
+
+```bash
+vagrant ssh -c "sudo k3s kubectl get secret -n headlamp headlamp-oidc-secret -o jsonpath='{.data.client_secret}' | base64 -d; echo"
+```
+
+- **OIDC Client ID:** `headlamp`
+- **OIDC Issuer:** `https://armory.local/realms/agentstack`
+- **OIDC Client Secret:** (see command above)
+
+You can use these credentials to log in to Headlamp via the OIDC login screen. By default, any user with admin rights in Keycloak for the `agentstack` realm can authenticate.
+
+### Features
+
+- Out-of-the-box visibility into k3s workloads, nodes, and BeeAI namespaces
+- Plugin manager enabled (default: `cert-manager` plugin)
+- Helm UI enabled for managing releases (if authorized)
+
+See `ansible/roles/headlamp/README.md` for advanced configuration and plugin extension.
+
 ## Agent Stack CLI and Authentication Setup
 
 This section documents the recommended end-to-end flow for using the Agent Stack CLI against this deployment.
@@ -276,16 +321,44 @@ agentstack self version -v
 
 The deployment uses a private PKI chain for `armory.local`. Trust the CA on clients that run `agentstack`.
 
-#### Export CA from VM
+#### Export CA from VM (authoritative signer)
 
 ```bash
 vagrant ssh -c "curl -s http://127.0.0.1:32200/v1/pki/ca/pem" > armory-ca.pem
 ```
 
+#### Optional: Export the cert currently served by ingress (for diagnostics)
+
+```bash
+# Exports the certificate chain presented by the endpoint to a local file.
+# In this setup, this is typically a single leaf cert unless your ingress secret includes intermediates.
+openssl s_client -connect headlamp.armory.local:443 -servername headlamp.armory.local -showcerts </dev/null 2>/dev/null  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' > headlamp-served-chain.pem
+```
+
+#### Verify CA fingerprint before trust (recommended)
+
+```bash
+openssl x509 -in armory-ca.pem -noout -fingerprint -sha256 -subject -dates
+```
+
+If multiple `Armory Root CA` certs already exist on your workstation from prior rebuilds, remove old ones first so the browser does not select a stale trust anchor.
+
 #### Trust CA on Windows (Current User)
 
 ```powershell
 certutil -addstore -f Root .\armory-ca.pem
+```
+
+#### (Windows) List existing Armory roots and remove stale entries
+
+```powershell
+# List
+Get-ChildItem Cert:\CurrentUser\Root |
+   Where-Object { $_.Subject -eq 'CN=Armory Root CA' } |
+   Select-Object Subject, Thumbprint, NotBefore, NotAfter
+
+# Remove one stale thumbprint (replace THUMBPRINT)
+certutil -delstore Root THUMBPRINT
 ```
 
 #### Trust CA on Fedora VM (system-wide)
@@ -380,40 +453,7 @@ agentstack server login https://armory.local \
    --client-secret "$CLI_SECRET"
 ```
 
-
-## TLS Status by Communication Path
-
-### ✅ Encrypted (TLS)
-| Path | Protocol | Notes |
-|------|----------|-------|
-| Client → nginx ingress | HTTPS/443 | TLS terminated at ingress using `armory-tls` cert from OpenBao PKI |
-| nginx → Keycloak (OIDC) | HTTPS | `armory.local/realms` routed via ingress with TLS |
-| agentstack-ui → OIDC issuer | HTTPS | `OIDC_PROVIDER_ISSUER=https://armory.local/realms/agentstack`, with private CA mounted at `/etc/armory-ca/ca.crt` |
-| agentstack-server → external OIDC | HTTPS | `AUTH__OIDC__EXTERNAL_ISSUER=https://armory.local/realms/agentstack` |
-| metrics-server | HTTPS/10250 | TLS always on for kubelet metrics |
-| cert-manager webhook | HTTPS/443 | Standard cert-manager behaviour |
-| VSO metrics | HTTPS/8443 | |
-| ingress-nginx admission | HTTPS/443 | |
-
-### ⚠️ Unencrypted (plain HTTP) — internal cluster only
-| Path | Protocol | Notes |
-|------|----------|-------|
-| VSO → OpenBao | **HTTP** `http://openbao.openbao.svc.cluster.local:8200` | OpenBao has `tls_disable=1`; traffic stays within the cluster pod network |
-| agentstack-server → Keycloak (in-cluster) | **HTTP** `http://keycloak:8336/realms/agentstack` | Intentional — the Keycloak patch sets `KC_HOSTNAME_STRICT=false` specifically to allow this HTTP in-cluster path |
-| agentstack-server → PostgreSQL | **Plain** `postgresql+psycopg://...@postgresql:5432` | Standard unencrypted PostgreSQL; in-cluster only |
-| agentstack-server → SeaweedFS S3 | **HTTP** `http://seaweedfs-all-in-one:9009` | S3-compatible endpoint, in-cluster only |
-| otel-collector → agentstack-server | **HTTP** `http://agentstack-server-svc:8333` | Telemetry collection, in-cluster only |
-
----
-
-## Summary
-
-All **external-facing** traffic is TLS-encrypted. The unencrypted paths are all **intentional, internal cluster-only** communications that never leave the Kubernetes pod network. The most notable ones worth being aware of:
-
-- **OpenBao runs without TLS** (`tls_disable=1`) — this is a common pattern for in-cluster deployments where the pod network is trusted, but it means secrets transit in plaintext between VSO and OpenBao within the cluster.
-- **Keycloak's in-cluster HTTP path** is a deliberate workaround (documented in the `beeai_agentstack_tofu` role) to avoid the `KC_HOSTNAME_STRICT` redirect loop.
-
-## 7. Security Notes
+### 7. Security Notes
 
 1. Do not commit client secrets, tokens, or passwords to the repository.
 2. Treat any secret pasted into chat or logs as exposed and rotate it.
@@ -467,8 +507,41 @@ sudo helm list -n agentstack
 sudo helm status agentstack -n agentstack
 ```
 
+## Communication Audit
+
+Let me check all the communication paths systematically — ingress, service-to-service, and OpenBao/VSO connections.
+
+Here's the complete picture across every communication path:
+
+---
+
+## TLS Status by Communication Path
+
+### ✅ Encrypted (TLS)
+| Path | Protocol | Notes |
+|------|----------|-------|
+| Client → nginx ingress | HTTPS/443 | TLS terminated at ingress using `armory-tls` cert from OpenBao PKI |
+| nginx → Keycloak (OIDC) | HTTPS | `armory.local/realms` routed via ingress with TLS |
+| agentstack-ui → OIDC issuer | HTTPS | `OIDC_PROVIDER_ISSUER=https://armory.local/realms/agentstack`, with private CA mounted at `/etc/armory-ca/ca.crt` |
+| agentstack-server → external OIDC | HTTPS | `AUTH__OIDC__EXTERNAL_ISSUER=https://armory.local/realms/agentstack` |
+| metrics-server | HTTPS/10250 | TLS always on for kubelet metrics |
+| cert-manager webhook | HTTPS/443 | Standard cert-manager behaviour |
+| VSO metrics | HTTPS/8443 | |
+| ingress-nginx admission | HTTPS/443 | |
+
+### ⚠️ Unencrypted (plain HTTP) — internal cluster only
+| Path | Protocol | Notes |
+|------|----------|-------|
+| VSO → OpenBao | **HTTP** `http://openbao.openbao.svc.cluster.local:8200` | OpenBao has `tls_disable=1`; traffic stays within the cluster pod network |
+| agentstack-server → Keycloak (in-cluster) | **HTTP** `http://keycloak:8336/realms/agentstack` | Intentional — the Keycloak patch sets `KC_HOSTNAME_STRICT=false` specifically to allow this HTTP in-cluster path |
+| agentstack-server → PostgreSQL | **Plain** `postgresql+psycopg://...@postgresql:5432` | Standard unencrypted PostgreSQL; in-cluster only |
+| agentstack-server → SeaweedFS S3 | **HTTP** `http://seaweedfs-all-in-one:9009` | S3-compatible endpoint, in-cluster only |
+| otel-collector → agentstack-server | **HTTP** `http://agentstack-server-svc:8333` | Telemetry collection, in-cluster only |
+
+
 **Common Issues:**
 - **Pods in CrashLoopBackOff**: Check pod logs for startup errors (database not ready, credentials missing, etc.)
 - **Pods in Pending**: Check node resources (`kubectl top nodes`) or PVC status (`kubectl get pvc -n agentstack`)
 - **Endpoints empty**: Service selectors don't match pod labels; check `kubectl describe svc <svc_name> -n agentstack`
 - **Ingress rules not matching**: Verify hostname in ingress matches `armory.local` and TLS certificate is valid
+

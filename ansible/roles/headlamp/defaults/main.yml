@@ -1,0 +1,78 @@
+---
+# OpenTofu deployment settings
+headlamp_tofu_work_dir: /opt/headlamp-tofu
+headlamp_kubeconfig_path: "{{ beeai_tofu_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
+# Headlamp Helm release settings
+headlamp_namespace: headlamp
+headlamp_release_name: headlamp
+headlamp_chart_repo: https://kubernetes-sigs.github.io/headlamp
+headlamp_chart_name: headlamp
+headlamp_chart_version: ""
+
+# Public ingress settings
+headlamp_ingress_host: headlamp.armory.local
+headlamp_ingress_class: nginx
+headlamp_ingress_path: /
+headlamp_ingress_path_type: Prefix
+headlamp_ingress_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.address | default('127.0.0.1')) }}"
+
+# TLS settings (cert-manager + OpenBao ClusterIssuer)
+headlamp_tls_secret_name: headlamp-tls
+headlamp_tls_issuer_name: openbao-pki
+headlamp_cert_duration: "8760h"
+headlamp_cert_renew_before: "720h"
+
+# Keycloak OIDC settings
+headlamp_keycloak_realm: agentstack
+headlamp_keycloak_admin_username: admin
+headlamp_keycloak_service_name: "{{ beeai_keycloak_service_name | default('keycloak') }}"
+headlamp_keycloak_service_port: "{{ beeai_keycloak_service_port | default(8336) }}"
+headlamp_oidc_client_id: headlamp
+# If empty, a strong secret is generated once and persisted to OpenBao.
+headlamp_oidc_client_secret: ""
+headlamp_oidc_issuer_url: "{{ (beeai_public_base_url | default('https://armory.local')) + '/realms/' + headlamp_keycloak_realm }}"
+# Keep this to scopes Keycloak accepts by default for this client.
+# Headlamp already requests OpenID, so including openid here can duplicate it.
+headlamp_oidc_scopes: "profile,email"
+headlamp_oidc_ca_pem_url: "{{ headlamp_openbao_api_addr }}/v1/pki/ca/pem"
+headlamp_oidc_ca_secret_key: OIDC_CA_PEM
+headlamp_oidc_ca_mount_path: /etc/headlamp-oidc
+headlamp_oidc_ca_file_name: oidc-ca.pem
+headlamp_oidc_ca_file_path: "{{ headlamp_oidc_ca_mount_path }}/{{ headlamp_oidc_ca_file_name }}"
+
+# Pod-level OIDC issuer hostname resolution
+headlamp_oidc_resolver_host: "{{ headlamp_oidc_issuer_url | urlsplit('hostname') }}"
+headlamp_oidc_resolver_service_namespace: ingress-nginx
+headlamp_oidc_resolver_service_name: ingress-nginx-controller
+
+# OpenBao KV destination for Headlamp OIDC credentials
+headlamp_openbao_api_addr: "{{ openbao_api_addr | default('http://127.0.0.1:32200') }}"
+headlamp_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
+headlamp_openbao_oidc_path: headlamp/oidc
+
+# VSO sync settings for Headlamp namespace
+headlamp_openbao_cluster_addr: "{{ beeai_openbao_cluster_addr | default('http://openbao.openbao.svc.cluster.local:8200') }}"
+headlamp_openbao_k8s_role: headlamp-vso
+headlamp_openbao_policy_name: headlamp-vso
+headlamp_vso_sa_name: headlamp-vso
+headlamp_vault_connection_name: default
+headlamp_vault_auth_name: headlamp-vaultauth
+headlamp_oidc_secret_name: headlamp-oidc
+
+# Headlamp RBAC and plugin manager settings
+headlamp_cluster_role_name: cluster-admin
+headlamp_plugins_manager_enabled: true
+headlamp_plugins:
+  - name: cert-manager
+    source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_cert-manager
+    version: 0.1.0
+headlamp_plugins_manager_install_parallel: true
+headlamp_plugins_manager_max_concurrent: 2
+
+# Optional chart value overrides merged on top of role-managed values.
+headlamp_chart_values_overrides: {}
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: false

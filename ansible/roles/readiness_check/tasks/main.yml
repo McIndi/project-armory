@@ -60,6 +60,10 @@
       ansible.builtin.include_tasks: check_beeai.yml
       when: readiness_check_beeai_enabled | default(true) | bool
 
+    - name: Check Headlamp readiness
+      ansible.builtin.include_tasks: check_headlamp.yml
+      when: readiness_check_headlamp_enabled | default(true) | bool
+
     # ── Report and fail decision ─────────────────────────────────────────
 
     - name: Render readiness report

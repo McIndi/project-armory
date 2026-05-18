@@ -1,0 +1,281 @@
+---
+# Automate Keycloak OIDC client setup for Headlamp.
+
+- name: Get Keycloak service ClusterIP
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get svc {{ headlamp_keycloak_service_name }}
+      -n {{ beeai_tofu_namespace | default('agentstack') }}
+      -o jsonpath={.spec.clusterIP}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_kc_cluster_ip_result
+  changed_when: false
+
+- name: Set Keycloak internal base URL fact
+  ansible.builtin.set_fact:
+    _headlamp_kc_base_url: "http://{{ _headlamp_kc_cluster_ip_result.stdout }}:{{ headlamp_keycloak_service_port }}"
+
+- name: Get Keycloak admin password from keycloak-secret
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret keycloak-secret
+      -n {{ beeai_tofu_namespace | default('agentstack') }}
+      -o jsonpath={.data.admin-password}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_kc_admin_pw_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Decode Keycloak admin password
+  ansible.builtin.set_fact:
+    _headlamp_kc_admin_password: "{{ _headlamp_kc_admin_pw_b64.stdout | b64decode }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Obtain Keycloak admin token (retry until Keycloak is ready)
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ headlamp_keycloak_admin_username }}"
+      password: "{{ _headlamp_kc_admin_password }}"
+      grant_type: password
+    status_code: 200
+  register: _headlamp_kc_token_result
+  retries: 10
+  delay: 15
+  until: _headlamp_kc_token_result.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Keycloak admin token fact
+  ansible.builtin.set_fact:
+    _headlamp_kc_admin_token: "{{ _headlamp_kc_token_result.json.access_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Look up Headlamp OIDC client in Keycloak
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients?clientId={{ headlamp_oidc_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+    status_code: 200
+  register: _headlamp_kc_client_lookup
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Headlamp client existence facts
+  ansible.builtin.set_fact:
+    _headlamp_client_exists: "{{ (_headlamp_kc_client_lookup.json | length) > 0 }}"
+    _headlamp_client_internal_id: "{{ ((_headlamp_kc_client_lookup.json | first).id) if ((_headlamp_kc_client_lookup.json | length) > 0) else '' }}"
+
+- name: Generate Headlamp OIDC secret when none is provided
+  ansible.builtin.command:
+    cmd: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+  register: _headlamp_oidc_secret_generated
+  changed_when: true
+  when:
+    - (headlamp_oidc_client_secret | default('') | length) == 0
+    - not _headlamp_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set effective OIDC client secret for client create path
+  ansible.builtin.set_fact:
+    _headlamp_oidc_client_secret_effective: >-
+      {{
+        (headlamp_oidc_client_secret | default(''))
+        if (headlamp_oidc_client_secret | default('') | length) > 0
+        else (_headlamp_oidc_secret_generated.stdout | default(''))
+      }}
+  when: not _headlamp_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Create Headlamp Keycloak OIDC client
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      clientId: "{{ headlamp_oidc_client_id }}"
+      name: Headlamp
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      standardFlowEnabled: true
+      implicitFlowEnabled: false
+      directAccessGrantsEnabled: false
+      serviceAccountsEnabled: false
+      redirectUris:
+        - "https://{{ headlamp_ingress_host }}/"
+        - "https://{{ headlamp_ingress_host }}/oidc-callback"
+      webOrigins:
+        - "https://{{ headlamp_ingress_host }}"
+      rootUrl: "https://{{ headlamp_ingress_host }}"
+      baseUrl: "/"
+      adminUrl: "https://{{ headlamp_ingress_host }}"
+      secret: "{{ _headlamp_oidc_client_secret_effective }}"
+    status_code: 201
+  when: not _headlamp_client_exists
+  register: _headlamp_kc_client_create_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Refresh Headlamp client lookup after create
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients?clientId={{ headlamp_oidc_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+    status_code: 200
+  register: _headlamp_kc_client_lookup_after_create
+  changed_when: false
+  when: not _headlamp_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Headlamp client ID after create
+  ansible.builtin.set_fact:
+    _headlamp_client_internal_id: "{{ (_headlamp_kc_client_lookup_after_create.json | first).id }}"
+  when:
+    - not _headlamp_client_exists
+    - (_headlamp_kc_client_lookup_after_create.json | length) > 0
+
+- name: Get existing Headlamp Keycloak client representation
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+    status_code: 200
+  register: _headlamp_kc_client_details
+  changed_when: false
+  when: _headlamp_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Update Headlamp Keycloak client settings (idempotent)
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body: >-
+      {{
+        _headlamp_kc_client_details.json | combine({
+          'enabled': true,
+          'protocol': 'openid-connect',
+          'publicClient': false,
+          'standardFlowEnabled': true,
+          'implicitFlowEnabled': false,
+          'directAccessGrantsEnabled': false,
+          'serviceAccountsEnabled': false,
+          'redirectUris': [
+            'https://' + headlamp_ingress_host + '/',
+            'https://' + headlamp_ingress_host + '/oidc-callback'
+          ],
+          'webOrigins': [
+            'https://' + headlamp_ingress_host
+          ],
+          'rootUrl': 'https://' + headlamp_ingress_host,
+          'adminUrl': 'https://' + headlamp_ingress_host,
+          'baseUrl': '/'
+        }, recursive=True)
+      }}
+    status_code: 204
+  when: _headlamp_client_internal_id | length > 0
+  register: _headlamp_kc_client_update_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Rotate Headlamp client secret when explicitly provided
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}/client-secret"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      value: "{{ headlamp_oidc_client_secret }}"
+    status_code: [200, 204]
+  when:
+    - _headlamp_client_internal_id | length > 0
+    - (headlamp_oidc_client_secret | default('') | length) > 0
+  register: _headlamp_kc_secret_rotate_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Read current Headlamp client secret from Keycloak
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}/client-secret"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+    status_code: 200
+  register: _headlamp_kc_client_secret_read
+  changed_when: false
+  when: _headlamp_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set effective Keycloak client secret fact
+  ansible.builtin.set_fact:
+    headlamp_oidc_effective_client_secret: "{{ _headlamp_kc_client_secret_read.json.value | default(_headlamp_oidc_client_secret_effective | default('')) }}"
+  when: _headlamp_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Load OpenBao root token
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: load_openbao_root_token.yml
+
+- name: Read OpenBao root CA PEM for Headlamp OIDC trust
+  ansible.builtin.uri:
+    url: "{{ headlamp_oidc_ca_pem_url }}"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: _headlamp_openbao_ca_pem_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Set Headlamp OIDC CA PEM fact
+  ansible.builtin.set_fact:
+    _headlamp_oidc_ca_pem: "{{ _headlamp_openbao_ca_pem_result.content | default('') | trim }}"
+  when: not ansible_check_mode
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Persist Headlamp OIDC credentials in OpenBao KV
+  ansible.builtin.uri:
+    url: "{{ headlamp_openbao_api_addr }}/v1/{{ headlamp_openbao_kv_mount }}/data/{{ headlamp_openbao_oidc_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      data:
+        OIDC_CLIENT_ID: "{{ headlamp_oidc_client_id }}"
+        OIDC_CLIENT_SECRET: "{{ headlamp_oidc_effective_client_secret }}"
+        OIDC_ISSUER_URL: "{{ headlamp_oidc_issuer_url }}"
+        OIDC_SCOPES: "{{ headlamp_oidc_scopes }}"
+        OIDC_CA_PEM: "{{ _headlamp_oidc_ca_pem | default('') }}"
+    status_code: [200, 204]
+  register: _headlamp_openbao_oidc_store_result
+  when:
+    - not ansible_check_mode
+    - headlamp_oidc_effective_client_secret is defined
+    - (headlamp_oidc_effective_client_secret | string | length) > 0
+    - (_headlamp_oidc_ca_pem | default('') | length) > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Debug Headlamp OIDC automation summary
+  ansible.builtin.debug:
+    msg:
+      - "Task: Keycloak OIDC client automation"
+      - "Realm/client: {{ headlamp_keycloak_realm }}/{{ headlamp_oidc_client_id }}"
+      - "Client existed before run: {{ _headlamp_client_exists | default(false) }}"
+      - "OpenBao path: {{ headlamp_openbao_kv_mount }}/{{ headlamp_openbao_oidc_path }}"
+      - "OpenBao write status: {{ _headlamp_openbao_oidc_store_result.status | default('n/a') }}"
+  when: armory_build_debug | default(false) | bool

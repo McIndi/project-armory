@@ -1,0 +1,149 @@
+---
+# readiness_check/tasks/check_headlamp.yml
+# Validate Headlamp deployment, secret sync, cert readiness, and HTTPS ingress.
+
+- name: Check Headlamp namespace exists
+  ansible.builtin.command: >-
+    k3s kubectl get namespace {{ readiness_check_headlamp_namespace }}
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_headlamp_namespace
+  changed_when: false
+  failed_when: false
+
+- name: Add Headlamp namespace check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'Namespace exists',
+        'status': 'pass' if _rc_headlamp_namespace.rc == 0 else 'fail',
+        'detail': readiness_check_headlamp_namespace,
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check Headlamp deployment availability
+  ansible.builtin.command: >-
+    k3s kubectl get deployment {{ readiness_check_headlamp_deployment_name }}
+    -n {{ readiness_check_headlamp_namespace }}
+    -o jsonpath={.status.availableReplicas}
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_headlamp_available_replicas
+  changed_when: false
+  failed_when: false
+
+- name: Add Headlamp deployment check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'Deployment available',
+        'status': 'pass' if (_rc_headlamp_available_replicas.stdout | default('0') | int) > 0 else 'fail',
+        'detail': ((_rc_headlamp_available_replicas.stdout | default('0') | int) | string) + ' available replicas',
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check Headlamp TLS secret exists
+  ansible.builtin.command: >-
+    k3s kubectl get secret {{ readiness_check_headlamp_tls_secret }}
+    -n {{ readiness_check_headlamp_namespace }}
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_headlamp_tls_secret
+  changed_when: false
+  failed_when: false
+
+- name: Add Headlamp TLS secret check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'TLS secret present',
+        'status': 'pass' if _rc_headlamp_tls_secret.rc == 0 else 'warn',
+        'detail': readiness_check_headlamp_tls_secret,
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check Headlamp OIDC secret exists
+  ansible.builtin.command: >-
+    k3s kubectl get secret {{ readiness_check_headlamp_oidc_secret }}
+    -n {{ readiness_check_headlamp_namespace }}
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_headlamp_oidc_secret
+  changed_when: false
+  failed_when: false
+
+- name: Add Headlamp OIDC secret check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'OIDC secret synced',
+        'status': 'pass' if _rc_headlamp_oidc_secret.rc == 0 else 'fail',
+        'detail': readiness_check_headlamp_oidc_secret,
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Check Headlamp HTTPS connectivity
+  ansible.builtin.uri:
+    url: "{{ readiness_check_headlamp_url }}"
+    method: GET
+    validate_certs: "{{ readiness_check_validate_tls }}"
+    timeout: "{{ readiness_check_beeai_readiness_timeout }}"
+    status_code: [200, 301, 302, 401, 403]
+  register: _rc_headlamp_https
+  changed_when: false
+  failed_when: false
+  until: _rc_headlamp_https.status is defined
+  retries: 5
+  delay: 2
+
+- name: Check Headlamp HTTPS connectivity via ingress NodePort when DNS fails
+  ansible.builtin.uri:
+    url: "https://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:30443"
+    method: GET
+    headers:
+      Host: "{{ readiness_check_headlamp_host_header }}"
+    validate_certs: false
+    follow_redirects: none
+    timeout: "{{ readiness_check_beeai_readiness_timeout }}"
+    status_code: [200, 301, 302, 307, 401, 403]
+  register: _rc_headlamp_https_nodeport
+  changed_when: false
+  failed_when: false
+  when: "'name resolution' in ((_rc_headlamp_https.msg | default('')) | lower)"
+
+- name: Add Headlamp HTTPS connectivity check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'HTTPS connectivity to ' + readiness_check_headlamp_url,
+        'status': 'pass'
+          if (_rc_headlamp_https.status | default(-1)) in [200, 301, 302, 307, 401, 403]
+          else 'pass'
+          if (_rc_headlamp_https_nodeport is defined and (_rc_headlamp_https_nodeport.status | default(-1)) in [200, 301, 302, 307, 401, 403])
+          else 'warn'
+          if ('name resolution' in ((_rc_headlamp_https.msg | default('')) | lower))
+          else 'fail',
+        'detail': 'HTTP ' + ((_rc_headlamp_https_nodeport.status | default(-1)) | string) + ' via nodeport fallback'
+          if ('name resolution' in ((_rc_headlamp_https.msg | default('')) | lower)) and (_rc_headlamp_https_nodeport is defined)
+          else 'HTTP ' + ((_rc_headlamp_https.status | default(-1)) | string),
+        'error': (_rc_headlamp_https.msg | default(''))
+          if ((_rc_headlamp_https.status | default(-1)) not in [200, 301, 302, 307, 401, 403])
+          else ''
+      }] }}
+  changed_when: false
+
+- name: Debug Headlamp checks
+  ansible.builtin.debug:
+    msg:
+      - "Headlamp checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Headlamp') | list | length }} checks"
+      - "Headlamp URL: {{ readiness_check_headlamp_url }}"
+  when: armory_build_debug | default(false) | bool

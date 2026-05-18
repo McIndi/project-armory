@@ -1,0 +1,276 @@
+---
+# Deploy Headlamp with OpenTofu + Helm and sync OIDC secret from OpenBao via VSO.
+
+- name: Load OpenBao root token
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: load_openbao_root_token.yml
+
+- name: Write OpenBao ACL policy for Headlamp OIDC secret
+  ansible.builtin.uri:
+    url: "{{ headlamp_openbao_api_addr }}/v1/sys/policies/acl/{{ headlamp_openbao_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        path "{{ headlamp_openbao_kv_mount }}/data/{{ headlamp_openbao_oidc_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ headlamp_openbao_kv_mount }}/metadata/{{ headlamp_openbao_oidc_path }}" {
+          capabilities = ["read"]
+        }
+    status_code: [200, 204]
+  register: _headlamp_openbao_policy_result
+  when: not ansible_check_mode
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Configure OpenBao Kubernetes auth role for Headlamp VSO sync
+  ansible.builtin.uri:
+    url: "{{ headlamp_openbao_api_addr }}/v1/auth/kubernetes/role/{{ headlamp_openbao_k8s_role }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      bound_service_account_names:
+        - "{{ headlamp_vso_sa_name }}"
+      bound_service_account_namespaces:
+        - "{{ headlamp_namespace }}"
+      policies:
+        - "{{ headlamp_openbao_policy_name }}"
+      ttl: 24h
+    status_code: [200, 204]
+  register: _headlamp_openbao_k8s_role_result
+  when: not ansible_check_mode
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Apply Headlamp VaultConnection and VaultAuth resources
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ lookup('template', 'headlamp_vaultconnection.yaml.j2') }}\n---\n{{ lookup('template', 'headlamp_vaultauth.yaml.j2') }}"
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_vault_auth_apply
+  changed_when: >-
+    'configured' in (_headlamp_vault_auth_apply.stdout | default('')) or
+    'created' in (_headlamp_vault_auth_apply.stdout | default(''))
+  when: not ansible_check_mode
+
+- name: Apply Headlamp VaultStaticSecret resource
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ lookup('template', 'headlamp_vaultstaticsecret.yaml.j2') }}"
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_vss_apply
+  changed_when: >-
+    'configured' in (_headlamp_vss_apply.stdout | default('')) or
+    'created' in (_headlamp_vss_apply.stdout | default(''))
+  when: not ansible_check_mode
+
+- name: Wait for Headlamp OIDC secret to be synced by VSO
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ headlamp_oidc_secret_name }}
+      --namespace {{ headlamp_namespace }}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_oidc_secret_check
+  until: _headlamp_oidc_secret_check.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Ensure Headlamp host resolves to ingress IP locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ headlamp_ingress_host | regex_escape }}\s*$'
+    line: "{{ headlamp_ingress_ip }} {{ headlamp_ingress_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: _headlamp_hosts_result
+
+- name: Ensure Headlamp OpenTofu working directory exists
+  ansible.builtin.file:
+    path: "{{ headlamp_tofu_work_dir }}"
+    state: directory
+    mode: "0755"
+  register: _headlamp_work_dir_result
+
+- name: Render OpenTofu configuration for Headlamp
+  ansible.builtin.template:
+    src: main.tf.j2
+    dest: "{{ headlamp_tofu_work_dir }}/main.tf"
+    mode: "0644"
+  register: _headlamp_main_tf_result
+
+- name: Build Headlamp chart values payload
+  ansible.builtin.set_fact:
+    _headlamp_chart_values: >-
+      {{ {
+          'clusterRoleBinding': {
+            'create': True,
+            'clusterRoleName': headlamp_cluster_role_name
+          },
+          'config': {
+            'enableHelm': True,
+            'extraArgs': [
+              '-oidc-ca-file=' + headlamp_oidc_ca_file_path
+            ],
+            'oidc': {
+              'secret': {
+                'create': False
+              },
+              'externalSecret': {
+                'enabled': True,
+                'name': headlamp_oidc_secret_name,
+                'hasScopes': True
+              }
+            },
+            'watchPlugins': ((headlamp_plugins_manager_enabled | bool) and ((headlamp_plugins | length) > 0))
+          },
+          'volumes': [{
+            'name': 'headlamp-oidc-ca',
+            'secret': {
+              'secretName': headlamp_oidc_secret_name,
+              'items': [{
+                'key': headlamp_oidc_ca_secret_key,
+                'path': headlamp_oidc_ca_file_name
+              }]
+            }
+          }],
+          'volumeMounts': [{
+            'name': 'headlamp-oidc-ca',
+            'mountPath': headlamp_oidc_ca_mount_path,
+            'readOnly': True
+          }],
+          'pluginsManager': {
+            'enabled': ((headlamp_plugins_manager_enabled | bool) and ((headlamp_plugins | length) > 0)),
+            'configContent': ({
+              'plugins': headlamp_plugins,
+              'installOptions': {
+                'parallel': (headlamp_plugins_manager_install_parallel | bool),
+                'maxConcurrent': (headlamp_plugins_manager_max_concurrent | int)
+              }
+            } | to_nice_yaml(indent=2)),
+            'version': 'latest'
+          },
+          'ingress': {
+            'enabled': True,
+            'ingressClassName': headlamp_ingress_class,
+            'hosts': [{
+              'host': headlamp_ingress_host,
+              'paths': [{
+                'path': headlamp_ingress_path,
+                'type': headlamp_ingress_path_type
+              }]
+            }],
+            'tls': [{
+              'secretName': headlamp_tls_secret_name,
+              'hosts': [headlamp_ingress_host]
+            }]
+          }
+        } | combine(headlamp_chart_values_overrides | default({}), recursive=True)
+      }}
+  changed_when: false
+
+- name: Render OpenTofu variables file for Headlamp
+  ansible.builtin.copy:
+    dest: "{{ headlamp_tofu_work_dir }}/terraform.tfvars.json"
+    mode: "0600"
+    content: |
+      {{ {
+        'kubeconfig_path': headlamp_kubeconfig_path,
+        'release_name': headlamp_release_name,
+        'namespace': headlamp_namespace,
+        'chart_repository': headlamp_chart_repo,
+        'chart_name': headlamp_chart_name,
+        'chart_version': headlamp_chart_version,
+        'chart_values': _headlamp_chart_values
+      } | to_nice_json }}
+  register: _headlamp_tfvars_result
+
+- name: Initialize OpenTofu in Headlamp working directory
+  ansible.builtin.command:
+    cmd: tofu init -input=false
+    chdir: "{{ headlamp_tofu_work_dir }}"
+  register: _headlamp_tofu_init_result
+  changed_when: "'Terraform has been successfully initialized' in (_headlamp_tofu_init_result.stdout | default(''))"
+  when: not ansible_check_mode
+
+- name: Deploy Headlamp via OpenTofu Helm provider
+  ansible.builtin.command:
+    cmd: tofu apply -auto-approve -input=false
+    chdir: "{{ headlamp_tofu_work_dir }}"
+  register: _headlamp_tofu_apply_result
+  changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in (_headlamp_tofu_apply_result.stdout | default(''))"
+  when: not ansible_check_mode
+
+- name: Resolve in-cluster ingress IP for Headlamp OIDC issuer hostname
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get svc {{ headlamp_oidc_resolver_service_name }}
+      --namespace {{ headlamp_oidc_resolver_service_namespace }}
+      -o jsonpath={.spec.clusterIP}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_oidc_resolver_ip_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Patch Headlamp deployment with OIDC issuer hostAlias
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl patch deployment {{ headlamp_release_name }}
+      --namespace {{ headlamp_namespace }}
+      --type=strategic
+      --patch
+      {{ ({
+           'spec': {
+             'template': {
+               'spec': {
+                 'hostAliases': [{
+                   'ip': _headlamp_oidc_resolver_ip_result.stdout,
+                   'hostnames': [headlamp_oidc_resolver_host]
+                 }]
+               }
+             }
+           }
+         }) | to_json | quote }}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_oidc_hostalias_patch_result
+  changed_when: "'(no change)' not in (_headlamp_oidc_hostalias_patch_result.stdout | default(''))"
+  when:
+    - not ansible_check_mode
+    - (_headlamp_oidc_resolver_ip_result.stdout | default('') | length) > 0
+
+- name: Wait for Headlamp deployment rollout
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl rollout status deployment/{{ headlamp_release_name }}
+      --namespace {{ headlamp_namespace }}
+      --timeout=300s
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_rollout_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Debug Headlamp deploy summary
+  ansible.builtin.debug:
+    msg:
+      - "Task: Headlamp deployment complete"
+      - "Namespace/release: {{ headlamp_namespace }}/{{ headlamp_release_name }}"
+      - "OIDC secret synced: {{ headlamp_oidc_secret_name }}"
+      - "Ingress host: https://{{ headlamp_ingress_host }}"
+      - "Hosts file changed: {{ _headlamp_hosts_result.changed | default(false) }}"
+      - "OIDC resolver hostAlias changed: {{ _headlamp_oidc_hostalias_patch_result.changed | default(false) }}"
+      - "Tofu apply changed: {{ _headlamp_tofu_apply_result.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool

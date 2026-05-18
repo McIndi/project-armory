@@ -1,0 +1,9 @@
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: {{ headlamp_vault_connection_name }}
+  namespace: {{ headlamp_namespace }}
+spec:
+  address: {{ headlamp_openbao_cluster_addr }}
+  skipTLSVerify: false

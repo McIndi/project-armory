@@ -9,6 +9,7 @@ readiness_check_openbao_enabled: true
 readiness_check_vso_enabled: true
 readiness_check_nginx_enabled: true
 readiness_check_beeai_enabled: true
+readiness_check_headlamp_enabled: true
 
 # Network connectivity defaults
 readiness_check_connect_timeout: 5
@@ -47,6 +48,14 @@ readiness_check_beeai_url: "https://armory.local"
 readiness_check_beeai_readiness_timeout: 30
 readiness_check_beeai_nodeport_url: "https://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:30443"
 readiness_check_beeai_host_header: "armory.local"
+
+# Headlamp settings
+readiness_check_headlamp_namespace: headlamp
+readiness_check_headlamp_deployment_name: headlamp
+readiness_check_headlamp_url: "https://headlamp.armory.local"
+readiness_check_headlamp_host_header: "headlamp.armory.local"
+readiness_check_headlamp_tls_secret: headlamp-tls
+readiness_check_headlamp_oidc_secret: headlamp-oidc
 
 # Credential validation: attempt to use credentials to verify they work
 # Set to false to skip credential tests (only check file/secret existence)

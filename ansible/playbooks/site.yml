@@ -30,6 +30,10 @@
         - beeai
         - beeai_tofu
         - beeai_install
+    - role: headlamp
+      tags:
+        - headlamp
+        - headlamp_install
     - role: readiness_check
       tags:
         - readiness

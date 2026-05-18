@@ -1,0 +1,55 @@
+---
+# Provision cert-manager Certificate for the Headlamp ingress host.
+
+- name: Generate Headlamp namespace manifest
+  ansible.builtin.command:
+    cmd: k3s kubectl create namespace {{ headlamp_namespace }} --dry-run=client -o yaml
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_ns_yaml
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Apply Headlamp namespace
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ _headlamp_ns_yaml.stdout }}"
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_ns_apply
+  changed_when: "'created' in (_headlamp_ns_apply.stdout | default(''))"
+  when: not ansible_check_mode
+
+- name: Apply Headlamp Certificate resource
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ lookup('template', 'headlamp_certificate.yaml.j2') }}"
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_cert_apply
+  changed_when: >-
+    'configured' in (_headlamp_cert_apply.stdout | default('')) or
+    'created' in (_headlamp_cert_apply.stdout | default(''))
+  when: not ansible_check_mode
+
+- name: Wait for Headlamp TLS certificate to be issued
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl wait certificate {{ headlamp_tls_secret_name }}
+      --for=condition=Ready
+      --namespace {{ headlamp_namespace }}
+      --timeout=180s
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_cert_wait
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Debug Headlamp PKI summary
+  ansible.builtin.debug:
+    msg:
+      - "Task: Headlamp PKI certificate provisioning"
+      - "Namespace/secret: {{ headlamp_namespace }} / {{ headlamp_tls_secret_name }}"
+      - "Issuer: {{ headlamp_tls_issuer_name }}"
+      - "Certificate apply changed: {{ _headlamp_cert_apply.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool
