@@ -53,6 +53,30 @@
           - "Namespace/release: {{ headlamp_namespace }} / {{ headlamp_release_name }}"
       when: armory_build_debug | default(false) | bool
 
+    - name: Apply Kubernetes RBAC for Headlamp access
+      ansible.builtin.import_tasks: rbac.yml
+      tags: [headlamp, headlamp_rbac, kubernetes_rbac]
+
+    - name: Debug Headlamp RBAC import task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply Kubernetes RBAC for Headlamp access"
+          - "Imported file: roles/headlamp/tasks/rbac.yml"
+          - "RBAC binding: headlamp-admin -> cluster-admin"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Configure k3s API server OIDC authentication
+      ansible.builtin.import_tasks: k3s_oidc_configure.yml
+      tags: [headlamp, k3s_oidc]
+
+    - name: Debug k3s OIDC configuration import task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Configure k3s API server OIDC authentication"
+          - "Imported file: roles/headlamp/tasks/k3s_oidc_configure.yml"
+          - "k3s API server now validates JWTs from {{ headlamp_oidc_issuer_url }}"
+      when: armory_build_debug | default(false) | bool
+
   rescue:
     - name: Debug Headlamp orchestration failure context
       ansible.builtin.debug:

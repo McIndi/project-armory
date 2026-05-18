@@ -1,0 +1,109 @@
+---
+# Configure Kubernetes API Server OIDC authentication with Keycloak
+# This task waits for the OIDC CA certificate to be synced to Kubernetes via VSO,
+# then extracts it to the host filesystem and restarts k3s.
+
+- name: Configure k3s OIDC authentication with diagnostics
+  block:
+    - name: Debug OIDC configuration task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Configure k3s OIDC authentication"
+          - "OIDC enabled: {{ k3s_oidc_enabled | default(false) | bool }}"
+          - "OIDC issuer: {{ k3s_oidc_issuer_url | default('n/a') }}"
+          - "OIDC client ID: {{ k3s_oidc_client_id | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for OIDC CA secret to be synced by VSO
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ k3s_oidc_ca_secret_name }}
+          --namespace {{ k3s_oidc_ca_secret_namespace }}
+          -o jsonpath='{.data.{{ k3s_oidc_ca_secret_key }}}'
+      environment:
+        KUBECONFIG: "{{ k3s_kubeconfig_path }}"
+      register: _k3s_oidc_ca_secret
+      retries: 30
+      delay: 5
+      until: "_k3s_oidc_ca_secret.stdout | length > 0"
+      changed_when: false
+
+    - name: Debug OIDC CA secret extraction
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for OIDC CA secret to be synced by VSO"
+          - "Secret namespace: {{ k3s_oidc_ca_secret_namespace }}"
+          - "Secret name: {{ k3s_oidc_ca_secret_name }}"
+          - "Secret key: {{ k3s_oidc_ca_secret_key }}"
+          - "CA certificate retrieved: {{ (_k3s_oidc_ca_secret.stdout | length) > 0 }}"
+          - "Attempts: {{ _k3s_oidc_ca_secret.attempts | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Decode and write OIDC CA certificate to host filesystem
+      ansible.builtin.shell:
+        cmd: |
+          echo "{{ _k3s_oidc_ca_secret.stdout }}" | base64 -d > {{ k3s_oidc_ca_file }}
+          chmod 0644 {{ k3s_oidc_ca_file }}
+      register: _k3s_oidc_ca_write
+      changed_when: true
+
+    - name: Debug OIDC CA file write
+      ansible.builtin.debug:
+        msg:
+          - "Task: Decode and write OIDC CA certificate to host filesystem"
+          - "CA file path: {{ k3s_oidc_ca_file }}"
+          - "Task changed: {{ _k3s_oidc_ca_write.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Reload k3s service to apply OIDC configuration
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+        daemon_reload: true
+      register: _k3s_oidc_restart
+
+    - name: Debug k3s service restart for OIDC
+      ansible.builtin.debug:
+        msg:
+          - "Task: Reload k3s service to apply OIDC configuration"
+          - "Service: k3s"
+          - "Task changed: {{ _k3s_oidc_restart.changed | default(false) }}"
+          - "New kube-apiserver config includes OIDC settings"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Wait for k3s API server to be ready after OIDC configuration
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes
+      environment:
+        KUBECONFIG: "{{ k3s_kubeconfig_path }}"
+      register: _k3s_oidc_api_ready
+      retries: 30
+      delay: 2
+      until: "_k3s_oidc_api_ready.rc == 0"
+      changed_when: false
+
+    - name: Debug k3s API readiness after OIDC configuration
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for k3s API server to be ready after OIDC configuration"
+          - "API server ready: {{ _k3s_oidc_api_ready.rc == 0 }}"
+          - "Attempts: {{ _k3s_oidc_api_ready.attempts | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+  rescue:
+    - name: Debug k3s OIDC configuration failure context
+      ansible.builtin.debug:
+        msg:
+          - "Role: k3s (oidc.yml)"
+          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Fail k3s OIDC configuration with context
+      ansible.builtin.fail:
+        msg: >-
+          k3s OIDC configuration task flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          Enable ARMORY_BUILD_DEBUG=true to print companion diagnostics for each task.

@@ -58,6 +58,14 @@
           - "Disabled components: {{ k3s_disable | join(', ') if (k3s_disable | length > 0) else 'none' }}"
       when: armory_build_debug | default(false) | bool
 
+    - name: k3s OIDC configuration
+      ansible.builtin.import_tasks: oidc.yml
+      tags:
+        - k3s
+        - k3s_oidc
+      ignore_errors: true
+      when: k3s_oidc_enabled | default(false) | bool
+
   rescue:
     - name: Debug k3s orchestration failure context
       ansible.builtin.debug:

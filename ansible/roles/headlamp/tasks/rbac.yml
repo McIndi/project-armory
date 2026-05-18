@@ -1,0 +1,32 @@
+---
+# Apply Kubernetes RBAC to grant admin user access to Headlamp
+
+- name: Apply ClusterRoleBinding for Headlamp admin user
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: |
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: headlamp-admin
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+      subjects:
+        - kind: User
+          name: "https://armory.local/realms/agentstack#admin"
+          apiGroup: rbac.authorization.k8s.io
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_rbac_apply
+  changed_when: "'configured' in (_headlamp_rbac_apply.stdout | default('')) or 'created' in (_headlamp_rbac_apply.stdout | default(''))"
+
+- name: Debug Headlamp RBAC task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Apply ClusterRoleBinding for Headlamp admin user"
+      - "Subject: User 'admin'"
+      - "Role: cluster-admin"
+      - "Changed: {{ _headlamp_rbac_apply.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool

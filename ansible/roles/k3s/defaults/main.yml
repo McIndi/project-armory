@@ -55,3 +55,24 @@ k3s_firewall_cluster_cidrs_zone: trusted
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: Enabling this will print secrets/tokens into logs and output.
 armory_log_nolog: false
+
+# Kubernetes API Server OIDC Configuration
+# Enable OIDC authentication for the Kubernetes API server.
+# This allows JWT tokens from an external OIDC provider (e.g., Keycloak)
+# to be used for API authentication and RBAC.
+k3s_oidc_enabled: true
+k3s_oidc_issuer_url: "https://armory.local/realms/agentstack"
+k3s_oidc_client_id: "k3s"
+k3s_oidc_username_claim: "preferred_username"
+k3s_oidc_groups_claim: "groups"
+k3s_oidc_ca_file: "/etc/rancher/k3s/oidc-ca.pem"
+k3s_oidc_ca_configured: false  # Set to true after CA file is extracted and k3s is restarted
+
+# Source for OIDC CA certificate
+# Kubernetes secret containing the OIDC CA PEM
+k3s_oidc_ca_secret_namespace: "headlamp"
+k3s_oidc_ca_secret_name: "headlamp-oidc"
+k3s_oidc_ca_secret_key: "OIDC_CA_PEM"
+
+# k3s kubeconfig path for API access
+k3s_kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
