@@ -1,4 +1,5 @@
 ---
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
 beeai_tofu_work_dir: /opt/beeai-agentstack-tofu
 beeai_vso_tofu_work_dir: /opt/beeai-vso-tofu
 beeai_tofu_kubeconfig_path: /etc/rancher/k3s/k3s.yaml

@@ -4,3 +4,5 @@ common_openbao_init_keys_file: /opt/openbao/init-keys.yml
 
 # Fallback path to vault password file used to decrypt init keys.
 common_openbao_vault_pass_file: /opt/openbao/.vault-pass
+
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

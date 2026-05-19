@@ -15,4 +15,4 @@ system_update_update_cache: true
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: Enabling this will print secrets/tokens into logs and output.
-armory_log_nolog: false
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
