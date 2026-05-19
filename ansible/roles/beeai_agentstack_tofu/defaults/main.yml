@@ -19,7 +19,10 @@ beeai_tofu_chart_version: ""
 
 beeai_tofu_timeout_seconds: 1200
 beeai_tofu_wait: true
+# Keep non-atomic behavior for the two-pass recovery flow:
+# first pass may fail before Keycloak is patched, then second pass converges.
 beeai_tofu_atomic: false
+# Keep disabled so failed first-pass resources remain available for patch/retry.
 beeai_tofu_cleanup_on_fail: false
 
 # Seed admin user created in the agentstack Keycloak realm on deploy.
@@ -96,7 +99,7 @@ beeai_tofu_chart_values:
 # Keycloak StatefulSet patch — raises startup probe so Quarkus cold-JVM start
 # (~237 s) doesn't hit the chart's default probe limit before it's ready.
 # failurethreshold is also used (in seconds) as the rollout wait timeout.
-beeai_tofu_keycloak_startup_probe_failurethreshold: 600
+beeai_tofu_keycloak_startup_probe_failurethreshold: 900
 
 # Timeout (seconds) for the second-pass tofu apply after the Keycloak patch.
 # Needs to cover Keycloak startup + keycloak-provision hook execution.

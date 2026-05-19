@@ -122,10 +122,10 @@
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
           - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
           - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible_failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail VSO flow with context
@@ -203,12 +203,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (firewall section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail BeeAI firewall flow with context
@@ -350,12 +350,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (namespace and VSO sync section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail namespace/VSO sync flow with context
@@ -453,12 +453,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (secret read section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail BeeAI secret read flow with context
@@ -618,12 +618,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (OpenTofu prep section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail BeeAI OpenTofu prep flow with context
@@ -638,9 +638,9 @@
     - name: Check if BeeAI Helm release exists
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl get deployment/agentstack-server
+          helm status {{ beeai_tofu_release_name }}
           --namespace {{ beeai_tofu_namespace }}
-        chdir: "{{ beeai_tofu_work_dir }}"
+          --kubeconfig {{ beeai_tofu_kubeconfig_path }}
       environment:
         KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
       register: _beeai_helm_check
@@ -655,23 +655,64 @@
           - "Release present: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else 'unknown' }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Delete stuck BeeAI release state via OpenTofu destroy
+    - name: Uninstall stale BeeAI Helm release directly via Helm
       ansible.builtin.command:
-        cmd: tofu destroy -auto-approve -input=false
-        chdir: "{{ beeai_tofu_work_dir }}"
-      register: _beeai_tofu_destroy_stale
+        cmd: >-
+          helm uninstall {{ beeai_tofu_release_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --kubeconfig {{ beeai_tofu_kubeconfig_path }}
+      register: _beeai_helm_uninstall_stale
       when: _beeai_helm_check.rc == 0
-      changed_when: true
+      changed_when: _beeai_helm_uninstall_stale.rc == 0
       failed_when: false
 
-    - name: Debug stale BeeAI OpenTofu destroy task
+    - name: Debug stale BeeAI Helm uninstall task
       ansible.builtin.debug:
         msg:
-          - "Task: Delete stuck BeeAI release state via OpenTofu destroy"
+          - "Task: Uninstall stale BeeAI Helm release directly via Helm"
           - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
-          - "Exit code: {{ _beeai_tofu_destroy_stale.rc | default('n/a') }}"
-          - "stdout (trimmed): {{ _beeai_tofu_destroy_stale.stdout | default('') | trim }}"
-          - "stderr (trimmed): {{ _beeai_tofu_destroy_stale.stderr | default('') | trim }}"
+          - "Exit code: {{ _beeai_helm_uninstall_stale.rc | default('n/a') }}"
+          - "stdout (trimmed): {{ _beeai_helm_uninstall_stale.stdout | default('') | trim }}"
+          - "stderr (trimmed): {{ _beeai_helm_uninstall_stale.stderr | default('') | trim }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: List OpenTofu state resources for BeeAI release cleanup
+      ansible.builtin.command:
+        cmd: tofu state list
+        chdir: "{{ beeai_tofu_work_dir }}"
+      register: _beeai_tofu_state_list
+      when: _beeai_helm_check.rc == 0
+      changed_when: false
+      failed_when: false
+
+    - name: Debug BeeAI OpenTofu state listing task
+      ansible.builtin.debug:
+        msg:
+          - "Task: List OpenTofu state resources for BeeAI release cleanup"
+          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
+          - "Exit code: {{ _beeai_tofu_state_list.rc | default('n/a') }}"
+          - "Resource count: {{ _beeai_tofu_state_list.stdout_lines | default([]) | length }}"
+      when: armory_build_debug | default(false) | bool
+
+    - name: Remove stale BeeAI helm_release entry from OpenTofu state
+      ansible.builtin.command:
+        cmd: tofu state rm helm_release.beeai_agentstack
+        chdir: "{{ beeai_tofu_work_dir }}"
+      register: _beeai_tofu_state_rm
+      when:
+        - _beeai_helm_check.rc == 0
+        - "'helm_release.beeai_agentstack' in (_beeai_tofu_state_list.stdout | default(''))"
+      changed_when: _beeai_tofu_state_rm.rc == 0
+      failed_when: false
+
+    - name: Debug BeeAI OpenTofu state cleanup task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Remove stale BeeAI helm_release entry from OpenTofu state"
+          - "Executed: {{ ('helm_release.beeai_agentstack' in (_beeai_tofu_state_list.stdout | default(''))) if _beeai_tofu_state_list is defined else false }}"
+          - "Exit code: {{ _beeai_tofu_state_rm.rc | default('n/a') }}"
+          - "stdout (trimmed): {{ _beeai_tofu_state_rm.stdout | default('') | trim }}"
+          - "stderr (trimmed): {{ _beeai_tofu_state_rm.stderr | default('') | trim }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Force delete stale PostgreSQL StatefulSet before PVC cleanup
@@ -774,12 +815,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (cleanup section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail stale release cleanup flow with context
@@ -999,12 +1040,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (credential reconciliation section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail BeeAI credential reconciliation with context
@@ -1076,38 +1117,31 @@
           - "stderr (trimmed): {{ _beeai_apply_diag_events.stderr | default('') | trim }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Fail with BeeAI OpenTofu diagnostics
-      ansible.builtin.fail:
-        msg: |
-          OpenTofu apply for BeeAI Agent Stack failed.
+    - name: Mark first-pass OpenTofu apply for second-pass retry
+      ansible.builtin.set_fact:
+        _beeai_first_pass_apply_failed: true
+      changed_when: false
 
-          OpenTofu command:
-          {{ beeai_tofu_apply_result.cmd | default('n/a') }}
-
-          OpenTofu return code:
-          {{ beeai_tofu_apply_result.rc | default('n/a') }}
-
-          OpenTofu stderr:
-          {{ beeai_tofu_apply_result.stderr | default('n/a') }}
-
-          OpenTofu stdout:
-          {{ beeai_tofu_apply_result.stdout | default('n/a') }}
-
-          Workload summary:
-          {{ _beeai_apply_diag_workloads.stdout | default(_beeai_apply_diag_workloads.stderr | default('n/a')) }}
-
-          Recent namespace events:
-          {{ _beeai_apply_diag_events.stdout | default(_beeai_apply_diag_events.stderr | default('n/a')) }}
+    - name: Continue after first-pass apply failure with diagnostics
+      ansible.builtin.debug:
+        msg:
+          - "First-pass OpenTofu apply failed; continuing to Keycloak patch and second-pass apply."
+          - "OpenTofu command: {{ beeai_tofu_apply_result.cmd | default('n/a') }}"
+          - "OpenTofu return code: {{ beeai_tofu_apply_result.rc | default('n/a') }}"
+          - "OpenTofu stderr: {{ beeai_tofu_apply_result.stderr | default('n/a') }}"
+          - "OpenTofu stdout: {{ beeai_tofu_apply_result.stdout | default('n/a') }}"
+          - "Workload summary: {{ _beeai_apply_diag_workloads.stdout | default(_beeai_apply_diag_workloads.stderr | default('n/a')) }}"
+          - "Recent namespace events: {{ _beeai_apply_diag_events.stdout | default(_beeai_apply_diag_events.stderr | default('n/a')) }}"
   when: not ansible_check_mode
 
 # ── Keycloak hostname fix + second-pass apply ─────────────────────────────────
-# The BeeAI chart hardcodes KC_HOSTNAME_STRICT=true and a 600-second startup
+# The BeeAI chart hardcodes KC_HOSTNAME_STRICT=true and a too-short startup
 # probe, both of which break in-cluster access:
 #   • KC_HOSTNAME_STRICT=true redirects every http://keycloak:8336 call to
 #     https://armory.local, which is NXDOMAIN inside the cluster.  This causes
 #     the keycloak-provision post-install hook and the agentstack-server to loop
 #     forever and triggers the Helm "context deadline exceeded" timeout.
-#   • The 600-second startup probe kills Keycloak before it finishes its first
+#   • A 600-second startup probe can kill Keycloak before it finishes its first
 #     cold-JVM startup (Quarkus augmentation alone takes ~237 s on this host).
 # The patch below sets KC_HOSTNAME_STRICT=false and raises the probe limit to
 # beeai_tofu_keycloak_startup_probe_failurethreshold. When the patch triggers a
@@ -1184,12 +1218,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (Keycloak patch section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail Keycloak patch flow with context
@@ -1310,11 +1344,11 @@
         msg:
           - "Role: beeai_agentstack_tofu (UI OIDC patch section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail UI OIDC patch flow with context
@@ -1428,8 +1462,8 @@
         msg:
           - "Role: beeai_agentstack_tofu (API OIDC patch section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
           - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
           - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
           - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
@@ -1625,12 +1659,12 @@
         msg:
           - "Role: beeai_agentstack_tofu (ingress section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible.failed.result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible.failed.result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible.failed.result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible.failed.result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible.failed.result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible.failed.result.exception | default('n/a') }}"
+          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
+          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
+          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
+          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
+          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
+          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Fail BeeAI ingress flow with context
@@ -1638,3 +1672,4 @@
         msg: >-
           BeeAI ingress section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
           Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
+
