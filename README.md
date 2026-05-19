@@ -21,7 +21,7 @@ Configuration is environment-driven via `/vagrant/.env` (copied from `.env.examp
 
 ```bash
 cd /vagrant
-cp .env.example .env  # first time only
+# cp .env.example .env  # first time only
 set -a; source .env; set +a
 test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"
 echo "Return code: $?"
