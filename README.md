@@ -10,11 +10,11 @@ Configuration is environment-driven via `/vagrant/.env` (copied from `.env.examp
 - `roles/env_guard`: preflight role that verifies required env vars are loaded
 - `roles/system_update`: role that runs `dnf` update
 - `roles/opentofu`: role that installs the `opentofu` package
-- `roles/k3s`: role that installs and configures `k3s` with SELinux and firewalld
-- `roles/helm`: role that installs the `helm` package
+- `roles/k3s`: role that installs and configures `k3s` with SELinux, firewalld, and Keycloak OIDC authentication for the Kubernetes API server
 - `roles/openbao`: role that installs and configures OpenBao for secret management
-- `roles/nginx_ingress`: role that installs and configures nginx ingress controller
-- `roles/beeai_agentstack_tofu`: role that uses OpenTofu to deploy the BeeAI Agent Stack Helm chart
+- `roles/nginx_ingress`: role that installs and configures nginx ingress controller with cert-manager TLS
+- `roles/beeai_agentstack_tofu`: role that uses OpenTofu to deploy the BeeAI Agent Stack Helm chart (Keycloak, PostgreSQL, SeaweedFS, API, UI)
+- `roles/headlamp`: role that deploys Headlamp Kubernetes dashboard with Keycloak OIDC, OpenBao PKI, and Kubernetes RBAC; also configures k3s OIDC for API server token validation
 - `roles/readiness_check`: post-deployment validation role that checks all components are ready
 
 ## Run
@@ -105,9 +105,6 @@ ansible-playbook playbooks/site.yml --tags tofu_install
 # Only run k3s setup tasks
 ansible-playbook playbooks/site.yml --tags k3s
 
-# Only run Helm install tasks
-ansible-playbook playbooks/site.yml --tags helm_install
-
 # Only run BeeAI Agent Stack deploy tasks (via OpenTofu + Helm provider)
 ansible-playbook playbooks/site.yml --tags beeai_install
 
@@ -116,6 +113,15 @@ ansible-playbook playbooks/site.yml --tags beeai_firewall
 
 # Only run the Keycloak OIDC audience fix (re-applies after chart upgrades overwrite config)
 ansible-playbook playbooks/site.yml --tags beeai_keycloak_fix
+
+# Only run Headlamp deploy (OIDC client, PKI, Helm chart, RBAC, k3s OIDC config)
+ansible-playbook playbooks/site.yml --tags headlamp
+
+# Only apply/update Headlamp RBAC ClusterRoleBinding
+ansible-playbook playbooks/site.yml --tags headlamp_rbac
+
+# Only re-configure k3s OIDC settings (re-writes CA file and restarts k3s)
+ansible-playbook playbooks/site.yml --tags k3s_oidc
 
 # Only run readiness checks
 ansible-playbook playbooks/readiness_check.yml
@@ -178,10 +184,13 @@ If you hit a role failure, rerun with `ARMORY_BUILD_DEBUG=true` first. That give
 
 ## Retrieve Generated Credentials
 
-All secrets are generated once by the OpenBao role, stored in OpenBao KV, and synced into Kubernetes Secrets by Vault Secrets Operator (VSO). Re-runs reuse existing values.
+All secrets are generated once by the OpenBao role, stored in OpenBao KV, and synced into Kubernetes Secrets by Vault Secrets Operator (VSO). Re-runs reuse existing values — no credential rotation on redeploy unless the secret is manually deleted from OpenBao first.
 
 ```bash
 # Show BeeAI UI login password (username: admin)
+vagrant ssh -c "sudo k3s kubectl get secret -n agentstack beeai-credentials -o jsonpath='{.data.admin_password}' | base64 -d; echo"
+
+# Show Headlamp login password (same admin user, same beeai-credentials secret)
 vagrant ssh -c "sudo k3s kubectl get secret -n agentstack beeai-credentials -o jsonpath='{.data.admin_password}' | base64 -d; echo"
 
 # Show PostgreSQL admin password (username: postgres)
@@ -205,6 +214,7 @@ vagrant ssh -c "sudo k3s kubectl get secret -n agentstack keycloak-secret -o jso
 | Credential | Username | How Generated | Where Stored |
 |---|---|---|---|
 | BeeAI UI login | `admin` | OpenBao role (token_urlsafe, persisted) | OpenBao `secret/beeai/credentials` -> k8s secret `beeai-credentials` |
+| Headlamp dashboard login | `admin` | Same as BeeAI UI (shared Keycloak realm) | OpenBao `secret/beeai/credentials` -> k8s secret `beeai-credentials` |
 | Keycloak admin console | `admin` | Chart (random) | k8s secret `keycloak-secret` |
 | PostgreSQL admin | `postgres` | OpenBao role (token_urlsafe, persisted) | OpenBao `secret/beeai/credentials` -> k8s secret `beeai-credentials` |
 | PostgreSQL app user | `agentstack-user` | OpenBao role (token_urlsafe, persisted) | OpenBao `secret/beeai/credentials` -> k8s secret `beeai-credentials` |
@@ -244,17 +254,28 @@ vagrant ssh -c "sudo k3s kubectl get secret -n agentstack keycloak-secret -o jso
 
 ## Access Headlamp Kubernetes Dashboard
 
-Headlamp is deployed as part of the stack to provide a modern Kubernetes dashboard with out-of-the-box visibility into k3s and BeeAI components. It is integrated with:
+Headlamp is deployed as part of the stack to provide a modern Kubernetes dashboard with visibility into k3s and BeeAI components. It is integrated with:
 
 - **OIDC authentication via Keycloak** (same realm as BeeAI)
 - **PKI/TLS via OpenBao** (cert-manager issues ingress certs)
 - **nginx ingress** for external HTTPS access
 - **Plugin manager** enabled by default (with official `cert-manager` plugin)
+- **Kubernetes RBAC** — the `admin` user is granted `cluster-admin` via a ClusterRoleBinding
+- **k3s OIDC** — the k3s API server is configured to validate Keycloak-issued JWTs directly; Headlamp passes the ID token to the Kubernetes API on every request
 
 ### Headlamp Access URL
 
 - **URL:** `https://headlamp.armory.local`
 - **OIDC Issuer:** `https://armory.local/realms/agentstack`
+
+### How Authentication Works
+
+1. Click **Sign In** on the Headlamp login screen.
+2. Headlamp redirects to Keycloak at `https://armory.local/realms/agentstack`.
+3. Log in with `admin` and the password from `beeai-credentials` (see [Retrieve Generated Credentials](#retrieve-generated-credentials)).
+4. Keycloak issues a JWT; Headlamp stores it as a browser cookie and forwards it as a Bearer token on every Kubernetes API request.
+5. The k3s API server validates the JWT against the Keycloak OIDC issuer (configured during the headlamp role deployment) and maps the `preferred_username` claim to the Kubernetes user identity `https://armory.local/realms/agentstack#admin`.
+6. The ClusterRoleBinding `headlamp-admin` grants that identity `cluster-admin` access.
 
 ### Prerequisites
 
@@ -265,19 +286,17 @@ Headlamp is deployed as part of the stack to provide a modern Kubernetes dashboa
    ```
 2. Trust the Armory Root CA (see instructions above).
 
-### Retrieve Headlamp OIDC Credentials
+### Login Credentials
 
-The OIDC client secret for Headlamp is generated and stored in OpenBao, then synced into a Kubernetes Secret by VSO. To retrieve the credentials:
+| Item | Value |
+|------|-------|
+| **URL** | `https://headlamp.armory.local` |
+| **Username** | `admin` |
+| **Password** | Same as BeeAI UI — retrieve with the command below |
 
 ```bash
-vagrant ssh -c "sudo k3s kubectl get secret -n headlamp headlamp-oidc-secret -o jsonpath='{.data.client_secret}' | base64 -d; echo"
+vagrant ssh -c "sudo k3s kubectl get secret -n agentstack beeai-credentials -o jsonpath='{.data.admin_password}' | base64 -d; echo"
 ```
-
-- **OIDC Client ID:** `headlamp`
-- **OIDC Issuer:** `https://armory.local/realms/agentstack`
-- **OIDC Client Secret:** (see command above)
-
-You can use these credentials to log in to Headlamp via the OIDC login screen. By default, any user with admin rights in Keycloak for the `agentstack` realm can authenticate.
 
 ### Features
 
