@@ -11,7 +11,7 @@ headlamp_chart_name: headlamp
 headlamp_chart_version: ""
 
 # Public ingress settings
-headlamp_ingress_host: headlamp.armory.local
+headlamp_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
 headlamp_ingress_class: nginx
 headlamp_ingress_path: /
 headlamp_ingress_path_type: Prefix
@@ -31,7 +31,7 @@ headlamp_keycloak_service_port: "{{ beeai_keycloak_service_port | default(8336) 
 headlamp_oidc_client_id: headlamp
 # If empty, a strong secret is generated once and persisted to OpenBao.
 headlamp_oidc_client_secret: ""
-headlamp_oidc_issuer_url: "{{ (beeai_public_base_url | default('https://armory.local')) + '/realms/' + headlamp_keycloak_realm }}"
+headlamp_oidc_issuer_url: "{{ (beeai_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + headlamp_keycloak_realm }}"
 # Keep this to scopes Keycloak accepts by default for this client.
 # Headlamp already requests OpenID, so including openid here can duplicate it.
 headlamp_oidc_scopes: "profile,email"

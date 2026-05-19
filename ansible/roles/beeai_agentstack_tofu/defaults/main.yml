@@ -46,7 +46,7 @@ beeai_vso_credentials_secret: beeai-credentials
 beeai_vso_enckey_secret: beeai-encryption-key
 
 # Public URLs — served through nginx Ingress with TLS
-beeai_public_base_url: "https://armory.local"
+beeai_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true) }}"
 beeai_ingress_class: nginx
 beeai_ingress_tls_secret: armory-tls
 
@@ -106,7 +106,7 @@ beeai_tofu_post_patch_timeout_seconds: 1200
 beeai_ui_deployment_name: agentstack-ui
 beeai_oidc_internal_issuer_url: "{{ beeai_public_base_url }}/realms/agentstack"
 beeai_oidc_resolver_host: "{{ beeai_public_base_url | urlsplit('hostname') }}"
-beeai_oidc_resolver_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.address | default('127.0.0.1')) }}"
+beeai_oidc_resolver_ip: "{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
 beeai_oidc_ca_secret_name: armory-tls
 beeai_oidc_ca_secret_key: ca.crt
 beeai_oidc_ca_mount_path: /etc/armory-ca

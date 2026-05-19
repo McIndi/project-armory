@@ -15,7 +15,7 @@
         name: cluster-admin
       subjects:
         - kind: User
-          name: "https://armory.local/realms/agentstack#admin"
+          name: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true) }}/realms/{{ headlamp_keycloak_realm }}#{{ headlamp_keycloak_admin_username }}"
           apiGroup: rbac.authorization.k8s.io
   environment:
     KUBECONFIG: "{{ headlamp_kubeconfig_path }}"

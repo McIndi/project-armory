@@ -232,10 +232,10 @@ vagrant ssh -c "sudo k3s kubectl get secret -n agentstack keycloak-secret -o jso
    - **Linux/Mac**: `/etc/hosts`
 
    ```
-   <vagrant_vm_ip> armory.local
+   <vagrant_vm_ip> <ARMORY_PUBLIC_DOMAIN>
    ```
 
-   Replace `<vagrant_vm_ip>` with your Vagrant VM's IP address (e.g., `192.168.56.10`).
+   Replace `<vagrant_vm_ip>` with your Vagrant VM's IP address and `<ARMORY_PUBLIC_DOMAIN>` with the domain from `.env` (default: `armory.local`).
 
 2. Retrieve the admin password:
 
@@ -248,7 +248,7 @@ vagrant ssh -c "sudo k3s kubectl get secret -n agentstack keycloak-secret -o jso
 
 | Item | Value |
 |------|-------|
-| **URL** | `https://armory.local` |
+| **URL** | `ARMORY_PUBLIC_BASE_URL` from `.env` (default: `https://armory.local`) |
 | **Username** | `admin` |
 | **Password** | See command above to retrieve from VM |
 
@@ -265,24 +265,24 @@ Headlamp is deployed as part of the stack to provide a modern Kubernetes dashboa
 
 ### Headlamp Access URL
 
-- **URL:** `https://headlamp.armory.local`
-- **OIDC Issuer:** `https://armory.local/realms/agentstack`
+- **URL:** `https://$ARMORY_HEADLAMP_HOST` (default `https://headlamp.armory.local`)
+- **OIDC Issuer:** `$ARMORY_PUBLIC_BASE_URL/realms/agentstack` (default `https://armory.local/realms/agentstack`)
 
 ### How Authentication Works
 
 1. Click **Sign In** on the Headlamp login screen.
-2. Headlamp redirects to Keycloak at `https://armory.local/realms/agentstack`.
+2. Headlamp redirects to Keycloak at `$ARMORY_PUBLIC_BASE_URL/realms/agentstack`.
 3. Log in with `admin` and the password from `beeai-credentials` (see [Retrieve Generated Credentials](#retrieve-generated-credentials)).
 4. Keycloak issues a JWT; Headlamp stores it as a browser cookie and forwards it as a Bearer token on every Kubernetes API request.
-5. The k3s API server validates the JWT against the Keycloak OIDC issuer (configured during the headlamp role deployment) and maps the `preferred_username` claim to the Kubernetes user identity `https://armory.local/realms/agentstack#admin`.
+5. The k3s API server validates the JWT against the Keycloak OIDC issuer (configured during the headlamp role deployment) and maps the `preferred_username` claim to the Kubernetes user identity `$ARMORY_PUBLIC_BASE_URL/realms/agentstack#admin`.
 6. The ClusterRoleBinding `headlamp-admin` grants that identity `cluster-admin` access.
 
 ### Prerequisites
 
 1. Add these entries to your hosts file (see BeeAI UI section above for details):
    ```
-   <vagrant_vm_ip> armory.local
-   <vagrant_vm_ip> headlamp.armory.local
+   <vagrant_vm_ip> <ARMORY_PUBLIC_DOMAIN>
+   <vagrant_vm_ip> <ARMORY_HEADLAMP_HOST>
    ```
 2. Trust the Armory Root CA (see instructions above).
 
@@ -290,7 +290,7 @@ Headlamp is deployed as part of the stack to provide a modern Kubernetes dashboa
 
 | Item | Value |
 |------|-------|
-| **URL** | `https://headlamp.armory.local` |
+| **URL** | `https://$ARMORY_HEADLAMP_HOST` (default: `https://headlamp.armory.local`) |
 | **Username** | `admin` |
 | **Password** | Same as BeeAI UI — retrieve with the command below |
 
@@ -312,8 +312,8 @@ This section documents the recommended end-to-end flow for using the Agent Stack
 
 ### 1. Prerequisites
 
-1. Ensure host name resolution for `armory.local` points to the VM IP.
-2. Ensure the platform is deployed and reachable at `https://armory.local`.
+1. Ensure host name resolution for `$ARMORY_PUBLIC_DOMAIN` points to the VM IP.
+2. Ensure the platform is deployed and reachable at `$ARMORY_PUBLIC_BASE_URL`.
 3. Run commands from the host unless noted as VM-only.
 
 ### 2. Install Agent Stack CLI
@@ -338,7 +338,7 @@ agentstack self version -v
 
 ### 3. Export and Trust the Armory Root CA
 
-The deployment uses a private PKI chain for `armory.local`. Trust the CA on clients that run `agentstack`.
+The deployment uses a private PKI chain for `$ARMORY_PUBLIC_DOMAIN`. Trust the CA on clients that run `agentstack`.
 
 #### Export CA from VM (authoritative signer)
 

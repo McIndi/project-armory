@@ -46,8 +46,8 @@
       - "SELinux: {{ _rc_selinux_status.stdout | trim | default('unknown') }}"
   when: armory_build_debug | default(false) | bool
 
-- name: Check DNS resolution for armory.local
-  ansible.builtin.command: getent hosts armory.local
+- name: Check DNS resolution for public domain
+  ansible.builtin.command: getent hosts {{ readiness_check_public_domain }}
   register: _rc_dns_check
   changed_when: false
   failed_when: false
@@ -57,7 +57,7 @@
     _readiness_results: >-
       {{ _readiness_results + [{
         'component': 'Host',
-        'check_name': 'DNS resolution (armory.local)',
+        'check_name': 'DNS resolution (' + readiness_check_public_domain + ')',
         'status': 'pass' if _rc_dns_check.rc == 0 else 'warn',
         'detail': _rc_dns_check.stdout | default('unresolved'),
         'error': ''

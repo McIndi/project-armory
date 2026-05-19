@@ -28,11 +28,11 @@ Defined in `defaults/main.yml`:
 | `certmanager_chart_repo` | `https://charts.jetstack.io` | cert-manager chart repository. |
 | `certmanager_chart_name` | `cert-manager` | cert-manager chart name. |
 | `certmanager_chart_version` | `""` | Chart version override; empty uses latest. |
-| `nginx_ingress_domain` | `armory.local` | Domain requested in TLS certificate. |
-| `nginx_ingress_ip` | `192.168.0.150` | Optional IP SAN and local `/etc/hosts` mapping target for `armory.local`. |
+| `nginx_ingress_domain` | `{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') \| default('armory.local', true) }}` | Domain requested in TLS certificate. |
+| `nginx_ingress_ip` | `{{ ansible_facts.default_ipv4.address \| default('127.0.0.1') }}` | Optional IP SAN and local `/etc/hosts` mapping target for `nginx_ingress_domain`. |
 | `nginx_openbao_cluster_addr` | `http://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao URL for ClusterIssuer. |
 | `nginx_openbao_pki_mount` | `pki` | PKI mount path used by cert-manager issuer. |
-| `nginx_openbao_pki_cert_role` | `armory-dot-local` | PKI role used for certificate requests. |
+| `nginx_openbao_pki_cert_role` | `{{ openbao_pki_cert_role \| default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') \| default('armory.local', true)) \| replace('.', '-dot-')) }}` | PKI role used for certificate requests. |
 | `nginx_openbao_certmanager_k8s_role` | `cert-manager` | OpenBao Kubernetes auth role name for cert-manager. |
 | `nginx_ingress_cert_duration` | `8760h` | Certificate duration requested from issuer. |
 | `nginx_ingress_cert_renew_before` | `720h` | Renewal threshold before expiry. |
@@ -60,7 +60,7 @@ Override example:
     - role: nginx_ingress
       vars:
         nginx_ingress_domain: apps.example.local
-        nginx_ingress_ip: 192.168.0.200
+        nginx_ingress_ip: 10.0.0.25
 ```
 
 ## Troubleshooting

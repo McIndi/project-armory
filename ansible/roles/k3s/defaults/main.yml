@@ -61,7 +61,7 @@ armory_log_nolog: false
 # This allows JWT tokens from an external OIDC provider (e.g., Keycloak)
 # to be used for API authentication and RBAC.
 k3s_oidc_enabled: true
-k3s_oidc_issuer_url: "https://armory.local/realms/agentstack"
+k3s_oidc_issuer_url: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true)) + '/realms/agentstack' }}"
 # Must match the audience in OIDC ID tokens used by Headlamp when calling
 # the Kubernetes API. A mismatch here causes 401 Unauthorized before RBAC.
 k3s_oidc_client_id: "headlamp"

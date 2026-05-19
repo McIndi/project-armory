@@ -41,19 +41,24 @@ readiness_check_vso_deployment_name: vault-secrets-operator-controller-manager
 # nginx ingress settings
 readiness_check_nginx_namespace: ingress-nginx
 readiness_check_nginx_controller_label: "app.kubernetes.io/name=ingress-nginx"
+readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
+readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
+readiness_check_headlamp_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + readiness_check_public_domain, true) }}"
+readiness_check_ingress_probe_ip: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+readiness_check_ingress_https_port: 443
+readiness_check_ingress_probe_url: "https://{{ readiness_check_ingress_probe_ip }}:{{ readiness_check_ingress_https_port }}"
 
 # BeeAI / Agent Stack settings
 readiness_check_beeai_namespace: agentstack
-readiness_check_beeai_url: "https://armory.local"
+readiness_check_beeai_url: "{{ readiness_check_public_base_url }}"
 readiness_check_beeai_readiness_timeout: 30
-readiness_check_beeai_nodeport_url: "https://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:30443"
-readiness_check_beeai_host_header: "armory.local"
+readiness_check_beeai_host_header: "{{ readiness_check_public_domain }}"
 
 # Headlamp settings
 readiness_check_headlamp_namespace: headlamp
 readiness_check_headlamp_deployment_name: headlamp
-readiness_check_headlamp_url: "https://headlamp.armory.local"
-readiness_check_headlamp_host_header: "headlamp.armory.local"
+readiness_check_headlamp_url: "https://{{ readiness_check_headlamp_host }}"
+readiness_check_headlamp_host_header: "{{ readiness_check_headlamp_host }}"
 readiness_check_headlamp_tls_secret: headlamp-tls
 readiness_check_headlamp_oidc_secret: headlamp-oidc
 

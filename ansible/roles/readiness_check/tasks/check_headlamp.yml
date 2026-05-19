@@ -104,9 +104,9 @@
   retries: 5
   delay: 2
 
-- name: Check Headlamp HTTPS connectivity via ingress NodePort when DNS fails
+- name: Check Headlamp HTTPS connectivity via ingress endpoint fallback when DNS fails
   ansible.builtin.uri:
-    url: "https://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:30443"
+    url: "{{ readiness_check_ingress_probe_url }}"
     method: GET
     headers:
       Host: "{{ readiness_check_headlamp_host_header }}"
@@ -114,7 +114,7 @@
     follow_redirects: none
     timeout: "{{ readiness_check_beeai_readiness_timeout }}"
     status_code: [200, 301, 302, 307, 401, 403]
-  register: _rc_headlamp_https_nodeport
+  register: _rc_headlamp_https_fallback
   changed_when: false
   failed_when: false
   when: "'name resolution' in ((_rc_headlamp_https.msg | default('')) | lower)"
@@ -128,12 +128,12 @@
         'status': 'pass'
           if (_rc_headlamp_https.status | default(-1)) in [200, 301, 302, 307, 401, 403]
           else 'pass'
-          if (_rc_headlamp_https_nodeport is defined and (_rc_headlamp_https_nodeport.status | default(-1)) in [200, 301, 302, 307, 401, 403])
+          if (_rc_headlamp_https_fallback is defined and (_rc_headlamp_https_fallback.status | default(-1)) in [200, 301, 302, 307, 401, 403])
           else 'warn'
           if ('name resolution' in ((_rc_headlamp_https.msg | default('')) | lower))
           else 'fail',
-        'detail': 'HTTP ' + ((_rc_headlamp_https_nodeport.status | default(-1)) | string) + ' via nodeport fallback'
-          if ('name resolution' in ((_rc_headlamp_https.msg | default('')) | lower)) and (_rc_headlamp_https_nodeport is defined)
+        'detail': 'HTTP ' + ((_rc_headlamp_https_fallback.status | default(-1)) | string) + ' via ingress fallback'
+          if ('name resolution' in ((_rc_headlamp_https.msg | default('')) | lower)) and (_rc_headlamp_https_fallback is defined)
           else 'HTTP ' + ((_rc_headlamp_https.status | default(-1)) | string),
         'error': (_rc_headlamp_https.msg | default(''))
           if ((_rc_headlamp_https.status | default(-1)) not in [200, 301, 302, 307, 401, 403])

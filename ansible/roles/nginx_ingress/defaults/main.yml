@@ -52,11 +52,11 @@ nginx_tofu_chart_values:
       type: LoadBalancer
 
 # Primary DNS name included in TLS certificates and ingress host rules.
-nginx_ingress_domain: armory.local
+nginx_ingress_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 
 # Host VM IP added as a certificate SAN and local /etc/hosts mapping.
 # This is no longer used for ingress service externalIPs when service type is LoadBalancer.
-nginx_ingress_ip: "192.168.0.150"
+nginx_ingress_ip: "{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
 
 # OpenBao in-cluster API address used by cert-manager issuer integration.
 # Must match openbao_cluster_addr in openbao defaults.
@@ -68,7 +68,7 @@ nginx_openbao_pki_mount: pki
 
 # OpenBao PKI role used to sign ingress certificates.
 # Must match openbao_pki_cert_role in openbao defaults.
-nginx_openbao_pki_cert_role: armory-dot-local
+nginx_openbao_pki_cert_role: "{{ openbao_pki_cert_role | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-')) }}"
 
 # Kubernetes auth role in OpenBao bound to cert-manager service account.
 # Must align with configuration created by the openbao role.

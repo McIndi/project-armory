@@ -42,8 +42,8 @@
       {{ _readiness_results + [{
         'component': 'nginx ingress',
         'check_name': 'BeeAI ingress rules present',
-        'status': 'pass' if 'armory.local' in (_rc_nginx_ingress_rules.stdout_lines | default([])) else 'warn',
-        'detail': (_rc_nginx_ingress_rules.stdout_lines | select('equalto', 'armory.local') | list | length | string) + ' ingress rules for armory.local',
+        'status': 'pass' if readiness_check_public_domain in (_rc_nginx_ingress_rules.stdout_lines | default([])) else 'warn',
+        'detail': (_rc_nginx_ingress_rules.stdout_lines | select('equalto', readiness_check_public_domain) | list | length | string) + ' ingress rules for ' + readiness_check_public_domain,
         'error': ''
       }] }}
   changed_when: false

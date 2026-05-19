@@ -48,7 +48,7 @@ Checks: {{ component_checks | length }} total
 
 {% if failed_checks == 0 and warned_checks == 0 %}
 ✅ Environment is ready for use.
-   - Access BeeAI UI at: https://armory.local (username: admin)
+   - Access BeeAI UI at: {{ readiness_check_beeai_url }} (username: admin)
    - Retrieve credentials using commands in README.md
 {% elif failed_checks == 0 and warned_checks > 0 %}
 ⚠️  Environment is mostly ready, but review warnings above.

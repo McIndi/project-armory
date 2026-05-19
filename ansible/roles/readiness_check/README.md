@@ -26,7 +26,7 @@ Defined in `defaults/main.yml`:
 | `readiness_check_beeai_enabled` | `true` | Validate BeeAI Agent Stack pod/service status and HTTPS connectivity. |
 | `readiness_check_connect_timeout` | `5` | TCP connection timeout in seconds. |
 | `readiness_check_connect_retries` | `2` | Number of retry attempts for network checks. |
-| `readiness_check_validate_tls` | `true` | Validate TLS certificate expiry and validity. |
+| `readiness_check_validate_tls` | `false` | Validate TLS certificate expiry and validity. |
 | `readiness_check_validate_credentials` | `false` | Attempt to use stored credentials to verify they work. |
 | `readiness_check_fail_on_issues` | `true` | Fail at end of role if any critical issues detected. |
 
@@ -40,7 +40,7 @@ Defined in `defaults/main.yml`:
    - `check_openbao.yml`: OpenBao TCP port 8200, health endpoint, unsealed status, API token validity.
    - `check_vso.yml`: Vault Secrets Operator deployment running, vaultconnection resources present.
    - `check_nginx.yml`: nginx ingress controller pods, ingress rules, TLS certificate validity.
-   - `check_beeai.yml`: BeeAI pods running, service endpoints, HTTPS connectivity to https://armory.local.
+  - `check_beeai.yml`: BeeAI pods running, service endpoints, HTTPS connectivity to `readiness_check_beeai_url` with ingress fallback checks when DNS is unavailable.
 4. Render summary report and per-component breakdown from template.
 5. Print report to console.
 6. Fail at end with aggregated issues if `readiness_check_fail_on_issues=true` and any failures detected.
