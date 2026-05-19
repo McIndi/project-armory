@@ -18,6 +18,9 @@ nginx_ingress_chart_name: ingress-nginx
 # Empty string lets Helm choose the latest available version.
 nginx_ingress_chart_version: ""
 
+# Helm wait timeout (seconds) for ingress-nginx release apply.
+nginx_tofu_timeout_seconds: 900
+
 # Namespace for cert-manager installation.
 certmanager_namespace: cert-manager
 
@@ -34,6 +37,9 @@ certmanager_chart_name: cert-manager
 # Empty string lets Helm choose the latest available version.
 certmanager_chart_version: ""
 
+# Helm wait timeout (seconds) for cert-manager release apply.
+certmanager_tofu_timeout_seconds: 600
+
 # Helm values passed to cert-manager via OpenTofu helm provider.
 certmanager_tofu_chart_values:
   crds:
@@ -43,17 +49,13 @@ certmanager_tofu_chart_values:
 nginx_tofu_chart_values:
   controller:
     service:
-      type: NodePort
-      nodePorts:
-        http: 30080
-        https: 30443
-      externalIPs:
-        - "{{ nginx_ingress_ip }}"
+      type: LoadBalancer
 
 # Primary DNS name included in TLS certificates and ingress host rules.
 nginx_ingress_domain: armory.local
 
-# Host VM IP added as a certificate SAN for local testing access.
+# Host VM IP added as a certificate SAN and local /etc/hosts mapping.
+# This is no longer used for ingress service externalIPs when service type is LoadBalancer.
 nginx_ingress_ip: "192.168.0.150"
 
 # OpenBao in-cluster API address used by cert-manager issuer integration.
@@ -84,7 +86,7 @@ nginx_ingress_cert_renew_before: "720h"
 # Must match the namespace of ingress resources referencing secretName: armory-tls.
 nginx_ingress_tls_namespace: agentstack
 
-# Whether this role manages firewalld rules for ingress traffic.
+# Whether this role manages firewalld rules for ingress traffic (ports 80/443).
 # Disable if firewall is managed outside Ansible.
 nginx_ingress_firewall_manage: true
 

@@ -12,6 +12,10 @@
       tags:
         - system_update
         - dnf_update
+    - role: helm
+      tags:
+        - helm
+        - helm_install
     - role: opentofu
       tags:
         - opentofu
@@ -34,6 +38,7 @@
       tags:
         - headlamp
         - headlamp_install
+        - k3s_oidc
     - role: readiness_check
       tags:
         - readiness

@@ -43,6 +43,10 @@ variable "certmanager_chart_values" {
   type = any
 }
 
+variable "certmanager_timeout_seconds" {
+  type = number
+}
+
 variable "nginx_release_name" {
   type = string
 }
@@ -67,6 +71,10 @@ variable "nginx_chart_values" {
   type = any
 }
 
+variable "nginx_timeout_seconds" {
+  type = number
+}
+
 resource "helm_release" "certmanager" {
   name             = var.certmanager_release_name
   namespace        = var.certmanager_namespace
@@ -77,7 +85,8 @@ resource "helm_release" "certmanager" {
   version    = var.certmanager_chart_version != "" ? var.certmanager_chart_version : null
 
   wait    = true
-  timeout = 300
+  timeout = var.certmanager_timeout_seconds
+  upgrade_install = true
 
   values = [yamlencode(var.certmanager_chart_values)]
 }
@@ -92,7 +101,8 @@ resource "helm_release" "nginx_ingress" {
   version    = var.nginx_chart_version != "" ? var.nginx_chart_version : null
 
   wait    = true
-  timeout = 300
+  timeout = var.nginx_timeout_seconds
+  upgrade_install = true
 
   values = [yamlencode(var.nginx_chart_values)]
 

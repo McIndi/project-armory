@@ -28,6 +28,34 @@
           - "Ingress namespace/release: {{ nginx_ingress_namespace }}/{{ nginx_ingress_release_name }}"
       when: armory_build_debug | default(false) | bool
 
+    - name: Read ingress controller LoadBalancer IP
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get service {{ nginx_ingress_release_name }}-controller
+          --namespace {{ nginx_ingress_namespace }}
+          -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _nginx_lb_ip_result
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve effective ingress IP for local host routing
+      ansible.builtin.set_fact:
+        nginx_ingress_ip: >-
+          {{ (_nginx_lb_ip_result.stdout | trim)
+             if (_nginx_lb_ip_result.stdout | trim | length) > 0
+             else nginx_ingress_ip }}
+      changed_when: false
+
+    - name: Debug effective ingress IP resolution
+      ansible.builtin.debug:
+        msg:
+          - "Task: Resolve effective ingress IP for local host routing"
+          - "LoadBalancer IP detected: {{ _nginx_lb_ip_result.stdout | default('') | trim }}"
+          - "Effective ingress IP: {{ nginx_ingress_ip }}"
+      when: armory_build_debug | default(false) | bool
+
     - name: TLS certificate provisioning
       ansible.builtin.import_tasks: tls.yml
       tags: [nginx_ingress, nginx_ingress_tls]

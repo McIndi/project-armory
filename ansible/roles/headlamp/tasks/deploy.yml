@@ -85,11 +85,31 @@
   changed_when: false
   when: not ansible_check_mode
 
+- name: Read ingress controller LoadBalancer IP for Headlamp host mapping
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get service ingress-nginx-controller
+      --namespace ingress-nginx
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_lb_ip_result
+  changed_when: false
+  failed_when: false
+
+- name: Resolve effective Headlamp ingress IP for local hosts entry
+  ansible.builtin.set_fact:
+    headlamp_ingress_ip_effective: >-
+      {{ (_headlamp_lb_ip_result.stdout | trim)
+         if (_headlamp_lb_ip_result.stdout | trim | length) > 0
+         else headlamp_ingress_ip }}
+  changed_when: false
+
 - name: Ensure Headlamp host resolves to ingress IP locally
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^\S+\s+{{ headlamp_ingress_host | regex_escape }}\s*$'
-    line: "{{ headlamp_ingress_ip }} {{ headlamp_ingress_host }}"
+    line: "{{ headlamp_ingress_ip_effective }} {{ headlamp_ingress_host }}"
     owner: root
     group: root
     mode: "0644"

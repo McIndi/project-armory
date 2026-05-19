@@ -46,12 +46,14 @@
             "certmanager_chart_name": certmanager_chart_name,
             "certmanager_chart_version": certmanager_chart_version,
             "certmanager_chart_values": certmanager_tofu_chart_values,
+            "certmanager_timeout_seconds": certmanager_tofu_timeout_seconds,
             "nginx_release_name": nginx_ingress_release_name,
             "nginx_namespace": nginx_ingress_namespace,
             "nginx_chart_repo": nginx_ingress_chart_repo,
             "nginx_chart_name": nginx_ingress_chart_name,
             "nginx_chart_version": nginx_ingress_chart_version,
-            "nginx_chart_values": nginx_tofu_chart_values
+            "nginx_chart_values": nginx_tofu_chart_values,
+            "nginx_timeout_seconds": nginx_tofu_timeout_seconds
           } | to_nice_json }}
       register: _nginx_tofu_tfvars_result
 
@@ -118,10 +120,10 @@
           - "Exit code: {{ _certmanager_wait_result.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Open HTTP firewall port (80 → NodePort 30080)
+    - name: Open HTTP firewall port (80/tcp)
       ansible.posix.firewalld:
         zone: "{{ nginx_ingress_firewall_zone }}"
-        port: "30080/tcp"
+        port: "80/tcp"
         permanent: true
         immediate: true
         state: enabled
@@ -131,16 +133,16 @@
     - name: Debug HTTP firewall task
       ansible.builtin.debug:
         msg:
-          - "Task: Open HTTP firewall port (30080/tcp)"
+          - "Task: Open HTTP firewall port (80/tcp)"
           - "Executed: {{ nginx_ingress_firewall_manage | bool }}"
           - "Zone: {{ nginx_ingress_firewall_zone }}"
           - "Task changed: {{ _nginx_http_port_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Open HTTPS firewall port (443 → NodePort 30443)
+    - name: Open HTTPS firewall port (443/tcp)
       ansible.posix.firewalld:
         zone: "{{ nginx_ingress_firewall_zone }}"
-        port: "30443/tcp"
+        port: "443/tcp"
         permanent: true
         immediate: true
         state: enabled
@@ -150,7 +152,7 @@
     - name: Debug HTTPS firewall task
       ansible.builtin.debug:
         msg:
-          - "Task: Open HTTPS firewall port (30443/tcp)"
+          - "Task: Open HTTPS firewall port (443/tcp)"
           - "Executed: {{ nginx_ingress_firewall_manage | bool }}"
           - "Zone: {{ nginx_ingress_firewall_zone }}"
           - "Task changed: {{ _nginx_https_port_result.changed | default(false) }}"
