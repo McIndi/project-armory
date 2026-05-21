@@ -14,6 +14,191 @@
       - "Task changed: {{ _openbao_main_tf_result.changed | default(false) }}"
   when: armory_build_debug | default(false) | bool
 
+- name: Generate OpenBao namespace manifest
+  ansible.builtin.command:
+    cmd: k3s kubectl create namespace {{ openbao_namespace }} --dry-run=client -o yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_ns_yaml
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Apply OpenBao namespace manifest
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ _openbao_ns_yaml.stdout }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_ns_apply
+  changed_when: "'created' in (_openbao_ns_apply.stdout | default(''))"
+  when: not ansible_check_mode
+
+- name: Ensure OpenBao TLS artifact directory exists
+  ansible.builtin.file:
+    path: "{{ openbao_tls_artifacts_dir }}"
+    state: directory
+    mode: "0700"
+    owner: root
+    group: root
+  when: openbao_tls_enabled | bool
+
+- name: Ensure OpenSSL is installed for OpenBao certificate generation
+  ansible.builtin.dnf:
+    name: openssl
+    state: present
+  when: openbao_tls_enabled | bool
+
+- name: Render OpenBao TLS OpenSSL config
+  ansible.builtin.copy:
+    dest: "{{ openbao_tls_openssl_config_path }}"
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      [req]
+      default_bits = 4096
+      prompt = no
+      default_md = sha256
+      distinguished_name = dn
+      req_extensions = req_ext
+
+      [dn]
+      CN = {{ openbao_tls_cert_common_name }}
+
+      [req_ext]
+      subjectAltName = {{ openbao_tls_sans | join(',') }}
+  when: openbao_tls_enabled | bool
+
+- name: Generate OpenBao TLS CA certificate and key
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -nodes -newkey rsa:4096
+      -keyout {{ openbao_tls_ca_key_host_path }}
+      -out {{ openbao_tls_ca_host_path }}
+      -days {{ openbao_tls_cert_validity_days }}
+      -subj /CN={{ openbao_tls_ca_common_name }}
+      -addext basicConstraints=critical,CA:TRUE
+      -addext keyUsage=critical,keyCertSign,cRLSign
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Generate OpenBao TLS server key and CSR
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -new -nodes -newkey rsa:4096
+      -keyout {{ openbao_tls_key_host_path }}
+      -out {{ openbao_tls_csr_host_path }}
+      -config {{ openbao_tls_openssl_config_path }}
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Sign OpenBao TLS server certificate with OpenBao CA
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509 -req
+      -in {{ openbao_tls_csr_host_path }}
+      -CA {{ openbao_tls_ca_host_path }}
+      -CAkey {{ openbao_tls_ca_key_host_path }}
+      -CAcreateserial
+      -CAserial {{ openbao_tls_ca_serial_host_path }}
+      -out {{ openbao_tls_cert_host_path }}
+      -days {{ openbao_tls_cert_validity_days }}
+      -sha256
+      -extfile {{ openbao_tls_openssl_config_path }}
+      -extensions req_ext
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Remove OpenBao TLS CSR file
+  ansible.builtin.file:
+    path: "{{ openbao_tls_csr_host_path }}"
+    state: absent
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Install OpenBao CA into host trust store
+  ansible.builtin.copy:
+    src: "{{ openbao_tls_ca_host_path }}"
+    dest: /etc/pki/ca-trust/source/anchors/openbao-ca.crt
+    remote_src: true
+    mode: "0644"
+    owner: root
+    group: root
+  register: _openbao_host_ca_install
+  when: openbao_tls_enabled | bool
+
+- name: Update host CA trust store
+  ansible.builtin.command:
+    cmd: update-ca-trust
+  changed_when: false
+  when:
+    - openbao_tls_enabled | bool
+    - _openbao_host_ca_install.changed | default(false)
+    - not ansible_check_mode
+
+- name: Generate OpenBao server TLS secret manifest
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl create secret tls {{ openbao_tls_secret_name }}
+      --namespace {{ openbao_namespace }}
+      --cert={{ openbao_tls_cert_host_path }}
+      --key={{ openbao_tls_key_host_path }}
+      --dry-run=client -o yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_tls_secret_yaml
+  changed_when: false
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Apply OpenBao server TLS secret
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ _openbao_tls_secret_yaml.stdout }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_tls_secret_apply
+  changed_when: >-
+    'created' in (_openbao_tls_secret_apply.stdout | default('')) or
+    'configured' in (_openbao_tls_secret_apply.stdout | default(''))
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Generate OpenBao CA secret manifest
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl create secret generic {{ openbao_tls_ca_secret_name }}
+      --namespace {{ openbao_namespace }}
+      --from-file=ca.crt={{ openbao_tls_ca_host_path }}
+      --dry-run=client -o yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_ca_secret_yaml
+  changed_when: false
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
+- name: Apply OpenBao CA secret
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ _openbao_ca_secret_yaml.stdout }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_ca_secret_apply
+  changed_when: >-
+    'created' in (_openbao_ca_secret_apply.stdout | default('')) or
+    'configured' in (_openbao_ca_secret_apply.stdout | default(''))
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
+
 - name: Render OpenBao Helm values
   ansible.builtin.template:
     src: values.yaml.j2
@@ -87,6 +272,19 @@
       - "Task changed: {{ _openbao_tofu_apply_result.changed | default(false) }}"
       - "Exit code: {{ _openbao_tofu_apply_result.rc | default('n/a') }}"
   when: armory_build_debug | default(false) | bool
+
+- name: Recreate OpenBao pod after Helm apply
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl delete pod
+      --selector app.kubernetes.io/name=openbao
+      --namespace {{ openbao_namespace }}
+      --ignore-not-found=true
+      --wait=true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: true
+  when: not ansible_check_mode
 
 - name: Create ClusterRoleBinding for OpenBao SA (token review)
   ansible.builtin.command:

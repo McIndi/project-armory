@@ -65,6 +65,9 @@
               "defaultVaultConnection": {
                 "enabled": true,
                 "address": beeai_openbao_cluster_addr,
+                "tlsServerName": beeai_openbao_tls_server_name,
+                "caCertSecret": beeai_openbao_ca_secret_name,
+                "caCertSecretRef": beeai_openbao_ca_secret_name,
                 "skipTLSVerify": false
               }
             }
@@ -78,6 +81,79 @@
           - "File: {{ beeai_vso_tofu_work_dir }}/terraform.tfvars.json"
           - "Task changed: {{ _beeai_vso_tfvars_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
+
+    - name: Ensure VSO namespace exists before copying OpenBao CA
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create namespace {{ beeai_vso_namespace }}
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vso_namespace_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply VSO namespace manifest
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _beeai_vso_namespace_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vso_namespace_apply
+      changed_when: >-
+        'configured' in (_beeai_vso_namespace_apply.stdout | default('')) or
+        'created' in (_beeai_vso_namespace_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Read OpenBao CA secret from OpenBao namespace for VSO
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_openbao_ca_secret_name }}
+          --namespace openbao
+          -o jsonpath='{.data.ca\.crt}'
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_openbao_ca_secret_b64_vso
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write temporary OpenBao CA certificate file for VSO
+      ansible.builtin.copy:
+        dest: /tmp/openbao-ca-vso.crt
+        mode: "0600"
+        content: "{{ _beeai_openbao_ca_secret_b64_vso.stdout | b64decode }}"
+      when: not ansible_check_mode
+
+    - name: Generate OpenBao CA secret manifest for VSO namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ beeai_openbao_ca_secret_name }}
+          --namespace {{ beeai_vso_namespace }}
+          --from-file=ca.crt=/tmp/openbao-ca-vso.crt
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_openbao_ca_secret_yaml_vso
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply OpenBao CA secret in VSO namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _beeai_openbao_ca_secret_yaml_vso.stdout }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_openbao_ca_secret_apply_vso
+      changed_when: >-
+        'configured' in (_beeai_openbao_ca_secret_apply_vso.stdout | default('')) or
+        'created' in (_beeai_openbao_ca_secret_apply_vso.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Remove temporary OpenBao CA certificate file for VSO
+      ansible.builtin.file:
+        path: /tmp/openbao-ca-vso.crt
+        state: absent
+      when: not ansible_check_mode
 
     - name: Initialize OpenTofu in VSO working directory
       ansible.builtin.command:
@@ -259,6 +335,56 @@
           - "Executed: {{ not ansible_check_mode }}"
           - "Exit code: {{ _beeai_ns_apply.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
+
+    - name: Read OpenBao CA secret from OpenBao namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_openbao_ca_secret_name }}
+          --namespace openbao
+          -o jsonpath={.data.ca\\.crt}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_openbao_ca_data
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write OpenBao CA certificate file for BeeAI namespace
+      ansible.builtin.copy:
+        dest: /tmp/openbao-ca-beeai.crt
+        content: "{{ (_beeai_openbao_ca_data.stdout | trim) | b64decode }}"
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Generate OpenBao CA secret manifest for BeeAI namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ beeai_openbao_ca_secret_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          --from-file=ca.crt=/tmp/openbao-ca-beeai.crt
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_openbao_ca_secret_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply OpenBao CA secret in BeeAI namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _beeai_openbao_ca_secret_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_openbao_ca_secret_apply
+      changed_when: >-
+        'configured' in (_beeai_openbao_ca_secret_apply.stdout | default('')) or
+        'created' in (_beeai_openbao_ca_secret_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Remove temporary OpenBao CA certificate file for BeeAI
+      ansible.builtin.file:
+        path: /tmp/openbao-ca-beeai.crt
+        state: absent
+      when: not ansible_check_mode
 
     - name: Apply VaultConnection and VaultAuth resources
       ansible.builtin.command:

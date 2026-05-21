@@ -39,6 +39,56 @@
           - "Exit code: {{ _nginx_tls_ns_apply.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
+    - name: Read OpenBao CA secret from OpenBao namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ nginx_openbao_ca_secret_name }}
+          --namespace openbao
+          -o jsonpath={.data.ca\\.crt}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _nginx_openbao_ca_data
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write OpenBao CA certificate file for cert-manager
+      ansible.builtin.copy:
+        dest: /tmp/openbao-ca-certmanager.crt
+        content: "{{ (_nginx_openbao_ca_data.stdout | trim) | b64decode }}"
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Generate OpenBao CA secret manifest for cert-manager namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ nginx_openbao_ca_secret_name }}
+          --namespace {{ certmanager_namespace }}
+          --from-file=ca.crt=/tmp/openbao-ca-certmanager.crt
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _nginx_openbao_ca_secret_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply OpenBao CA secret in cert-manager namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _nginx_openbao_ca_secret_yaml.stdout }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _nginx_openbao_ca_secret_apply
+      changed_when: >-
+        'configured' in (_nginx_openbao_ca_secret_apply.stdout | default('')) or
+        'created' in (_nginx_openbao_ca_secret_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Remove temporary OpenBao CA certificate file for cert-manager
+      ansible.builtin.file:
+        path: /tmp/openbao-ca-certmanager.crt
+        state: absent
+      when: not ansible_check_mode
+
     - name: Apply cert-manager ClusterIssuer for OpenBao PKI
       ansible.builtin.command:
         cmd: k3s kubectl apply -f -

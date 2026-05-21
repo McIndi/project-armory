@@ -271,7 +271,7 @@
         cmd: >-
           k3s kubectl get configmap kube-root-ca.crt
           -n kube-public
-          -o jsonpath={.data.ca\.crt}
+          -o jsonpath={.data.ca\\.crt}
       register: _k3s_ca_cert
       changed_when: false
       when: not ansible_check_mode

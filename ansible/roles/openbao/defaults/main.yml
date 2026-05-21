@@ -42,13 +42,40 @@ openbao_readiness_failure_threshold: 6
 # Must stay within the cluster NodePort range.
 openbao_node_port: 32200
 
+# OpenBao server TLS settings.
+openbao_tls_enabled: true
+openbao_tls_server_name: openbao.openbao.svc.cluster.local
+openbao_tls_secret_name: openbao-server-tls
+openbao_tls_ca_secret_name: openbao-ca
+openbao_tls_cert_common_name: "OpenBao Server"
+openbao_tls_ca_common_name: OpenBao-Internal-CA
+openbao_tls_cert_validity_days: 3650
+openbao_tls_cert_mount_path: /openbao/tls
+openbao_tls_cert_file_path: "{{ openbao_tls_cert_mount_path }}/tls.crt"
+openbao_tls_key_file_path: "{{ openbao_tls_cert_mount_path }}/tls.key"
+openbao_tls_artifacts_dir: "{{ openbao_work_dir }}/tls"
+openbao_tls_ca_key_host_path: "{{ openbao_tls_artifacts_dir }}/ca.key"
+openbao_tls_key_host_path: "{{ openbao_tls_artifacts_dir }}/tls.key"
+openbao_tls_cert_host_path: "{{ openbao_tls_artifacts_dir }}/tls.crt"
+openbao_tls_ca_host_path: "{{ openbao_tls_artifacts_dir }}/ca.crt"
+openbao_tls_csr_host_path: "{{ openbao_tls_artifacts_dir }}/tls.csr"
+openbao_tls_ca_serial_host_path: "{{ openbao_tls_artifacts_dir }}/ca.srl"
+openbao_tls_openssl_config_path: "{{ openbao_tls_artifacts_dir }}/openssl.cnf"
+openbao_tls_sans:
+  - DNS:openbao
+  - DNS:openbao.openbao
+  - DNS:openbao.openbao.svc
+  - DNS:openbao.openbao.svc.cluster.local
+  - DNS:localhost
+  - IP:127.0.0.1
+
 # API URL used by Ansible tasks running on the VM host.
 # Built from openbao_node_port to keep one source of truth.
-openbao_api_addr: "http://127.0.0.1:{{ openbao_node_port }}"
+openbao_api_addr: "https://127.0.0.1:{{ openbao_node_port }}"
 
 # In-cluster service URL used by cert-manager, VSO, and application workloads.
 # Must align with service/namespace naming in this role.
-openbao_cluster_addr: "http://openbao.openbao.svc.cluster.local:8200"
+openbao_cluster_addr: "https://{{ openbao_tls_server_name }}:8200"
 
 # Number of key shares generated during initialization.
 # Must be greater than or equal to openbao_key_threshold.

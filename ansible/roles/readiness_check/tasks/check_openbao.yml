@@ -36,7 +36,7 @@
     method: GET
     validate_certs: false
     timeout: "{{ readiness_check_openbao_api_timeout }}"
-    status_code: [200, 429, 473, 501, 503]
+    status_code: [200, 429, 472, 473, 501, 503]
   register: _rc_openbao_health
   changed_when: false
   failed_when: false
@@ -47,7 +47,7 @@
       {{ _readiness_results + [{
         'component': 'OpenBao',
         'check_name': 'Health endpoint responding',
-        'status': 'pass' if _rc_openbao_health.status in [200, 429, 473, 501, 503] else 'fail',
+        'status': 'pass' if _rc_openbao_health.status in [200, 429, 472, 473, 501, 503] else 'fail',
         'detail': 'HTTP ' + (_rc_openbao_health.status | string) if _rc_openbao_health.status is defined else 'no response',
         'error': ''
       }] }}
@@ -57,7 +57,10 @@
   ansible.builtin.set_fact:
     _rc_openbao_sealed: "{{ _rc_openbao_health.json.sealed | default(true) }}"
   changed_when: false
-  when: _rc_openbao_health.status in [200, 473]
+  when:
+    - _rc_openbao_health.status in [200, 429, 472, 473, 503]
+    - _rc_openbao_health.json is defined
+    - _rc_openbao_health.json.sealed is defined
 
 - name: Add OpenBao sealed check to results
   ansible.builtin.set_fact:
@@ -65,8 +68,8 @@
       {{ _readiness_results + [{
         'component': 'OpenBao',
         'check_name': 'OpenBao unsealed',
-        'status': 'pass' if _rc_openbao_sealed is defined and not (_rc_openbao_sealed | bool) else 'fail',
-        'detail': 'unsealed' if (_rc_openbao_sealed is defined and not (_rc_openbao_sealed | bool)) else 'sealed',
+        'status': 'pass' if (_rc_openbao_sealed is defined and not (_rc_openbao_sealed | bool)) else ('fail' if _rc_openbao_sealed is defined else 'warn'),
+        'detail': 'unsealed' if (_rc_openbao_sealed is defined and not (_rc_openbao_sealed | bool)) else ('sealed' if _rc_openbao_sealed is defined else 'unknown (no sealed field in health response)'),
         'error': ''
       }] }}
   changed_when: false

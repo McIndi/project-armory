@@ -47,12 +47,14 @@ headlamp_oidc_resolver_service_namespace: ingress-nginx
 headlamp_oidc_resolver_service_name: ingress-nginx-controller
 
 # OpenBao KV destination for Headlamp OIDC credentials
-headlamp_openbao_api_addr: "{{ openbao_api_addr | default('http://127.0.0.1:32200') }}"
+headlamp_openbao_api_addr: "{{ openbao_api_addr | default('https://127.0.0.1:32200') }}"
 headlamp_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
 headlamp_openbao_oidc_path: headlamp/oidc
 
 # VSO sync settings for Headlamp namespace
-headlamp_openbao_cluster_addr: "{{ beeai_openbao_cluster_addr | default('http://openbao.openbao.svc.cluster.local:8200') }}"
+headlamp_openbao_cluster_addr: "{{ beeai_openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+headlamp_openbao_tls_server_name: "{{ beeai_openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
+headlamp_openbao_ca_secret_name: "{{ beeai_openbao_ca_secret_name | default('openbao-ca') }}"
 headlamp_openbao_k8s_role: headlamp-vso
 headlamp_openbao_policy_name: headlamp-vso
 headlamp_vso_sa_name: headlamp-vso

@@ -47,6 +47,35 @@
       }] }}
   changed_when: false
 
+- name: Collect VaultConnection endpoint addresses
+  ansible.builtin.command: >-
+    k3s kubectl get vaultconnection -A
+    -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.address}{"\n"}{end}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_vaultconnection_endpoints
+  changed_when: false
+  failed_when: false
+
+- name: Add VaultConnection HTTPS endpoint check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Vault Secrets Operator',
+        'check_name': 'VaultConnection endpoints use HTTPS',
+        'status': (
+          'pass' if (_rc_vaultconnection_endpoints.stdout | trim | length == 0 or
+                     (_rc_vaultconnection_endpoints.stdout_lines | select('search', '=http://') | list | length == 0))
+          else 'fail'
+        ),
+        'detail': (
+          ((_rc_vaultconnection_endpoints.stdout_lines | select('search', '=http://') | list | length) | string)
+          + ' http endpoints detected'
+        ),
+        'error': ''
+      }] }}
+  changed_when: false
+
 - name: Debug VSO checks
   ansible.builtin.debug:
     msg:

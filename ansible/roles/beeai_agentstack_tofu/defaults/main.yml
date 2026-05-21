@@ -41,7 +41,9 @@ beeai_vso_chart_version: ""
 beeai_vso_namespace: vault-secrets-operator-system
 
 # OpenBao connection for VSO (must match openbao role defaults)
-beeai_openbao_cluster_addr: "http://openbao.openbao.svc.cluster.local:8200"
+beeai_openbao_cluster_addr: "https://openbao.openbao.svc.cluster.local:8200"
+beeai_openbao_tls_server_name: "openbao.openbao.svc.cluster.local"
+beeai_openbao_ca_secret_name: openbao-ca
 beeai_openbao_vso_sa_name: beeai-vso
 beeai_openbao_k8s_role: beeai-vso
 

@@ -44,7 +44,9 @@ Defined in `defaults/main.yml`:
 | `beeai_vso_chart_name` | `vault-secrets-operator` | VSO chart name. |
 | `beeai_vso_chart_version` | `""` | VSO chart version override. |
 | `beeai_vso_namespace` | `vault-secrets-operator-system` | Namespace for VSO deployment. |
-| `beeai_openbao_cluster_addr` | `http://openbao.openbao.svc.cluster.local:8200` | OpenBao address used by VSO connection resources. |
+| `beeai_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | OpenBao address used by VSO connection resources. |
+| `beeai_openbao_tls_server_name` | `openbao.openbao.svc.cluster.local` | TLS server name used by VSO VaultConnection resources. |
+| `beeai_openbao_ca_secret_name` | `openbao-ca` | Secret name containing the OpenBao CA in each consuming namespace, including the VSO namespace. |
 | `beeai_openbao_vso_sa_name` | `beeai-vso` | Service account name bound in OpenBao role config. |
 | `beeai_openbao_k8s_role` | `beeai-vso` | OpenBao Kubernetes auth role name for VSO. |
 | `beeai_vso_credentials_secret` | `beeai-credentials` | Destination k8s secret for BeeAI credentials. |
@@ -78,7 +80,7 @@ Defined in `defaults/main.yml`:
 | `beeai_keycloak_service_port` | `8336` | Keycloak service port used by ingress template. |
 
 ## Task flow
-1. Install/upgrade Vault Secrets Operator and ensure namespace/auth resources are applied.
+1. Install/upgrade Vault Secrets Operator and ensure the VSO namespace has the OpenBao CA trust secret before the default VaultConnection is rendered.
 2. Apply `VaultConnection`, `VaultAuth`, and `VaultStaticSecret` manifests.
 3. Wait for VSO-synced k8s secrets (`beeai-credentials`, `beeai-encryption-key`).
 4. Read secret data into Ansible facts (no local credentials file).
