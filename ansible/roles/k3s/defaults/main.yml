@@ -19,6 +19,7 @@ k3s_config_dir: /etc/rancher/k3s
 # Reference: https://docs.k3s.io/installation/configuration#configuration-file
 k3s_disable:
   - traefik
+  - servicelb
 
 # Enable etcd secrets encryption at rest.
 # Recommended true for production-style clusters handling credentials.
@@ -27,6 +28,18 @@ k3s_secrets_encryption: true
 # Firewalld zone that receives k3s service port rules.
 # Must match an existing zone on the target host.
 k3s_firewall_zone: public
+
+# When true, expose the Kubernetes API on the host network.
+# Default false keeps API access VM-local via 127.0.0.1 or SSH tunneling.
+k3s_firewall_expose_api_server: false
+
+# When true, expose the kubelet port on the host network.
+# Default false avoids publishing node internals outside the VM.
+k3s_firewall_expose_kubelet: false
+
+# When true, expose the Flannel VXLAN port on the host network.
+# Default false is appropriate for this single-node deployment.
+k3s_firewall_expose_flannel: false
 
 # Kubernetes API server port opened when firewall management is enabled.
 k3s_api_port: 6443

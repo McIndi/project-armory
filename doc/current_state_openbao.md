@@ -10,8 +10,9 @@
 |---|---|
 | Namespace | `openbao` |
 | Helm release | `openbao` (chart: `openbao/openbao`) |
-| Pod access (VM-local) | `http://127.0.0.1:32200` |
-| In-cluster address | `http://openbao.openbao.svc.cluster.local:8200` |
+| Service type | `ClusterIP` |
+| VM-local admin access | `https://openbao.openbao.svc.cluster.local:8200` (resolved locally to the Service ClusterIP via `/etc/hosts`) |
+| In-cluster address | `https://openbao.openbao.svc.cluster.local:8200` |
 | Storage backend | File (`/openbao/data` on PVC) |
 | Seal type | Shamir (5 shares, threshold 3) |
 | UI | Disabled |
@@ -76,8 +77,8 @@ All paths under `secret/beeai/*` are writable by the root token at deploy time (
 | Allow IP SANs | yes |
 | Max cert TTL | 1 year (`8760h`) |
 | Cert key type | RSA 2048 |
-| Issuing URL | `http://openbao.openbao.svc.cluster.local:8200/v1/pki/ca` |
-| CRL URL | `http://openbao.openbao.svc.cluster.local:8200/v1/pki/crl` |
+| Issuing URL | `https://openbao.openbao.svc.cluster.local:8200/v1/pki/ca` |
+| CRL URL | `https://openbao.openbao.svc.cluster.local:8200/v1/pki/crl` |
 
 ---
 
@@ -134,7 +135,7 @@ path "pki/issue/armory-dot-local" {
 |---|---|---|---|
 | **VSO** (`beeai-vso` SA, `agentstack` ns) | Kubernetes auth / role `beeai-vso` | `vso` | Reads `secret/beeai/credentials` and `secret/beeai/encryption-key`; syncs them into k8s Secrets |
 | **cert-manager** (`cert-manager` SA, `cert-manager` ns) | Kubernetes auth / role `cert-manager` | `cert-manager` | Signs certificates via `pki/sign/armory-dot-local`; used for `armory.local` TLS |
-| **Ansible** (VM localhost) | Root token (from decrypted init-keys file) | Root | Configures engines, writes BeeAI credentials on first run, unseals on every run |
+| **Ansible** (VM host) | Root token (from decrypted init-keys file) | Root | Configures engines, writes BeeAI credentials on first run, unseals on every run through the internal TLS service address |
 
 ---
 

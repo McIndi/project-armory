@@ -38,8 +38,8 @@ openbao_readiness_period_seconds: 10
 openbao_readiness_timeout_seconds: 10
 openbao_readiness_failure_threshold: 6
 
-# NodePort used to access OpenBao API from the host VM.
-# Must stay within the cluster NodePort range.
+# Legacy NodePort that older installs may still have opened in firewalld.
+# Kept only so the role can remove the obsolete public firewall opening.
 openbao_node_port: 32200
 
 # OpenBao server TLS settings.
@@ -70,8 +70,9 @@ openbao_tls_sans:
   - IP:127.0.0.1
 
 # API URL used by Ansible tasks running on the VM host.
-# Built from openbao_node_port to keep one source of truth.
-openbao_api_addr: "https://127.0.0.1:{{ openbao_node_port }}"
+# The role maps openbao_tls_server_name to the Service ClusterIP in /etc/hosts
+# so host-side automation can use the in-cluster TLS endpoint without a NodePort.
+openbao_api_addr: "https://{{ openbao_tls_server_name }}:8200"
 
 # In-cluster service URL used by cert-manager, VSO, and application workloads.
 # Must align with service/namespace naming in this role.

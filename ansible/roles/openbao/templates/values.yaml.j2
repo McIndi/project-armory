@@ -24,11 +24,10 @@ server:
 
   service:
     enabled: true
-    type: NodePort
+    type: ClusterIP
     publishNotReadyAddresses: true
     port: 8200
     targetPort: 8200
-    nodePort: {{ openbao_node_port }}
 
   dataStorage:
     enabled: true

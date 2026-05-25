@@ -273,6 +273,41 @@
       - "Exit code: {{ _openbao_tofu_apply_result.rc | default('n/a') }}"
   when: armory_build_debug | default(false) | bool
 
+- name: Read OpenBao service ClusterIP for host-local access
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get service {{ openbao_release_name }}
+      --namespace {{ openbao_namespace }}
+      -o jsonpath='{.spec.clusterIP}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _openbao_service_cluster_ip
+  changed_when: false
+  until: (_openbao_service_cluster_ip.stdout | trim | length) > 0
+  retries: 30
+  delay: 2
+  when: not ansible_check_mode
+
+- name: Ensure OpenBao service DNS resolves locally on the VM host
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ openbao_tls_server_name | regex_escape }}\s*$'
+    line: "{{ _openbao_service_cluster_ip.stdout | trim }} {{ openbao_tls_server_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: _openbao_hosts_result
+  when: not ansible_check_mode
+
+- name: Debug OpenBao host-local DNS mapping task
+  ansible.builtin.debug:
+    msg:
+      - "Task: Ensure OpenBao service DNS resolves locally on the VM host"
+      - "Mapping: {{ _openbao_service_cluster_ip.stdout | default('') | trim }} {{ openbao_tls_server_name }}"
+      - "Task changed: {{ _openbao_hosts_result.changed | default(false) }}"
+  when: armory_build_debug | default(false) | bool
+
 - name: Recreate OpenBao pod after Helm apply
   ansible.builtin.command:
     cmd: >-
@@ -442,20 +477,20 @@
           {{ _openbao_pod_logs.stdout | default('n/a') }}
   when: not ansible_check_mode
 
-- name: Open OpenBao firewall port
+- name: Remove legacy OpenBao firewall port exposure
   ansible.posix.firewalld:
     zone: "{{ openbao_firewall_zone }}"
     port: "{{ openbao_node_port }}/tcp"
     permanent: true
     immediate: true
-    state: enabled
+    state: disabled
   register: _openbao_firewall_port_result
   when: openbao_firewall_manage | bool
 
-- name: Debug OpenBao firewall task
+- name: Debug OpenBao firewall cleanup task
   ansible.builtin.debug:
     msg:
-      - "Task: Open OpenBao firewall port"
+      - "Task: Remove legacy OpenBao firewall port exposure"
       - "Executed: {{ openbao_firewall_manage | bool }}"
       - "Zone/port: {{ openbao_firewall_zone }} / {{ openbao_node_port }}/tcp"
       - "Task changed: {{ _openbao_firewall_port_result.changed | default(false) }}"

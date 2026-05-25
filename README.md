@@ -344,7 +344,7 @@ The deployment uses a private PKI chain for `$ARMORY_PUBLIC_DOMAIN`. Trust the C
 #### Export CA from VM (authoritative signer)
 
 ```bash
-vagrant ssh -c "curl -s http://127.0.0.1:32200/v1/pki/ca/pem" > armory-ca.pem
+vagrant ssh -c "k3s kubectl get secret -n openbao openbao-ca -o jsonpath='{.data.ca\.crt}' | base64 -d" > armory-ca.pem
 ```
 
 #### Optional: Export the cert currently served by ingress (for diagnostics)
@@ -552,7 +552,7 @@ Here's the complete picture across every communication path:
 ### ⚠️ Unencrypted (plain HTTP) — internal cluster only
 | Path | Protocol | Notes |
 |------|----------|-------|
-| VSO → OpenBao | **HTTP** `http://openbao.openbao.svc.cluster.local:8200` | OpenBao has `tls_disable=1`; traffic stays within the cluster pod network |
+| VSO → OpenBao | **HTTPS** `https://openbao.openbao.svc.cluster.local:8200` | Uses the OpenBao internal service TLS certificate and CA trust secret |
 | agentstack-server → Keycloak (in-cluster) | **HTTP** `http://keycloak:8336/realms/agentstack` | Intentional — the Keycloak patch sets `KC_HOSTNAME_STRICT=false` specifically to allow this HTTP in-cluster path |
 | agentstack-server → PostgreSQL | **Plain** `postgresql+psycopg://...@postgresql:5432` | Standard unencrypted PostgreSQL; in-cluster only |
 | agentstack-server → SeaweedFS S3 | **HTTP** `http://seaweedfs-all-in-one:9009` | S3-compatible endpoint, in-cluster only |

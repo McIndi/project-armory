@@ -37,7 +37,7 @@ Defined in `defaults/main.yml`:
    - `check_host.yml`: firewall rules, SELinux status, DNS resolution, kernel parameters, installed packages.
    - `check_k3s.yml`: cluster nodes, kube-apiserver connectivity, k3s service status.
    - `check_helm.yml`: Helm CLI version, Helm repo availability.
-   - `check_openbao.yml`: OpenBao TCP port 8200, health endpoint, unsealed status, API token validity.
+  - `check_openbao.yml`: OpenBao TCP port 8200, health endpoint, and unsealed status via the internal TLS service address.
    - `check_vso.yml`: Vault Secrets Operator deployment running, vaultconnection resources present.
    - `check_nginx.yml`: nginx ingress controller pods, ingress rules, TLS certificate validity.
   - `check_beeai.yml`: BeeAI pods running, service endpoints, HTTPS connectivity to `readiness_check_beeai_url` with ingress fallback checks when DNS is unavailable.

@@ -29,9 +29,9 @@ Defined in `defaults/main.yml`:
 | `openbao_chart_version` | `""` | Chart version override; empty uses latest. |
 | `openbao_startup_wait_timeout` | `300s` | Timeout for pod startup wait. |
 | `openbao_ready_wait_timeout` | `600s` | Timeout for readiness checks. |
-| `openbao_node_port` | `32200` | Exposed NodePort for API access from host VM. |
-| `openbao_api_addr` | `http://127.0.0.1:{{ openbao_node_port }}` | API endpoint used by Ansible tasks. |
-| `openbao_cluster_addr` | `http://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao address for integrations. |
+| `openbao_node_port` | `32200` | Legacy NodePort value retained so the role can remove obsolete firewall openings on upgraded hosts. |
+| `openbao_api_addr` | `https://openbao.openbao.svc.cluster.local:8200` | API endpoint used by Ansible tasks after the role maps the service DNS name to the Service ClusterIP locally on the VM. |
+| `openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao address for integrations. |
 | `openbao_key_shares` | `5` | Shamir secret share count for initialization. |
 | `openbao_key_threshold` | `3` | Shamir threshold for unseal. |
 | `openbao_kv_mount` | `secret` | KV v2 mount path for app credentials. |
@@ -46,8 +46,8 @@ Defined in `defaults/main.yml`:
 | `openbao_vso_sa_name` | `beeai-vso` | Service account used by Vault Secrets Operator auth role. |
 | `openbao_certmanager_namespace` | `cert-manager` | Namespace used for cert-manager auth role binding. |
 | `openbao_certmanager_sa_name` | `cert-manager` | cert-manager service account bound to PKI policy. |
-| `openbao_firewall_manage` | `true` | Whether to manage firewalld for OpenBao NodePort. |
-| `openbao_firewall_zone` | `public` | firewalld zone used for OpenBao NodePort. |
+| `openbao_firewall_manage` | `true` | Whether to remove obsolete public firewalld openings for legacy OpenBao NodePorts. |
+| `openbao_firewall_zone` | `public` | firewalld zone cleaned up for legacy OpenBao NodePort exposure. |
 
 ## Task flow
 1. Create local working directory.
@@ -70,7 +70,7 @@ Override example:
   roles:
     - role: openbao
       vars:
-        openbao_node_port: 32200
+        openbao_api_addr: https://openbao.openbao.svc.cluster.local:8200
         openbao_pki_allowed_domains: "armory.local,example.local"
 ```
 
@@ -81,3 +81,5 @@ Override example:
   Action: verify `openbao_vault_pass_file` and `openbao_init_keys_file` exist and are readable by root.
 - cert-manager or VSO integration fails.
   Action: verify `openbao_cluster_addr`, mount paths, and auth role/service account names match consumer roles.
+- Host-side OpenBao automation cannot connect.
+  Action: verify `/etc/hosts` on the VM contains `openbao.openbao.svc.cluster.local` mapped to the OpenBao Service ClusterIP and that the host trust store contains `openbao-ca.crt`.

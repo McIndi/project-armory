@@ -19,9 +19,12 @@ Defined in `defaults/main.yml`:
 | `k3s_version` | `""` | k3s version; empty installs latest stable from installer script. |
 | `k3s_install_dir` | `/usr/local/bin` | k3s binary location used for install checks. |
 | `k3s_config_dir` | `/etc/rancher/k3s` | Directory for k3s config and runtime settings. |
-| `k3s_disable` | `[traefik]` | Built-in components disabled at startup. |
+| `k3s_disable` | `[traefik, servicelb]` | Built-in components disabled at startup. |
 | `k3s_secrets_encryption` | `true` | Enables etcd secrets encryption in rendered config. |
 | `k3s_firewall_zone` | `public` | Firewalld zone for k3s ports. |
+| `k3s_firewall_expose_api_server` | `false` | Whether to open the Kubernetes API on the public host interface. |
+| `k3s_firewall_expose_kubelet` | `false` | Whether to open the kubelet port on the public host interface. |
+| `k3s_firewall_expose_flannel` | `false` | Whether to open the Flannel VXLAN port on the public host interface. |
 | `k3s_api_port` | `6443` | Kubernetes API server TCP port. |
 | `k3s_kubelet_port` | `10250` | Kubelet TCP port. |
 | `k3s_flannel_port` | `8472` | Flannel VXLAN UDP port. |
@@ -55,12 +58,13 @@ Override example:
       vars:
         k3s_version: v1.31.6+k3s1
         k3s_disable: [traefik, servicelb]
+        k3s_firewall_expose_api_server: true
 ```
 
 ## Troubleshooting
 - Installer download or execution fails.
   Action: verify outbound network access and DNS resolution.
-- API server not reachable.
-  Action: check firewalld rules, service status, and `k3s kubectl get nodes` output.
+- API server not reachable remotely.
+  Action: if remote access is intentional, set `k3s_firewall_expose_api_server=true`; otherwise use `vagrant ssh` and the local kubeconfig on the VM.
 - Traefik remains after disabling.
   Action: rerun role without check mode so cleanup command executes.

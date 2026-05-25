@@ -39,13 +39,14 @@
         zone: "{{ k3s_firewall_zone }}"
         permanent: true
         immediate: true
-        state: enabled
+        state: "{{ 'enabled' if (k3s_firewall_expose_api_server | default(false) | bool) else 'disabled' }}"
       register: _k3s_firewall_api_port_result
 
     - name: Debug API port firewall task
       ansible.builtin.debug:
         msg:
           - "Task: Open k3s API server port"
+          - "Executed as public exposure: {{ k3s_firewall_expose_api_server | default(false) | bool }}"
           - "Port/zone: {{ k3s_api_port }}/tcp in {{ k3s_firewall_zone }}"
           - "Task changed: {{ _k3s_firewall_api_port_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
@@ -56,13 +57,14 @@
         zone: "{{ k3s_firewall_zone }}"
         permanent: true
         immediate: true
-        state: enabled
+        state: "{{ 'enabled' if (k3s_firewall_expose_kubelet | default(false) | bool) else 'disabled' }}"
       register: _k3s_firewall_kubelet_port_result
 
     - name: Debug kubelet port firewall task
       ansible.builtin.debug:
         msg:
           - "Task: Open kubelet port"
+          - "Executed as public exposure: {{ k3s_firewall_expose_kubelet | default(false) | bool }}"
           - "Port/zone: {{ k3s_kubelet_port }}/tcp in {{ k3s_firewall_zone }}"
           - "Task changed: {{ _k3s_firewall_kubelet_port_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
@@ -73,13 +75,14 @@
         zone: "{{ k3s_firewall_zone }}"
         permanent: true
         immediate: true
-        state: enabled
+        state: "{{ 'enabled' if (k3s_firewall_expose_flannel | default(false) | bool) else 'disabled' }}"
       register: _k3s_firewall_flannel_port_result
 
     - name: Debug Flannel port firewall task
       ansible.builtin.debug:
         msg:
           - "Task: Open Flannel VXLAN port"
+          - "Executed as public exposure: {{ k3s_firewall_expose_flannel | default(false) | bool }}"
           - "Port/zone: {{ k3s_flannel_port }}/udp in {{ k3s_firewall_zone }}"
           - "Task changed: {{ _k3s_firewall_flannel_port_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool

@@ -48,14 +48,16 @@ certmanager_tofu_chart_values:
 # Helm values passed to ingress-nginx via OpenTofu helm provider.
 nginx_tofu_chart_values:
   controller:
+    hostNetwork: true
+    dnsPolicy: ClusterFirstWithHostNet
     service:
-      type: LoadBalancer
+      type: ClusterIP
 
 # Primary DNS name included in TLS certificates and ingress host rules.
 nginx_ingress_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 
 # Host VM IP added as a certificate SAN and local /etc/hosts mapping.
-# This is no longer used for ingress service externalIPs when service type is LoadBalancer.
+# With host-network ingress, this remains the node address clients connect to.
 nginx_ingress_ip: "{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
 
 # OpenBao in-cluster API address used by cert-manager issuer integration.

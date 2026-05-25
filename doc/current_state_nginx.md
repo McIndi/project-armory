@@ -10,14 +10,13 @@
 |---|---|
 | Namespace | `ingress-nginx` |
 | Helm release | `ingress-nginx` (chart: `ingress-nginx/ingress-nginx`) |
-| Controller service type | NodePort |
-| HTTP NodePort | `30080` |
-| HTTPS NodePort | `30443` |
-| External IP | `192.168.0.150` (set via `externalIPs`) |
+| Controller service type | ClusterIP |
+| Controller host exposure | Host network ports `80` and `443` |
+| External IP | Node primary IP (for example `192.168.0.150`) |
 | Ingress class name | `nginx` |
 | TLS certificate | `armory-tls` Secret in `ingress-nginx` ns (issued by cert-manager → OpenBao PKI) |
 
-Clients on the local network reach nginx at `192.168.0.150:80` (HTTP, will redirect to HTTPS) and `192.168.0.150:443` (HTTPS). The `externalIPs` setting on the NodePort Service makes the standard ports work without specifying the NodePort number.
+Clients on the local network reach nginx directly at `192.168.0.150:80` (HTTP, will redirect to HTTPS) and `192.168.0.150:443` (HTTPS). The controller binds those ports on the node, and the Service remains internal-only.
 
 ---
 
@@ -84,7 +83,7 @@ The rewrite strips the `/api` prefix before forwarding to the backend so the API
 Client (browser / curl)
   │
   ▼ 192.168.0.150:443 (HTTPS)
-nginx NodePort Service (30443)
+nginx ingress controller on host network
   │  TLS terminated here, cert from OpenBao PKI
   ▼
 nginx Ingress Controller Pod
@@ -94,16 +93,16 @@ nginx Ingress Controller Pod
   └─ Host: armory.local, Path: /realms/*  → agentstack-keycloak:8080 (Keycloak)
 ```
 
-HTTP requests (`192.168.0.150:80` / NodePort `30080`) are redirected to HTTPS by nginx.
+HTTP requests (`192.168.0.150:80`) are redirected to HTTPS by nginx.
 
 ---
 
 ## Firewall Rules (added by `nginx_ingress` role)
 
-| Port/Proto | NodePort | Purpose |
-|---|---|---|
-| `30080/tcp` | HTTP | Redirect to HTTPS |
-| `30443/tcp` | HTTPS | TLS-terminated application traffic |
+| Port/Proto | Purpose |
+|---|---|
+| `80/tcp` | HTTP redirect to HTTPS |
+| `443/tcp` | TLS-terminated application traffic |
 
 ---
 
@@ -112,12 +111,12 @@ HTTP requests (`192.168.0.150:80` / NodePort `30080`) are redirected to HTTPS by
 To reach `https://armory.local` without certificate warnings, clients need:
 
 1. **DNS / hosts entry:** Add `192.168.0.150 armory.local` to `/etc/hosts` (or local DNS)
-2. **CA trust:** Install the `Armory Root CA` certificate (retrievable from OpenBao at `http://127.0.0.1:32200/v1/pki/ca/pem` from the VM) into the client's trust store
+2. **CA trust:** Install the `Armory Root CA` certificate (retrievable from the `openbao-ca` Secret on the VM) into the client's trust store
 
 For `curl` without installing the CA:
 ```bash
-# Download CA from OpenBao (run from VM or where port 32200 is reachable)
-curl -s http://127.0.0.1:32200/v1/pki/ca/pem -o armory-ca.pem
+# Download CA from the Kubernetes Secret on the VM
+k3s kubectl get secret -n openbao openbao-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > armory-ca.pem
 
 # Use with curl
 curl --cacert armory-ca.pem https://armory.local/
@@ -185,6 +184,6 @@ nginx Ingress exposes Prometheus metrics at `/metrics` on port `10254` of the co
 | Constraint | Detail |
 |---|---|
 | Single-node, no HA | One controller pod. If the node restarts, nginx is unavailable until k3s reschedules the pod. |
-| NodePort external access | Standard ports 80/443 work via `externalIPs`, but this is a k3s single-node workaround — not a proper load balancer. MetalLB would be the next step for a more robust setup. |
+| Single-node ingress binding | The controller binds `80/443` directly on the node. For multi-node or managed failover, move to a real load balancer implementation such as MetalLB. |
 | CA not trusted by default | Browsers and tools will show certificate warnings until the Armory Root CA is installed in the client trust store. |
 | Keycloak path routing | Only `/realms` prefix is routed to Keycloak. The Keycloak admin console path (`/admin`) is not currently exposed via Ingress — access requires port-forwarding or a separate Ingress rule. |

@@ -10,7 +10,7 @@
 |---|---|
 | Distribution | k3s (single-node) |
 | Config file | `/etc/rancher/k3s/config.yaml` |
-| Disabled components | `traefik` |
+| Disabled components | `traefik`, `servicelb` |
 | Secrets encryption at rest | `true` (etcd-level encryption) |
 | Kubeconfig | `/etc/rancher/k3s/k3s.yaml` |
 | API server | `https://127.0.0.1:6443` |
@@ -38,7 +38,7 @@
 | Resource | Kind | Notes |
 |---|---|---|
 | `openbao` | Deployment | OpenBao server (standalone, file storage at `/openbao/data`) |
-| `openbao` | Service | NodePort `32200` → port `8200`; also used in-cluster at `openbao.openbao.svc.cluster.local:8200` |
+| `openbao` | Service | ClusterIP `8200`; used in-cluster and by VM-local automation via `openbao.openbao.svc.cluster.local` |
 | `openbao` | ServiceAccount | Bound to `system:auth-delegator` ClusterRole for token review |
 | `openbao` (PVC) | PersistentVolumeClaim | 1 Gi, stores all KV and PKI data |
 
@@ -67,7 +67,7 @@
 | Resource | Kind | Notes |
 |---|---|---|
 | `ingress-nginx-controller` | Deployment | nginx Ingress controller |
-| `ingress-nginx-controller` | Service | NodePort `30080` (HTTP) / `30443` (HTTPS); `externalIPs: [192.168.0.150]` |
+| `ingress-nginx-controller` | Service | ClusterIP; controller listens on host network ports `80/443` |
 | `armory-tls` | Secret | TLS cert + key synced from cert-manager Certificate resource |
 
 **Helm release:** `ingress-nginx` from `https://kubernetes.github.io/ingress-nginx`
@@ -82,7 +82,7 @@
 | `vault-secrets-operator` | Service | Internal only |
 
 **Helm release:** `vault-secrets-operator` from `https://helm.releases.hashicorp.com`  
-**Default VaultConnection:** pre-configured at install time to `http://openbao.openbao.svc.cluster.local:8200`
+**Default VaultConnection:** pre-configured at install time to `https://openbao.openbao.svc.cluster.local:8200`
 
 ---
 
@@ -110,7 +110,7 @@
 
 | Resource | Kind | OpenBao Path | Syncs To |
 |---|---|---|---|
-| `default` | VaultConnection | `http://openbao.openbao.svc.cluster.local:8200` | — |
+| `default` | VaultConnection | `https://openbao.openbao.svc.cluster.local:8200` | — |
 | `beeai-vaultauth` | VaultAuth | k8s auth / role `beeai-vso` | — |
 | `beeai-credentials-sync` | VaultStaticSecret | `secret/data/beeai/credentials` | k8s Secret `beeai-credentials` |
 | `beeai-enckey-sync` | VaultStaticSecret | `secret/data/beeai/encryption-key` | k8s Secret `beeai-encryption-key` |
@@ -132,14 +132,10 @@
 
 | Port/Proto | Purpose |
 |---|---|
-| `6443/tcp` | Kubernetes API server |
-| `10250/tcp` | Kubelet metrics |
-| `8472/udp` | Flannel VXLAN |
-| `32200/tcp` | OpenBao NodePort (Ansible access) |
-| `30080/tcp` | nginx HTTP NodePort |
-| `30443/tcp` | nginx HTTPS NodePort |
+| `80/tcp` | nginx ingress HTTP |
+| `443/tcp` | nginx ingress HTTPS |
 
-> Ports `30333`, `30334`, `31288` (previous BeeAI NodePorts) are **no longer open**.
+> Public host exposure is intentionally limited to nginx ingress. k3s API, kubelet, flannel, and legacy OpenBao/ingress NodePorts are not opened by default.
 
 ---
 
@@ -159,8 +155,8 @@
 | BeeAI UI | `https://armory.local` | Via nginx Ingress, TLS from OpenBao PKI |
 | BeeAI API | `https://armory.local/api/` | Via nginx Ingress |
 | Keycloak | `https://armory.local/realms/agentstack` | Via nginx Ingress |
-| OpenBao (from VM) | `http://127.0.0.1:32200` | NodePort, Ansible + admin use only |
-| OpenBao (in-cluster) | `http://openbao.openbao.svc.cluster.local:8200` | Used by VSO, cert-manager |
+| OpenBao (from VM) | `https://openbao.openbao.svc.cluster.local:8200` | Internal TLS service address; resolved locally on the VM for Ansible/admin use |
+| OpenBao (in-cluster) | `https://openbao.openbao.svc.cluster.local:8200` | Used by VSO, cert-manager |
 
 ---
 
@@ -168,7 +164,7 @@
 
 ```bash
 # Get admin password from OpenBao (authenticated, audit-logged)
-vagrant ssh -c "sudo BAO_ADDR=http://127.0.0.1:32200 BAO_TOKEN=\$(ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/init-keys.yml | python3 -c \"import sys,yaml; print(yaml.safe_load(sys.stdin)['root_token'])\") bao kv get -field=admin_password secret/beeai/credentials"
+vagrant ssh -c "sudo BAO_ADDR=https://openbao.openbao.svc.cluster.local:8200 BAO_CACERT=/etc/pki/ca-trust/source/anchors/openbao-ca.crt BAO_TOKEN=\$(ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/init-keys.yml | python3 -c \"import sys,yaml; print(yaml.safe_load(sys.stdin)['root_token'])\") bao kv get -field=admin_password secret/beeai/credentials"
 
 # Decrypt init keys file for human inspection
 vagrant ssh -c "sudo python3 /vagrant/ansible/scripts/decrypt_vaulted_items.py --vault-password-file /opt/openbao/.vault-pass /opt/openbao/init-keys.yml"
