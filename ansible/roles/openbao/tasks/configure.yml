@@ -225,6 +225,7 @@
           allow_bare_domains: true
           allow_ip_sans: true
           allow_localhost: false
+          require_cn: false
           max_ttl: "{{ openbao_pki_cert_ttl }}"
           key_type: rsa
           key_bits: 2048

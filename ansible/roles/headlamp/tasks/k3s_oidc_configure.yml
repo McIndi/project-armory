@@ -70,7 +70,7 @@
 
     - name: Re-render k3s config.yaml to include OIDC settings
       ansible.builtin.template:
-        src: "{{ headlamp_k3s_config_template | default('/vagrant/ansible/roles/k3s/templates/config.yaml.j2') }}"
+        src: "{{ headlamp_k3s_config_template | default((playbook_dir | dirname) ~ '/roles/k3s/templates/config.yaml.j2') }}"
         dest: /etc/rancher/k3s/config.yaml
         mode: "0644"
       vars:

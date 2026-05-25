@@ -36,8 +36,8 @@
           - env_guard_sentry_value | length > 0
         fail_msg: >-
           Missing required environment variable '{{ env_guard_sentry_var_name }}'.
-          Source /vagrant/.env before running Ansible:
-          set -a; source /vagrant/.env; set +a
+          Source the repo .env before running Ansible:
+          cd "${ARMORY_PROJECT_ROOT:-<repo-root>}"; set -a; source .env; set +a
         success_msg: "Environment sentry variable '{{ env_guard_sentry_var_name }}' is set."
 
     - name: Debug sentry presence assertion

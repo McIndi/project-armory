@@ -133,6 +133,7 @@ ansible-playbook playbooks/readiness_check.yml
 - Privilege escalation and runtime defaults are set through `.env` using `ANSIBLE_*` variables.
 - The `env_guard` role fails fast if `ARMORY_ENV_SOURCED` is missing or invalid.
 - `/vagrant` is world-writable on most Vagrant guests, so using environment-driven config avoids relying on local `ansible.cfg` discovery.
+- The VSO deployment path now requires a hardened VSO Helm chart (fork) with explicit kube-rbac-proxy TLS cert/key support. In `.env`, either set `BEEAI_VSO_CHART_PATH` to a local chart directory in this repo, or set `BEEAI_VSO_CHART_REPO`, `BEEAI_VSO_CHART_NAME`, and `BEEAI_VSO_CHART_VERSION` for a published chart, before running `--tags beeai_install`.
 
 ## Debug Mode
 

@@ -39,11 +39,18 @@ Defined in `defaults/main.yml`:
 | `beeai_admin_email` | `admin@armory.local` | Seeded BeeAI/Keycloak admin email. |
 | `beeai_admin_first_name` | `Admin` | Seeded BeeAI/Keycloak admin first name. |
 | `beeai_admin_last_name` | `User` | Seeded BeeAI/Keycloak admin last name. |
-| `beeai_vso_chart_repo` | `https://helm.releases.hashicorp.com` | Helm repository for VSO chart. |
+| `beeai_vso_chart_repo` | `lookup env BEEAI_VSO_CHART_REPO` | Helm repository for hardened/forked VSO chart (required when using published chart mode). |
 | `beeai_vso_release_name` | `vault-secrets-operator` | VSO Helm release name. |
-| `beeai_vso_chart_name` | `vault-secrets-operator` | VSO chart name. |
-| `beeai_vso_chart_version` | `""` | VSO chart version override. |
+| `beeai_vso_chart_path` | `lookup env BEEAI_VSO_CHART_PATH` | Optional local filesystem path to hardened VSO chart; takes precedence over repo/name/version when set. |
+| `beeai_vso_chart_name` | `lookup env BEEAI_VSO_CHART_NAME` | Hardened VSO chart name. |
+| `beeai_vso_chart_version` | `lookup env BEEAI_VSO_CHART_VERSION` | Pinned hardened VSO chart version (required). |
 | `beeai_vso_namespace` | `vault-secrets-operator-system` | Namespace for VSO deployment. |
+| `beeai_vso_require_hardened_chart` | `true` | Fail deployment if VSO chart repo/name/version are not explicitly set to a hardened fork. |
+| `beeai_vso_kube_rbac_proxy_tls_enabled` | `true` | Enable cert-manager-managed TLS for VSO kube-rbac-proxy. |
+| `beeai_vso_kube_rbac_proxy_tls_secret_name` | `vso-kube-rbac-proxy-tls` | TLS Secret consumed by hardened chart for kube-rbac-proxy cert/key files. |
+| `beeai_vso_kube_rbac_proxy_cert_name` | `vso-kube-rbac-proxy-cert` | cert-manager Certificate resource name for kube-rbac-proxy TLS. |
+| `beeai_vso_kube_rbac_proxy_cert_issuer_name` | `openbao-pki` | cert-manager Issuer/ClusterIssuer name used for kube-rbac-proxy cert issuance. |
+| `beeai_vso_chart_values` | map | Hardened VSO chart values merged into generated tfvars (includes kube-rbac-proxy TLS file settings). |
 | `beeai_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | OpenBao address used by VSO connection resources. |
 | `beeai_openbao_tls_server_name` | `openbao.openbao.svc.cluster.local` | TLS server name used by VSO VaultConnection resources. |
 | `beeai_openbao_ca_secret_name` | `openbao-ca` | Secret name containing the OpenBao CA in each consuming namespace, including the VSO namespace. |
@@ -80,18 +87,20 @@ Defined in `defaults/main.yml`:
 | `beeai_keycloak_service_port` | `8336` | Keycloak service port used by ingress template. |
 
 ## Task flow
-1. Install/upgrade Vault Secrets Operator and ensure the VSO namespace has the OpenBao CA trust secret before the default VaultConnection is rendered.
-2. Apply `VaultConnection`, `VaultAuth`, and `VaultStaticSecret` manifests.
-3. Wait for VSO-synced k8s secrets (`beeai-credentials`, `beeai-encryption-key`).
-4. Read secret data into Ansible facts (no local credentials file).
-5. Render OpenTofu files (`main.tf`, `terraform.tfvars.json`) and initialize OpenTofu.
-6. Handle stale Helm/PVC conditions before apply.
-7. Apply OpenTofu deployment (first and second pass if needed).
-8. Fix Keycloak OIDC audience mapper (`tasks/keycloak_oidc_fix.yml`) — sets
+1. Validate hardened VSO chart settings (repo/name/version pinned and not using upstream hashicorp repo).
+2. Install/upgrade Vault Secrets Operator and ensure the VSO namespace has the OpenBao CA trust secret before the default VaultConnection is rendered.
+3. Apply cert-manager Certificate for kube-rbac-proxy and wait until the TLS secret is ready.
+4. Apply `VaultConnection`, `VaultAuth`, and `VaultStaticSecret` manifests.
+5. Wait for VSO-synced k8s secrets (`beeai-credentials`, `beeai-encryption-key`).
+6. Read secret data into Ansible facts (no local credentials file).
+7. Render OpenTofu files (`main.tf`, `terraform.tfvars.json`) and initialize OpenTofu.
+8. Handle stale Helm/PVC conditions before apply.
+9. Apply OpenTofu deployment (first and second pass if needed).
+10. Fix Keycloak OIDC audience mapper (`tasks/keycloak_oidc_fix.yml`) — sets
    `agentstack-server-audience` scope mapper to `aud: agentstack-server` and assigns
    it as a default scope on the `agentstack-ui` client. Runs after every deploy
    because the Helm `keycloak-provision` hook overwrites Keycloak config on upgrade.
-9. Apply ingress resources.
+11. Apply ingress resources.
 
 ## Usage
 ```yaml

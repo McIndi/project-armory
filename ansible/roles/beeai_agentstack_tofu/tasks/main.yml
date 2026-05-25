@@ -19,6 +19,38 @@
 - name: Configure Vault Secrets Operator with diagnostics
   tags: [beeai, beeai_tofu, beeai_install, beeai_vso]
   block:
+    - name: Validate hardened VSO chart configuration
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              (beeai_vso_chart_path | default('') | trim) | length > 0
+            )
+            or
+            (
+              ((beeai_vso_chart_repo | default('') | trim) | length > 0)
+              and ((beeai_vso_chart_name | default('') | trim) | length > 0)
+              and ((beeai_vso_chart_version | default('') | trim) | length > 0)
+              and ((beeai_vso_chart_repo | trim) != 'https://helm.releases.hashicorp.com')
+            )
+        fail_msg: >-
+          Hardened VSO chart is required. Set beeai_vso_chart_path to a local
+          hardened chart directory, or set beeai_vso_chart_repo,
+          beeai_vso_chart_name, and beeai_vso_chart_version to a pinned forked
+          chart that supports explicit kube-rbac-proxy TLS cert/key flags.
+      when: beeai_vso_require_hardened_chart | bool
+
+    - name: Debug hardened VSO chart selection
+      ansible.builtin.debug:
+        msg:
+          - "Task: Validate hardened VSO chart configuration"
+          - "Chart path: {{ beeai_vso_chart_path | default('') }}"
+          - "Chart repo: {{ beeai_vso_chart_repo }}"
+          - "Chart name: {{ beeai_vso_chart_name }}"
+          - "Chart version: {{ beeai_vso_chart_version }}"
+          - "Hardened chart required: {{ beeai_vso_require_hardened_chart | bool }}"
+      when: armory_build_debug | default(false) | bool
+
     - name: Ensure VSO OpenTofu working directory exists
       ansible.builtin.file:
         path: "{{ beeai_vso_tofu_work_dir }}"
@@ -58,19 +90,28 @@
             "kubeconfig_path": beeai_tofu_kubeconfig_path,
             "release_name": beeai_vso_release_name,
             "namespace": beeai_vso_namespace,
-            "chart_repository": beeai_vso_chart_repo,
-            "chart_name": beeai_vso_chart_name,
-            "chart_version": beeai_vso_chart_version,
-            "chart_values": {
-              "defaultVaultConnection": {
-                "enabled": true,
-                "address": beeai_openbao_cluster_addr,
-                "tlsServerName": beeai_openbao_tls_server_name,
-                "caCertSecret": beeai_openbao_ca_secret_name,
-                "caCertSecretRef": beeai_openbao_ca_secret_name,
-                "skipTLSVerify": false
-              }
-            }
+            "chart_repository": (beeai_vso_chart_repo if ((beeai_vso_chart_path | default('') | trim) | length == 0) else ''),
+            "chart_name": ((beeai_vso_chart_path | trim) if ((beeai_vso_chart_path | default('') | trim) | length > 0) else beeai_vso_chart_name),
+            "chart_version": (beeai_vso_chart_version if ((beeai_vso_chart_path | default('') | trim) | length == 0) else ''),
+            "chart_values": (
+              beeai_vso_chart_values | combine({
+                "controller": {
+                  "kubeRbacProxy": {
+                    "tls": {
+                      "enabled": beeai_vso_kube_rbac_proxy_tls_enabled | bool
+                    }
+                  }
+                },
+                "defaultVaultConnection": {
+                  "enabled": true,
+                  "address": beeai_openbao_cluster_addr,
+                  "tlsServerName": beeai_openbao_tls_server_name,
+                  "caCertSecret": beeai_openbao_ca_secret_name,
+                  "caCertSecretRef": beeai_openbao_ca_secret_name,
+                  "skipTLSVerify": false
+                }
+              }, recursive=true)
+            )
           } | to_nice_json }}
       register: _beeai_vso_tfvars_result
 
@@ -148,6 +189,62 @@
         'configured' in (_beeai_openbao_ca_secret_apply_vso.stdout | default('')) or
         'created' in (_beeai_openbao_ca_secret_apply_vso.stdout | default(''))
       when: not ansible_check_mode
+
+    - name: Apply cert-manager Certificate for VSO kube-rbac-proxy TLS
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'vso_kube_rbac_proxy_certificate.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vso_kube_rbac_proxy_cert_apply
+      changed_when: >-
+        'configured' in (_beeai_vso_kube_rbac_proxy_cert_apply.stdout | default('')) or
+        'created' in (_beeai_vso_kube_rbac_proxy_cert_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+        - beeai_vso_kube_rbac_proxy_tls_enabled | bool
+
+    - name: Wait for VSO kube-rbac-proxy certificate to become Ready
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait
+          --namespace {{ beeai_vso_namespace }}
+          --for=condition=Ready
+          certificate/{{ beeai_vso_kube_rbac_proxy_cert_name }}
+          --timeout=180s
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vso_kube_rbac_proxy_cert_wait
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - beeai_vso_kube_rbac_proxy_tls_enabled | bool
+
+    - name: Wait for VSO kube-rbac-proxy TLS Secret
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ beeai_vso_kube_rbac_proxy_tls_secret_name }}
+          --namespace {{ beeai_vso_namespace }}
+      environment:
+        KUBECONFIG: "{{ beeai_tofu_kubeconfig_path }}"
+      register: _beeai_vso_kube_rbac_proxy_tls_secret_wait
+      changed_when: false
+      retries: 20
+      delay: 6
+      until: _beeai_vso_kube_rbac_proxy_tls_secret_wait.rc == 0
+      when:
+        - not ansible_check_mode
+        - beeai_vso_kube_rbac_proxy_tls_enabled | bool
+
+    - name: Debug VSO kube-rbac-proxy certificate tasks
+      ansible.builtin.debug:
+        msg:
+          - "Task: Apply cert-manager Certificate for VSO kube-rbac-proxy TLS"
+          - "Executed: {{ not ansible_check_mode and (beeai_vso_kube_rbac_proxy_tls_enabled | bool) }}"
+          - "Certificate name: {{ beeai_vso_kube_rbac_proxy_cert_name }}"
+          - "Secret name: {{ beeai_vso_kube_rbac_proxy_tls_secret_name }}"
+          - "Apply changed: {{ _beeai_vso_kube_rbac_proxy_cert_apply.changed | default(false) }}"
+      when: armory_build_debug | default(false) | bool
 
     - name: Remove temporary OpenBao CA certificate file for VSO
       ansible.builtin.file:

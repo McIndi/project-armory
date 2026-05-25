@@ -48,7 +48,7 @@ resource "helm_release" "vso" {
   namespace        = var.namespace
   create_namespace = true
 
-  repository = var.chart_repository
+  repository = var.chart_repository != "" ? var.chart_repository : null
   chart      = var.chart_name
   version    = var.chart_version != "" ? var.chart_version : null
 

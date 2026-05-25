@@ -34,11 +34,49 @@ beeai_admin_first_name: Admin
 beeai_admin_last_name: User
 
 # VSO (Vault Secrets Operator) settings
-beeai_vso_chart_repo: https://helm.releases.hashicorp.com
+# Use a hardened forked VSO chart that supports explicit kube-rbac-proxy TLS
+# files and removes deprecated kube-rbac-proxy flags.
+beeai_vso_chart_repo: "{{ lookup('ansible.builtin.env', 'BEEAI_VSO_CHART_REPO') | default('', true) }}"
 beeai_vso_release_name: vault-secrets-operator
-beeai_vso_chart_name: vault-secrets-operator
-beeai_vso_chart_version: ""
+# Optional local filesystem path to a hardened VSO chart (for demo/dev).
+# When set, this takes precedence over repo/name.
+beeai_vso_chart_path: "{{ lookup('ansible.builtin.env', 'BEEAI_VSO_CHART_PATH') | default('', true) }}"
+beeai_vso_chart_name: "{{ lookup('ansible.builtin.env', 'BEEAI_VSO_CHART_NAME') | default('', true) }}"
+# Security hardening requires a pinned chart version (no floating latest).
+beeai_vso_chart_version: "{{ lookup('ansible.builtin.env', 'BEEAI_VSO_CHART_VERSION') | default('', true) }}"
 beeai_vso_namespace: vault-secrets-operator-system
+beeai_vso_require_hardened_chart: true
+
+# cert-manager-managed TLS for kube-rbac-proxy in the hardened VSO chart.
+beeai_vso_kube_rbac_proxy_tls_enabled: true
+beeai_vso_kube_rbac_proxy_tls_secret_name: vso-kube-rbac-proxy-tls
+beeai_vso_kube_rbac_proxy_tls_mount_path: /etc/kube-rbac-proxy/tls
+beeai_vso_kube_rbac_proxy_tls_cert_file: "{{ beeai_vso_kube_rbac_proxy_tls_mount_path }}/tls.crt"
+beeai_vso_kube_rbac_proxy_tls_key_file: "{{ beeai_vso_kube_rbac_proxy_tls_mount_path }}/tls.key"
+
+beeai_vso_kube_rbac_proxy_metrics_service_name: "{{ beeai_vso_release_name }}-metrics-service"
+beeai_vso_kube_rbac_proxy_cert_name: vso-kube-rbac-proxy-cert
+beeai_vso_kube_rbac_proxy_cert_duration: "8760h"
+beeai_vso_kube_rbac_proxy_cert_renew_before: "720h"
+beeai_vso_kube_rbac_proxy_cert_issuer_name: openbao-pki
+beeai_vso_kube_rbac_proxy_cert_issuer_kind: ClusterIssuer
+beeai_vso_kube_rbac_proxy_cert_issuer_group: cert-manager.io
+# Keep cert SANs constrained to PKI-allowed domains (e.g. *.svc.cluster.local).
+# Leave empty by default to avoid cert-manager 64-byte commonName limit on long service FQDNs.
+beeai_vso_kube_rbac_proxy_cert_common_name: ""
+beeai_vso_kube_rbac_proxy_cert_dns_names:
+  - "{{ beeai_vso_kube_rbac_proxy_metrics_service_name }}.{{ beeai_vso_namespace }}.svc.cluster.local"
+
+# Hardened chart values expected by the forked chart implementation.
+beeai_vso_chart_values:
+  controller:
+    kubeRbacProxy:
+      tls:
+        enabled: "{{ beeai_vso_kube_rbac_proxy_tls_enabled }}"
+        existingSecret: "{{ beeai_vso_kube_rbac_proxy_tls_secret_name }}"
+        mountPath: "{{ beeai_vso_kube_rbac_proxy_tls_mount_path }}"
+        certFile: "{{ beeai_vso_kube_rbac_proxy_tls_cert_file }}"
+        keyFile: "{{ beeai_vso_kube_rbac_proxy_tls_key_file }}"
 
 # OpenBao connection for VSO (must match openbao role defaults)
 beeai_openbao_cluster_addr: "https://openbao.openbao.svc.cluster.local:8200"

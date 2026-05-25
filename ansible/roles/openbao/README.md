@@ -39,7 +39,8 @@ Defined in `defaults/main.yml`:
 | `openbao_pki_common_name` | `Armory Root CA` | Root CA common name. |
 | `openbao_pki_ttl` | `87600h` | Root CA max TTL. |
 | `openbao_pki_cert_role` | `armory-dot-local` | PKI role name used for certificate issuance. |
-| `openbao_pki_allowed_domains` | `armory.local` | Allowed certificate domains. |
+| `openbao_pki_internal_allowed_domains` | `svc.cluster.local` | Additional internal DNS suffixes allowed for in-cluster service certs. |
+| `openbao_pki_allowed_domains` | `armory.local,svc.cluster.local` | Allowed certificate domains. |
 | `openbao_pki_cert_ttl` | `8760h` | Issued certificate max TTL. |
 | `openbao_beeai_namespace` | `agentstack` | Namespace used for BeeAI auth role bindings. |
 | `openbao_vso_sa_name` | `beeai-vso` | Service account used by Vault Secrets Operator auth role. |

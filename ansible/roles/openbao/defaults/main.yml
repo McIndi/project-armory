@@ -101,8 +101,11 @@ openbao_pki_ttl: "87600h"
 # Role name used for issuing service/ingress certificates from PKI.
 openbao_pki_cert_role: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-') }}"
 
+# Extra internal DNS suffixes allowed for in-cluster service certificates.
+openbao_pki_internal_allowed_domains: "{{ lookup('ansible.builtin.env', 'ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS') | default('svc.cluster.local', true) }}"
+
 # Allowed DNS domain suffix for issued certificates.
-openbao_pki_allowed_domains: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
+openbao_pki_allowed_domains: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) ~ ',' ~ openbao_pki_internal_allowed_domains }}"
 
 # Default leaf certificate validity period.
 # Default 8760h is approximately 1 year.
