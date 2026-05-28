@@ -108,6 +108,26 @@
           - "Task changed: {{ _cluster_issuer_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
 
+    - name: Wait for OpenBao PKI ClusterIssuer readiness
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait clusterissuer openbao-pki
+          --for=condition=Ready
+          --timeout=180s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _cluster_issuer_wait
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Debug ClusterIssuer readiness wait task
+      ansible.builtin.debug:
+        msg:
+          - "Task: Wait for OpenBao PKI ClusterIssuer readiness"
+          - "Executed: {{ not ansible_check_mode }}"
+          - "Exit code: {{ _cluster_issuer_wait.rc | default('n/a') }}"
+      when: armory_build_debug | default(false) | bool
+
     - name: Apply TLS Certificate resource for armory.local
       ansible.builtin.command:
         cmd: k3s kubectl apply -f -

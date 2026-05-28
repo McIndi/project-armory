@@ -33,6 +33,7 @@ readiness_check_k3s_kubeconfig: /etc/rancher/k3s/k3s.yaml
 readiness_check_openbao_addr: https://openbao.openbao.svc.cluster.local:8200
 readiness_check_openbao_health_endpoint: /v1/sys/health
 readiness_check_openbao_api_timeout: 10
+readiness_check_openbao_validate_tls: true
 
 # VSO / Vault Secrets Operator settings
 readiness_check_vso_namespace: vault-secrets-operator-system
@@ -41,6 +42,10 @@ readiness_check_vso_deployment_name: vault-secrets-operator-controller-manager
 # nginx ingress settings
 readiness_check_nginx_namespace: ingress-nginx
 readiness_check_nginx_controller_label: "app.kubernetes.io/name=ingress-nginx"
+readiness_check_certmanager_namespace: cert-manager
+readiness_check_openbao_clusterissuer_name: openbao-pki
+readiness_check_ingress_tls_namespace: agentstack
+readiness_check_ingress_tls_certificate_name: armory-tls
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
 readiness_check_headlamp_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + readiness_check_public_domain, true) }}"

@@ -14,6 +14,15 @@
       - "Sensitive task redaction enabled: {{ not (armory_log_nolog | default(false) | bool) }}"
   when: armory_build_debug | default(false) | bool
 
+- name: Enforce TLS-only OpenBao listeners
+  ansible.builtin.assert:
+    that:
+      - openbao_tls_enabled | bool
+    fail_msg: >-
+      OpenBao TLS must remain enabled. Plaintext listener mode is not supported
+      because all OpenBao client integrations require HTTPS with CA trust.
+    success_msg: OpenBao TLS enforcement is enabled.
+
 - name: Run OpenBao orchestration with diagnostics
   block:
     - name: Ensure OpenBao work directory exists

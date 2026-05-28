@@ -6,11 +6,24 @@
   ansible.builtin.set_fact:
     _rc_openbao_addr: "{{ lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true) }}"
     _rc_openbao_port: "{{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true)).split(':')[-1].split('/')[0] | int }}"
+    _rc_openbao_host: "{{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true)).split('://')[1].split(':')[0] }}"
+  changed_when: false
+
+- name: Add OpenBao HTTPS scheme check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'API endpoint uses HTTPS',
+        'status': 'pass' if (_rc_openbao_addr | lower).startswith('https://') else 'fail',
+        'detail': _rc_openbao_addr,
+        'error': ''
+      }] }}
   changed_when: false
 
 - name: Check OpenBao TCP port reachable
   ansible.builtin.wait_for:
-    host: "{{ _rc_openbao_addr.split('://')[1].split(':')[0] }}"
+    host: "{{ _rc_openbao_host }}"
     port: "{{ _rc_openbao_port }}"
     timeout: "{{ readiness_check_connect_timeout }}"
     state: started
@@ -34,10 +47,39 @@
   ansible.builtin.uri:
     url: "{{ _rc_openbao_addr }}{{ readiness_check_openbao_health_endpoint }}"
     method: GET
-    validate_certs: false
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
     timeout: "{{ readiness_check_openbao_api_timeout }}"
     status_code: [200, 429, 472, 473, 501, 503]
   register: _rc_openbao_health
+  changed_when: false
+
+- name: Probe plaintext OpenBao HTTP endpoint
+  ansible.builtin.uri:
+    url: "http://{{ _rc_openbao_host }}:{{ _rc_openbao_port }}{{ readiness_check_openbao_health_endpoint }}"
+    method: GET
+    validate_certs: false
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 429, 472, 473, 501, 503]
+  register: _rc_openbao_plain_http
+  changed_when: false
+  failed_when: false
+
+- name: Add OpenBao plaintext HTTP rejection check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'Plain HTTP endpoint rejected',
+        'status': 'fail' if (_rc_openbao_plain_http.status is defined and _rc_openbao_plain_http.status in [200, 429, 472, 473, 501, 503]) else 'pass',
+        'detail': (
+          'no plaintext response' if (_rc_openbao_plain_http.status is not defined)
+          else (
+            ('unexpected HTTP ' + (_rc_openbao_plain_http.status | string)) if (_rc_openbao_plain_http.status in [200, 429, 472, 473, 501, 503])
+            else ('plaintext rejected with HTTP ' + (_rc_openbao_plain_http.status | string))
+          )
+        ),
+        'error': _rc_openbao_plain_http.msg | default('')
+      }] }}
   changed_when: false
   failed_when: false
 

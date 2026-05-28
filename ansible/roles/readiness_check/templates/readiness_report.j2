@@ -11,11 +11,11 @@
 Total Checks: {{ total_checks }} | Passed: {{ passed_checks }} | Warned: {{ warned_checks }} | Failed: {{ failed_checks }}
 
 {% if failed_checks > 0 %}
-STATUS: ❌ FAILED ({{ failed_checks }} critical issues found)
+STATUS: [FAIL] FAILED ({{ failed_checks }} critical issues found)
 {% elif warned_checks > 0 %}
-STATUS: ⚠️  WARNED ({{ warned_checks }} warnings, but no critical failures)
+STATUS: [WARN] WARNED ({{ warned_checks }} warnings, but no critical failures)
 {% else %}
-STATUS: ✅ PASSED (all checks successful)
+STATUS: [PASS] PASSED (all checks successful)
 {% endif %}
 
 ================================================================================
@@ -34,7 +34,7 @@ Status: {{ component_status | upper }}
 Checks: {{ component_checks | length }} total
 
 {% for check in component_checks %}
-  • {{ check.check_name }}
+   - {{ check.check_name }}
     Status: {{ check.status | upper }}
 {% if check.detail %}    Detail: {{ check.detail }}{% endif %}
 {% if check.error %}    Error: {{ check.error }}{% endif %}
@@ -47,15 +47,15 @@ Checks: {{ component_checks | length }} total
 ================================================================================
 
 {% if failed_checks == 0 and warned_checks == 0 %}
-✅ Environment is ready for use.
+[PASS] Environment is ready for use.
    - Access BeeAI UI at: {{ readiness_check_beeai_url }} (username: admin)
    - Retrieve credentials using commands in README.md
 {% elif failed_checks == 0 and warned_checks > 0 %}
-⚠️  Environment is mostly ready, but review warnings above.
+[WARN] Environment is mostly ready, but review warnings above.
    - Address warnings before proceeding to production use.
    - Set ARMORY_BUILD_DEBUG=true and rerun for detailed diagnostics.
 {% else %}
-❌ Critical issues detected. Environment is not ready.
+[FAIL] Critical issues detected. Environment is not ready.
    - Fix failed checks above before retrying.
    - Set ARMORY_BUILD_DEBUG=true and rerun for detailed diagnostics.
    - If problems persist, review role logs and check component READMEs.

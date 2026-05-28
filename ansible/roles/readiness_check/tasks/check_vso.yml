@@ -76,6 +76,162 @@
       }] }}
   changed_when: false
 
+- name: Collect VaultConnection resources as JSON
+  ansible.builtin.command: >-
+    k3s kubectl get vaultconnection -A
+    -o json
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_vaultconnection_json
+  changed_when: false
+  failed_when: false
+
+- name: Parse VaultConnection resources
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_items: "{{ ((_rc_vaultconnection_json.stdout | default('{\"items\": []}') | from_json)['items']) | default([]) }}"
+    _rc_vaultconnection_ca_ref_checks: []
+    _rc_vaultconnection_ca_secret_checks: []
+  changed_when: false
+
+- name: Build VaultConnection CA reference checks
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_ca_ref_checks: >-
+      {{ (_rc_vaultconnection_ca_ref_checks | default([])) + [{
+        'resource': item.metadata.namespace + '/' + item.metadata.name,
+        'namespace': item.metadata.namespace,
+        'name': item.metadata.name,
+        'ca_ref': _rc_vaultconnection_ca_ref,
+        'missing_ca_ref': (_rc_vaultconnection_ca_ref | length == 0)
+      }] }}
+  vars:
+    _rc_vaultconnection_ca_ref: "{{ ((item.spec | default({})).caCertSecretRef | default('') | trim) }}"
+  loop: "{{ _rc_vaultconnection_items }}"
+  changed_when: false
+
+- name: Collect referenced VaultConnection CA secrets
+  ansible.builtin.command: >-
+    k3s kubectl get secret {{ item.ca_ref }}
+    -n {{ item.namespace }}
+    -o json
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_vaultconnection_ca_secret_fetch
+  changed_when: false
+  failed_when: false
+  loop: "{{ _rc_vaultconnection_ca_ref_checks | rejectattr('missing_ca_ref', 'equalto', true) | list }}"
+  loop_control:
+    label: "{{ item.resource }} -> {{ item.ca_ref }}"
+
+- name: Build VaultConnection CA secret material checks
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_ca_secret_checks: >-
+      {{ (_rc_vaultconnection_ca_secret_checks | default([])) + [{
+        'resource': item.item.resource,
+        'namespace': item.item.namespace,
+        'name': item.item.name,
+        'ca_ref': item.item.ca_ref,
+        'missing_secret': ((item.rc | int) != 0),
+        'has_usable_key': (_rc_vaultconnection_has_ca_crt or _rc_vaultconnection_has_tls_crt or _rc_vaultconnection_has_crt),
+        'selected_key': (
+          'ca.crt' if _rc_vaultconnection_has_ca_crt
+          else ('tls.crt' if _rc_vaultconnection_has_tls_crt else ('crt' if _rc_vaultconnection_has_crt else 'none'))
+        )
+      }] }}
+  vars:
+    _rc_vaultconnection_secret_obj: "{{ (item.stdout | default('{\"data\": {}}') | from_json) if ((item.rc | int) == 0) else {'data': {}} }}"
+    _rc_vaultconnection_secret_data: "{{ _rc_vaultconnection_secret_obj.data | default({}) }}"
+    _rc_vaultconnection_has_ca_crt: "{{ (_rc_vaultconnection_secret_data.get('ca.crt', '') | string | length) > 0 }}"
+    _rc_vaultconnection_has_tls_crt: "{{ (_rc_vaultconnection_secret_data.get('tls.crt', '') | string | length) > 0 }}"
+    _rc_vaultconnection_has_crt: "{{ (_rc_vaultconnection_secret_data.get('crt', '') | string | length) > 0 }}"
+  loop: "{{ _rc_vaultconnection_ca_secret_fetch.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.resource }} -> {{ item.item.ca_ref }}"
+  changed_when: false
+
+- name: Derive VaultConnection CA trust failures
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_missing_ca_refs: >-
+      {{ _rc_vaultconnection_ca_ref_checks
+         | selectattr('missing_ca_ref', 'equalto', true)
+         | map(attribute='resource')
+         | list }}
+    _rc_vaultconnection_missing_ca_secrets: >-
+      {{ _rc_vaultconnection_ca_secret_checks
+         | selectattr('missing_secret', 'equalto', true)
+         | map(attribute='resource')
+         | list }}
+    _rc_vaultconnection_missing_ca_material: >-
+      {{ _rc_vaultconnection_ca_secret_checks
+         | rejectattr('missing_secret', 'equalto', true)
+         | rejectattr('has_usable_key', 'equalto', true)
+         | map(attribute='resource')
+         | list }}
+  changed_when: false
+
+- name: Collect VaultConnection TLS trust settings
+  ansible.builtin.command: >-
+    k3s kubectl get vaultconnection -A
+    -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.skipTLSVerify}{"\n"}{end}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_vaultconnection_tls
+  changed_when: false
+  failed_when: false
+
+- name: Build VaultConnection CA trust offender list
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_ca_trust_offenders: >-
+      {{ (
+          _rc_vaultconnection_missing_ca_refs
+          + _rc_vaultconnection_missing_ca_secrets
+          + _rc_vaultconnection_missing_ca_material
+        ) | unique | list }}
+  changed_when: false
+
+- name: Add VaultConnection CA trust source check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Vault Secrets Operator',
+        'check_name': 'VaultConnection CA trust sources valid',
+        'status': (
+          'pass' if (
+            (_rc_vaultconnection_missing_ca_refs | length == 0) and
+            (_rc_vaultconnection_missing_ca_secrets | length == 0) and
+            (_rc_vaultconnection_missing_ca_material | length == 0)
+          ) else 'fail'
+        ),
+        'detail': (
+          'missing refs=' + ((_rc_vaultconnection_missing_ca_refs | length) | string)
+          + ', missing secrets=' + ((_rc_vaultconnection_missing_ca_secrets | length) | string)
+          + ', missing CA material=' + ((_rc_vaultconnection_missing_ca_material | length) | string)
+          + '; offenders: '
+          + ((_rc_vaultconnection_ca_trust_offenders | join(', ')) if (_rc_vaultconnection_ca_trust_offenders | length > 0) else 'none')
+        ),
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Add VaultConnection skipTLSVerify check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Vault Secrets Operator',
+        'check_name': 'VaultConnection skipTLSVerify disabled',
+        'status': (
+          'pass' if (
+            _rc_vaultconnection_tls.stdout | trim | length == 0 or
+            (_rc_vaultconnection_tls.stdout_lines | select('search', '=true$') | list | length == 0)
+          ) else 'fail'
+        ),
+        'detail': (
+          ((_rc_vaultconnection_tls.stdout_lines | select('search', '=true$') | list | length) | string)
+          + ' endpoints with skipTLSVerify=true'
+        ),
+        'error': ''
+      }] }}
+  changed_when: false
+
 - name: Debug VSO checks
   ansible.builtin.debug:
     msg:
