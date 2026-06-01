@@ -1,19 +1,4 @@
 ---
-- name: Render OpenTofu configuration for OpenBao Helm release
-  ansible.builtin.template:
-    src: main.tf.j2
-    dest: "{{ openbao_work_dir }}/main.tf"
-    mode: "0644"
-  register: _openbao_main_tf_result
-
-- name: Debug OpenBao OpenTofu configuration render task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Render OpenTofu configuration for OpenBao Helm release"
-      - "File: {{ openbao_work_dir }}/main.tf"
-      - "Task changed: {{ _openbao_main_tf_result.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool
-
 - name: Generate OpenBao namespace manifest
   ansible.builtin.command:
     cmd: k3s kubectl create namespace {{ openbao_namespace }} --dry-run=client -o yaml
@@ -214,63 +199,30 @@
       - "Task changed: {{ _openbao_values_rendered.changed | default(false) }}"
   when: armory_build_debug | default(false) | bool
 
-- name: Render OpenTofu variables file for OpenBao
-  ansible.builtin.copy:
-    dest: "{{ openbao_work_dir }}/terraform.tfvars.json"
-    mode: "0600"
-    content: |
-      {{ {
-        "kubeconfig_path": "/etc/rancher/k3s/k3s.yaml",
-        "release_name": openbao_release_name,
-        "namespace": openbao_namespace,
-        "chart_repository": openbao_chart_repo,
-        "chart_name": openbao_chart_name,
-        "chart_version": openbao_chart_version,
-        "values_file_path": openbao_work_dir ~ "/values.yaml"
-      } | to_nice_json }}
-  register: _openbao_tfvars_result
-
-- name: Debug OpenBao tfvars render task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Render OpenTofu variables file for OpenBao"
-      - "File: {{ openbao_work_dir }}/terraform.tfvars.json"
-      - "Task changed: {{ _openbao_tfvars_result.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool
-
-- name: Initialize OpenTofu in OpenBao working directory
+- name: Deploy OpenBao via Helm
   ansible.builtin.command:
-    cmd: tofu init -input=false
-    chdir: "{{ openbao_work_dir }}"
-  register: _openbao_tofu_init_result
-  changed_when: "'Terraform has been successfully initialized' in _openbao_tofu_init_result.stdout"
+    cmd: >-
+      helm upgrade --install {{ openbao_release_name }} {{ openbao_chart_name }}
+      --namespace {{ openbao_namespace }}
+      --create-namespace
+      --repo {{ openbao_chart_repo }}
+      {% if openbao_chart_version | length > 0 %}--version {{ openbao_chart_version }}{% endif %}
+      -f {{ openbao_work_dir }}/values.yaml
+      --wait
+      --timeout 300s
+      --kubeconfig /etc/rancher/k3s/k3s.yaml
+  register: _openbao_helm_apply_result
+  changed_when: true
   when: not ansible_check_mode
 
-- name: Debug OpenBao OpenTofu init task
+- name: Debug OpenBao Helm deploy task
   ansible.builtin.debug:
     msg:
-      - "Task: Initialize OpenTofu in OpenBao working directory"
-      - "Executed: {{ not ansible_check_mode }}"
-      - "Task changed: {{ _openbao_tofu_init_result.changed | default(false) }}"
-      - "Exit code: {{ _openbao_tofu_init_result.rc | default('n/a') }}"
-  when: armory_build_debug | default(false) | bool
-
-- name: Deploy OpenBao via OpenTofu helm provider
-  ansible.builtin.command:
-    cmd: tofu apply -auto-approve -input=false
-    chdir: "{{ openbao_work_dir }}"
-  register: _openbao_tofu_apply_result
-  changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _openbao_tofu_apply_result.stdout"
-  when: not ansible_check_mode
-
-- name: Debug OpenBao OpenTofu apply task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Deploy OpenBao via OpenTofu helm provider"
+      - "Task: Deploy OpenBao via Helm"
       - "Executed: {{ not ansible_check_mode }}"
       - "Release/namespace: {{ openbao_release_name }}/{{ openbao_namespace }}"
-      - "Task changed: {{ _openbao_tofu_apply_result.changed | default(false) }}"
-      - "Exit code: {{ _openbao_tofu_apply_result.rc | default('n/a') }}"
+      - "Task changed: {{ _openbao_helm_apply_result.changed | default(false) }}"
+      - "Exit code: {{ _openbao_helm_apply_result.rc | default('n/a') }}"
   when: armory_build_debug | default(false) | bool
 
 - name: Read OpenBao service ClusterIP for host-local access

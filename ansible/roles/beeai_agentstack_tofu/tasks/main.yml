@@ -51,7 +51,7 @@
           - "Hardened chart required: {{ beeai_vso_require_hardened_chart | bool }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Ensure VSO OpenTofu working directory exists
+    - name: Ensure VSO working directory exists
       ansible.builtin.file:
         path: "{{ beeai_vso_tofu_work_dir }}"
         state: directory
@@ -61,66 +61,48 @@
     - name: Debug VSO work directory task
       ansible.builtin.debug:
         msg:
-          - "Task: Ensure VSO OpenTofu working directory exists"
+          - "Task: Ensure VSO working directory exists"
           - "Directory: {{ beeai_vso_tofu_work_dir }}"
           - "Task changed: {{ _beeai_vso_work_dir_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Render OpenTofu configuration for Vault Secrets Operator
-      ansible.builtin.template:
-        src: vso_main.tf.j2
-        dest: "{{ beeai_vso_tofu_work_dir }}/main.tf"
-        mode: "0644"
-      register: _beeai_vso_main_tf_result
-
-    - name: Debug VSO OpenTofu configuration render task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Render OpenTofu configuration for Vault Secrets Operator"
-          - "File: {{ beeai_vso_tofu_work_dir }}/main.tf"
-          - "Task changed: {{ _beeai_vso_main_tf_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Render OpenTofu variables file for Vault Secrets Operator
-      ansible.builtin.copy:
-        dest: "{{ beeai_vso_tofu_work_dir }}/terraform.tfvars.json"
-        mode: "0600"
-        content: |
-          {{ {
-            "kubeconfig_path": beeai_tofu_kubeconfig_path,
-            "release_name": beeai_vso_release_name,
-            "namespace": beeai_vso_namespace,
-            "chart_repository": (beeai_vso_chart_repo if ((beeai_vso_chart_path | default('') | trim) | length == 0) else ''),
-            "chart_name": ((beeai_vso_chart_path | trim) if ((beeai_vso_chart_path | default('') | trim) | length > 0) else beeai_vso_chart_name),
-            "chart_version": (beeai_vso_chart_version if ((beeai_vso_chart_path | default('') | trim) | length == 0) else ''),
-            "chart_values": (
-              beeai_vso_chart_values | combine({
-                "controller": {
-                  "kubeRbacProxy": {
-                    "tls": {
-                      "enabled": beeai_vso_kube_rbac_proxy_tls_enabled | bool
-                    }
+    - name: Build effective VSO Helm values
+      ansible.builtin.set_fact:
+        _beeai_vso_effective_chart_values: >-
+          {{
+            beeai_vso_chart_values | combine({
+              "controller": {
+                "kubeRbacProxy": {
+                  "tls": {
+                    "enabled": beeai_vso_kube_rbac_proxy_tls_enabled | bool
                   }
-                },
-                "defaultVaultConnection": {
-                  "enabled": true,
-                  "address": beeai_openbao_cluster_addr,
-                  "tlsServerName": beeai_openbao_tls_server_name,
-                  "caCertSecret": beeai_openbao_ca_secret_name,
-                  "caCertSecretRef": beeai_openbao_ca_secret_name,
-                  "skipTLSVerify": false
                 }
-              }, recursive=true)
-            )
-          } | to_nice_json }}
-      register: _beeai_vso_tfvars_result
+              },
+              "defaultVaultConnection": {
+                "enabled": true,
+                "address": beeai_openbao_cluster_addr,
+                "tlsServerName": beeai_openbao_tls_server_name,
+                "caCertSecret": beeai_openbao_ca_secret_name,
+                "caCertSecretRef": beeai_openbao_ca_secret_name,
+                "skipTLSVerify": false
+              }
+            }, recursive=true)
+          }}
+      changed_when: false
 
-    - name: Debug VSO tfvars render task
+    - name: Render VSO Helm values file
+      ansible.builtin.copy:
+        dest: "{{ beeai_vso_tofu_work_dir }}/values.yaml"
+        mode: "0600"
+        content: "{{ _beeai_vso_effective_chart_values | to_nice_yaml(indent=2) }}"
+      register: _beeai_vso_values_result
+
+    - name: Debug VSO values render task
       ansible.builtin.debug:
         msg:
-          - "Task: Render OpenTofu variables file for Vault Secrets Operator"
-          - "File: {{ beeai_vso_tofu_work_dir }}/terraform.tfvars.json"
-          - "Task changed: {{ _beeai_vso_tfvars_result.changed | default(false) }}"
+          - "Task: Render VSO Helm values file"
+          - "File: {{ beeai_vso_tofu_work_dir }}/values.yaml"
+          - "Task changed: {{ _beeai_vso_values_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Ensure VSO namespace exists before copying OpenBao CA
@@ -252,39 +234,31 @@
         state: absent
       when: not ansible_check_mode
 
-    - name: Initialize OpenTofu in VSO working directory
+    - name: Deploy Vault Secrets Operator via Helm
       ansible.builtin.command:
-        cmd: tofu init -input=false
-        chdir: "{{ beeai_vso_tofu_work_dir }}"
-      register: _beeai_vso_tofu_init_result
-      changed_when: "'Terraform has been successfully initialized' in _beeai_vso_tofu_init_result.stdout"
+        cmd: >-
+          helm upgrade --install {{ beeai_vso_release_name }}
+          {{ (beeai_vso_chart_path | trim) if ((beeai_vso_chart_path | default('') | trim) | length > 0) else beeai_vso_chart_name }}
+          --namespace {{ beeai_vso_namespace }}
+          --create-namespace
+          {% if ((beeai_vso_chart_path | default('') | trim) | length == 0) %}--repo {{ beeai_vso_chart_repo }}{% endif %}
+          {% if ((beeai_vso_chart_path | default('') | trim) | length == 0) and (beeai_vso_chart_version | length > 0) %}--version {{ beeai_vso_chart_version }}{% endif %}
+          -f {{ beeai_vso_tofu_work_dir }}/values.yaml
+          --wait
+          --timeout {{ beeai_vso_helm_timeout_seconds }}s
+          --kubeconfig {{ beeai_tofu_kubeconfig_path }}
+      register: _beeai_vso_helm_apply_result
+      changed_when: true
       when: not ansible_check_mode
 
-    - name: Debug VSO OpenTofu init task
+    - name: Debug VSO Helm deploy task
       ansible.builtin.debug:
         msg:
-          - "Task: Initialize OpenTofu in VSO working directory"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Task changed: {{ _beeai_vso_tofu_init_result.changed | default(false) }}"
-          - "Exit code: {{ _beeai_vso_tofu_init_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Deploy Vault Secrets Operator via OpenTofu helm provider
-      ansible.builtin.command:
-        cmd: tofu apply -auto-approve -input=false
-        chdir: "{{ beeai_vso_tofu_work_dir }}"
-      register: _beeai_vso_tofu_apply_result
-      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _beeai_vso_tofu_apply_result.stdout"
-      when: not ansible_check_mode
-
-    - name: Debug VSO OpenTofu apply task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Deploy Vault Secrets Operator via OpenTofu helm provider"
+          - "Task: Deploy Vault Secrets Operator via Helm"
           - "Executed: {{ not ansible_check_mode }}"
           - "Release/namespace: {{ beeai_vso_release_name }}/{{ beeai_vso_namespace }}"
-          - "Task changed: {{ _beeai_vso_tofu_apply_result.changed | default(false) }}"
-          - "Exit code: {{ _beeai_vso_tofu_apply_result.rc | default('n/a') }}"
+          - "Task changed: {{ _beeai_vso_helm_apply_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_vso_helm_apply_result.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
   rescue:
@@ -690,12 +664,12 @@
           BeeAI secret read section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
           Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
 
-# ── OpenTofu / Helm deployment ────────────────────────────────────────────────
+# ── Helm deployment ───────────────────────────────────────────────────────────
 
-- name: Prepare BeeAI OpenTofu deployment inputs with diagnostics
+- name: Prepare BeeAI Helm deployment inputs with diagnostics
   tags: [beeai, beeai_tofu, beeai_install]
   block:
-    - name: Ensure BeeAI OpenTofu working directory exists
+    - name: Ensure BeeAI working directory exists
       ansible.builtin.file:
         path: "{{ beeai_tofu_work_dir }}"
         state: directory
@@ -705,24 +679,9 @@
     - name: Debug BeeAI work directory task
       ansible.builtin.debug:
         msg:
-          - "Task: Ensure BeeAI OpenTofu working directory exists"
+          - "Task: Ensure BeeAI working directory exists"
           - "Directory: {{ beeai_tofu_work_dir }}"
           - "Task changed: {{ _beeai_work_dir_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Render OpenTofu configuration for BeeAI Agent Stack
-      ansible.builtin.template:
-        src: main.tf.j2
-        dest: "{{ beeai_tofu_work_dir }}/main.tf"
-        mode: "0644"
-      register: _beeai_main_tf_result
-
-    - name: Debug OpenTofu configuration render task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Render OpenTofu configuration for BeeAI Agent Stack"
-          - "File: {{ beeai_tofu_work_dir }}/main.tf"
-          - "Task changed: {{ _beeai_main_tf_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Build effective BeeAI Helm values
@@ -769,36 +728,22 @@
           - "Top-level value keys: {{ beeai_tofu_effective_chart_values.keys() | list | join(', ') if beeai_tofu_effective_chart_values is defined else 'n/a' }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Render OpenTofu variables file for BeeAI Agent Stack
+    - name: Render BeeAI Helm values file
       ansible.builtin.copy:
-        dest: "{{ beeai_tofu_work_dir }}/terraform.tfvars.json"
+        dest: "{{ beeai_tofu_work_dir }}/values.yaml"
         mode: "0600"
-        content: |
-          {{ {
-            "kubeconfig_path": beeai_tofu_kubeconfig_path,
-            "release_name": beeai_tofu_release_name,
-            "namespace": beeai_tofu_namespace,
-            "create_namespace": beeai_tofu_create_namespace,
-            "chart_repository": beeai_tofu_chart_repository,
-            "chart_name": beeai_tofu_chart_name,
-            "chart_version": beeai_tofu_chart_version,
-            "timeout_seconds": beeai_tofu_timeout_seconds,
-            "wait_for_resources": beeai_tofu_wait,
-            "atomic_install": beeai_tofu_atomic,
-            "cleanup_on_fail": beeai_tofu_cleanup_on_fail,
-            "chart_values": beeai_tofu_effective_chart_values
-          } | to_nice_json }}
-      register: _beeai_tfvars_result
+        content: "{{ beeai_tofu_effective_chart_values | to_nice_yaml(indent=2) }}"
+      register: _beeai_values_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Debug tfvars render task
+    - name: Debug BeeAI values render task
       ansible.builtin.debug:
         msg:
-          - "Task: Render OpenTofu variables file for BeeAI Agent Stack"
+          - "Task: Render BeeAI Helm values file"
           - "Executed: {{ not ansible_check_mode }}"
-          - "File: {{ beeai_tofu_work_dir }}/terraform.tfvars.json"
-          - "Task changed: {{ _beeai_tfvars_result.changed | default(false) }}"
+          - "File: {{ beeai_tofu_work_dir }}/values.yaml"
+          - "Task changed: {{ _beeai_values_result.changed | default(false) }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Remove stale PostgreSQL password update secret if present
@@ -818,28 +763,11 @@
           - "Exit code: {{ _beeai_remove_pg_secret_result.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Initialize OpenTofu in BeeAI working directory
-      ansible.builtin.command:
-        cmd: tofu init -input=false
-        chdir: "{{ beeai_tofu_work_dir }}"
-      register: beeai_tofu_init_result
-      changed_when: "'Terraform has been successfully initialized' in beeai_tofu_init_result.stdout"
-      when: not ansible_check_mode
-
-    - name: Debug OpenTofu init task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Initialize OpenTofu in BeeAI working directory"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Task changed: {{ beeai_tofu_init_result.changed | default(false) }}"
-          - "Exit code: {{ beeai_tofu_init_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
   rescue:
-    - name: Debug BeeAI OpenTofu prep failure context
+    - name: Debug BeeAI Helm prep failure context
       ansible.builtin.debug:
         msg:
-          - "Role: beeai_agentstack_tofu (OpenTofu prep section)"
+          - "Role: beeai_agentstack_tofu (Helm prep section)"
           - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
           - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
           - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
@@ -849,10 +777,10 @@
           - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Fail BeeAI OpenTofu prep flow with context
+    - name: Fail BeeAI Helm prep flow with context
       ansible.builtin.fail:
         msg: >-
-          BeeAI OpenTofu prep section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
+          BeeAI Helm prep section failed at '{{ ansible_failed_task.name | default('unknown') }}'.
           Set ARMORY_BUILD_DEBUG=true for companion diagnostics.
 
 - name: Clean up stale BeeAI release state with diagnostics
@@ -876,66 +804,6 @@
           - "Task: Check if BeeAI Helm release exists"
           - "Executed: {{ not ansible_check_mode }}"
           - "Release present: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else 'unknown' }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Uninstall stale BeeAI Helm release directly via Helm
-      ansible.builtin.command:
-        cmd: >-
-          helm uninstall {{ beeai_tofu_release_name }}
-          --namespace {{ beeai_tofu_namespace }}
-          --kubeconfig {{ beeai_tofu_kubeconfig_path }}
-      register: _beeai_helm_uninstall_stale
-      when: _beeai_helm_check.rc == 0
-      changed_when: _beeai_helm_uninstall_stale.rc == 0
-      failed_when: false
-
-    - name: Debug stale BeeAI Helm uninstall task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Uninstall stale BeeAI Helm release directly via Helm"
-          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
-          - "Exit code: {{ _beeai_helm_uninstall_stale.rc | default('n/a') }}"
-          - "stdout (trimmed): {{ _beeai_helm_uninstall_stale.stdout | default('') | trim }}"
-          - "stderr (trimmed): {{ _beeai_helm_uninstall_stale.stderr | default('') | trim }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: List OpenTofu state resources for BeeAI release cleanup
-      ansible.builtin.command:
-        cmd: tofu state list
-        chdir: "{{ beeai_tofu_work_dir }}"
-      register: _beeai_tofu_state_list
-      when: _beeai_helm_check.rc == 0
-      changed_when: false
-      failed_when: false
-
-    - name: Debug BeeAI OpenTofu state listing task
-      ansible.builtin.debug:
-        msg:
-          - "Task: List OpenTofu state resources for BeeAI release cleanup"
-          - "Executed: {{ _beeai_helm_check.rc == 0 if _beeai_helm_check is defined else false }}"
-          - "Exit code: {{ _beeai_tofu_state_list.rc | default('n/a') }}"
-          - "Resource count: {{ _beeai_tofu_state_list.stdout_lines | default([]) | length }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Remove stale BeeAI helm_release entry from OpenTofu state
-      ansible.builtin.command:
-        cmd: tofu state rm helm_release.beeai_agentstack
-        chdir: "{{ beeai_tofu_work_dir }}"
-      register: _beeai_tofu_state_rm
-      when:
-        - _beeai_helm_check.rc == 0
-        - "'helm_release.beeai_agentstack' in (_beeai_tofu_state_list.stdout | default(''))"
-      changed_when: _beeai_tofu_state_rm.rc == 0
-      failed_when: false
-
-    - name: Debug BeeAI OpenTofu state cleanup task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Remove stale BeeAI helm_release entry from OpenTofu state"
-          - "Executed: {{ ('helm_release.beeai_agentstack' in (_beeai_tofu_state_list.stdout | default(''))) if _beeai_tofu_state_list is defined else false }}"
-          - "Exit code: {{ _beeai_tofu_state_rm.rc | default('n/a') }}"
-          - "stdout (trimmed): {{ _beeai_tofu_state_rm.stdout | default('') | trim }}"
-          - "stderr (trimmed): {{ _beeai_tofu_state_rm.stderr | default('') | trim }}"
       when: armory_build_debug | default(false) | bool
 
     - name: Force delete stale PostgreSQL StatefulSet before PVC cleanup
@@ -1279,26 +1147,34 @@
 
   when: not ansible_check_mode
 
-- name: Apply BeeAI Agent Stack Helm release via OpenTofu
+- name: Apply BeeAI Agent Stack Helm release
   tags: [beeai, beeai_tofu, beeai_install]
   block:
-    - name: Run OpenTofu apply for BeeAI Agent Stack
+    - name: Run first-pass Helm apply for BeeAI Agent Stack
       ansible.builtin.command:
-        cmd: tofu apply -auto-approve -input=false
-        chdir: "{{ beeai_tofu_work_dir }}"
-      register: beeai_tofu_apply_result
-      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in beeai_tofu_apply_result.stdout"
+        cmd: >-
+          helm upgrade --install {{ beeai_tofu_release_name }} {{ beeai_tofu_chart_repository }}/{{ beeai_tofu_chart_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          {% if beeai_tofu_create_namespace | bool %}--create-namespace{% endif %}
+          {% if beeai_tofu_chart_version | length > 0 %}--version {{ beeai_tofu_chart_version }}{% endif %}
+          -f {{ beeai_tofu_work_dir }}/values.yaml
+          {% if beeai_tofu_wait | bool %}--wait{% endif %}
+          --timeout {{ beeai_tofu_timeout_seconds }}s
+          --kubeconfig {{ beeai_tofu_kubeconfig_path }}
+          {% if beeai_tofu_cleanup_on_fail | bool %}--cleanup-on-fail{% endif %}
+      register: _beeai_helm_apply_result
+      changed_when: true
 
-    - name: Debug BeeAI OpenTofu apply task
+    - name: Debug BeeAI first-pass Helm apply task
       ansible.builtin.debug:
         msg:
-          - "Task: Run OpenTofu apply for BeeAI Agent Stack"
-          - "Task changed: {{ beeai_tofu_apply_result.changed | default(false) }}"
-          - "Exit code: {{ beeai_tofu_apply_result.rc | default('n/a') }}"
+          - "Task: Run first-pass Helm apply for BeeAI Agent Stack"
+          - "Task changed: {{ _beeai_helm_apply_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_helm_apply_result.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
   rescue:
-    - name: Capture BeeAI namespace workload summary after OpenTofu failure
+    - name: Capture BeeAI namespace workload summary after Helm failure
       ansible.builtin.command:
         cmd: >-
           k3s kubectl get pods,deploy,sts,svc,ingress,job
@@ -1313,13 +1189,13 @@
     - name: Debug BeeAI workload capture task
       ansible.builtin.debug:
         msg:
-          - "Task: Capture BeeAI namespace workload summary after OpenTofu failure"
+          - "Task: Capture BeeAI namespace workload summary after Helm failure"
           - "Exit code: {{ _beeai_apply_diag_workloads.rc | default('n/a') }}"
           - "stdout lines: {{ _beeai_apply_diag_workloads.stdout_lines | default([]) | length }}"
           - "stderr (trimmed): {{ _beeai_apply_diag_workloads.stderr | default('') | trim }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Capture BeeAI namespace events after OpenTofu failure
+    - name: Capture BeeAI namespace events after Helm failure
       ansible.builtin.command:
         cmd: >-
           k3s kubectl get events
@@ -1334,13 +1210,13 @@
     - name: Debug BeeAI event capture task
       ansible.builtin.debug:
         msg:
-          - "Task: Capture BeeAI namespace events after OpenTofu failure"
+          - "Task: Capture BeeAI namespace events after Helm failure"
           - "Exit code: {{ _beeai_apply_diag_events.rc | default('n/a') }}"
           - "stdout lines: {{ _beeai_apply_diag_events.stdout_lines | default([]) | length }}"
           - "stderr (trimmed): {{ _beeai_apply_diag_events.stderr | default('') | trim }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Mark first-pass OpenTofu apply for second-pass retry
+    - name: Mark first-pass Helm apply for second-pass retry
       ansible.builtin.set_fact:
         _beeai_first_pass_apply_failed: true
       changed_when: false
@@ -1348,11 +1224,11 @@
     - name: Continue after first-pass apply failure with diagnostics
       ansible.builtin.debug:
         msg:
-          - "First-pass OpenTofu apply failed; continuing to Keycloak patch and second-pass apply."
-          - "OpenTofu command: {{ beeai_tofu_apply_result.cmd | default('n/a') }}"
-          - "OpenTofu return code: {{ beeai_tofu_apply_result.rc | default('n/a') }}"
-          - "OpenTofu stderr: {{ beeai_tofu_apply_result.stderr | default('n/a') }}"
-          - "OpenTofu stdout: {{ beeai_tofu_apply_result.stdout | default('n/a') }}"
+          - "First-pass Helm apply failed; continuing to Keycloak patch and second-pass apply."
+          - "Helm command: {{ _beeai_helm_apply_result.cmd | default('n/a') }}"
+          - "Helm return code: {{ _beeai_helm_apply_result.rc | default('n/a') }}"
+          - "Helm stderr: {{ _beeai_helm_apply_result.stderr | default('n/a') }}"
+          - "Helm stdout: {{ _beeai_helm_apply_result.stdout | default('n/a') }}"
           - "Workload summary: {{ _beeai_apply_diag_workloads.stdout | default(_beeai_apply_diag_workloads.stderr | default('n/a')) }}"
           - "Recent namespace events: {{ _beeai_apply_diag_events.stdout | default(_beeai_apply_diag_events.stderr | default('n/a')) }}"
   when: not ansible_check_mode
@@ -1368,7 +1244,7 @@
 #     cold-JVM startup (Quarkus augmentation alone takes ~237 s on this host).
 # The patch below sets KC_HOSTNAME_STRICT=false and raises the probe limit to
 # beeai_tofu_keycloak_startup_probe_failurethreshold. When the patch triggers a
-# StatefulSet rollout the block waits for it, then re-runs tofu apply so that
+# StatefulSet rollout the block waits for it, then re-runs helm upgrade --install so that
 # the post-upgrade hook (keycloak-provision) can reach Keycloak and succeed.
 
 - name: Patch Keycloak StatefulSet for in-cluster hostname accessibility
@@ -1725,46 +1601,31 @@
           - "Status: {{ _beeai_helm_release_status.stdout | default('unknown') }}"
       when: armory_build_debug | default(false) | bool
 
-    - name: Update OpenTofu tfvars with extended timeout for second-pass apply
-      ansible.builtin.copy:
-        dest: "{{ beeai_tofu_work_dir }}/terraform.tfvars.json"
-        mode: "0600"
-        content: |
-          {{ {
-            "kubeconfig_path": beeai_tofu_kubeconfig_path,
-            "release_name": beeai_tofu_release_name,
-            "namespace": beeai_tofu_namespace,
-            "create_namespace": beeai_tofu_create_namespace,
-            "chart_repository": beeai_tofu_chart_repository,
-            "chart_name": beeai_tofu_chart_name,
-            "chart_version": beeai_tofu_chart_version,
-            "timeout_seconds": beeai_tofu_post_patch_timeout_seconds,
-            "wait_for_resources": beeai_tofu_wait,
-            "atomic_install": beeai_tofu_atomic,
-            "cleanup_on_fail": beeai_tofu_cleanup_on_fail,
-            "chart_values": beeai_tofu_effective_chart_values
-          } | to_nice_json }}
-      when:
-        - not ansible_check_mode
-        - _beeai_helm_release_status.stdout | default('') != 'deployed'
-
-    - name: Run second-pass OpenTofu apply for BeeAI Agent Stack
+    - name: Run second-pass Helm apply for BeeAI Agent Stack
       ansible.builtin.command:
-        cmd: tofu apply -auto-approve -input=false
-        chdir: "{{ beeai_tofu_work_dir }}"
-      register: _beeai_tofu_reapply_result
-      changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in _beeai_tofu_reapply_result.stdout"
+        cmd: >-
+          helm upgrade --install {{ beeai_tofu_release_name }} {{ beeai_tofu_chart_repository }}/{{ beeai_tofu_chart_name }}
+          --namespace {{ beeai_tofu_namespace }}
+          {% if beeai_tofu_create_namespace | bool %}--create-namespace{% endif %}
+          {% if beeai_tofu_chart_version | length > 0 %}--version {{ beeai_tofu_chart_version }}{% endif %}
+          -f {{ beeai_tofu_work_dir }}/values.yaml
+          {% if beeai_tofu_wait | bool %}--wait{% endif %}
+          --timeout {{ beeai_tofu_post_patch_timeout_seconds }}s
+          --kubeconfig {{ beeai_tofu_kubeconfig_path }}
+          {% if beeai_tofu_cleanup_on_fail | bool %}--cleanup-on-fail{% endif %}
+      register: _beeai_helm_reapply_result
+      changed_when: true
       when:
         - not ansible_check_mode
         - _beeai_helm_release_status.stdout | default('') != 'deployed'
 
-    - name: Debug second-pass OpenTofu apply task
+    - name: Debug second-pass Helm apply task
       ansible.builtin.debug:
         msg:
-          - "Task: Run second-pass OpenTofu apply for BeeAI Agent Stack"
+          - "Task: Run second-pass Helm apply for BeeAI Agent Stack"
           - "Executed: {{ _beeai_helm_release_status.stdout | default('') != 'deployed' }}"
-          - "Task changed: {{ _beeai_tofu_reapply_result.changed | default(false) }}"
-          - "Exit code: {{ _beeai_tofu_reapply_result.rc | default('n/a') }}"
+          - "Task changed: {{ _beeai_helm_reapply_result.changed | default(false) }}"
+          - "Exit code: {{ _beeai_helm_reapply_result.rc | default('n/a') }}"
       when: armory_build_debug | default(false) | bool
 
   rescue:
@@ -1791,16 +1652,16 @@
     - name: Fail second-pass BeeAI apply with context
       ansible.builtin.fail:
         msg: |
-          Second-pass OpenTofu apply for BeeAI Agent Stack failed.
+          Second-pass Helm apply for BeeAI Agent Stack failed.
 
           Return code:
-          {{ _beeai_tofu_reapply_result.rc | default('n/a') }}
+          {{ _beeai_helm_reapply_result.rc | default('n/a') }}
 
           stderr:
-          {{ _beeai_tofu_reapply_result.stderr | default('n/a') }}
+          {{ _beeai_helm_reapply_result.stderr | default('n/a') }}
 
           stdout:
-          {{ _beeai_tofu_reapply_result.stdout | default('n/a') }}
+          {{ _beeai_helm_reapply_result.stdout | default('n/a') }}
 
           Workload summary:
           {{ _beeai_reapply_diag_workloads.stdout | default(_beeai_reapply_diag_workloads.stderr | default('n/a')) }}

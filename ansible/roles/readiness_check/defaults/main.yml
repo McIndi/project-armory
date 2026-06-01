@@ -24,7 +24,6 @@ readiness_check_insecure_skip_verify: false
 readiness_check_required_packages:
   - k3s
   - helm
-  - opentofu
 
 # k3s / Kubernetes settings
 readiness_check_k3s_kubeconfig: /etc/rancher/k3s/k3s.yaml

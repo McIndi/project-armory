@@ -1,5 +1,5 @@
 ---
-# Deploy Headlamp with OpenTofu + Helm and sync OIDC secret from OpenBao via VSO.
+# Deploy Headlamp with Helm and sync OIDC secret from OpenBao via VSO.
 
 - name: Load OpenBao root token
   ansible.builtin.import_role:
@@ -166,19 +166,12 @@
   become: true
   register: _headlamp_hosts_result
 
-- name: Ensure Headlamp OpenTofu working directory exists
+- name: Ensure Headlamp working directory exists
   ansible.builtin.file:
     path: "{{ headlamp_tofu_work_dir }}"
     state: directory
     mode: "0755"
   register: _headlamp_work_dir_result
-
-- name: Render OpenTofu configuration for Headlamp
-  ansible.builtin.template:
-    src: main.tf.j2
-    dest: "{{ headlamp_tofu_work_dir }}/main.tf"
-    mode: "0644"
-  register: _headlamp_main_tf_result
 
 - name: Build Headlamp chart values payload
   ansible.builtin.set_fact:
@@ -250,36 +243,27 @@
       }}
   changed_when: false
 
-- name: Render OpenTofu variables file for Headlamp
+- name: Render Headlamp Helm values file
   ansible.builtin.copy:
-    dest: "{{ headlamp_tofu_work_dir }}/terraform.tfvars.json"
+    dest: "{{ headlamp_tofu_work_dir }}/values.yaml"
     mode: "0600"
-    content: |
-      {{ {
-        'kubeconfig_path': headlamp_kubeconfig_path,
-        'release_name': headlamp_release_name,
-        'namespace': headlamp_namespace,
-        'chart_repository': headlamp_chart_repo,
-        'chart_name': headlamp_chart_name,
-        'chart_version': headlamp_chart_version,
-        'chart_values': _headlamp_chart_values
-      } | to_nice_json }}
-  register: _headlamp_tfvars_result
+    content: "{{ _headlamp_chart_values | to_nice_yaml(indent=2) }}"
+  register: _headlamp_values_result
 
-- name: Initialize OpenTofu in Headlamp working directory
+- name: Deploy Headlamp via Helm
   ansible.builtin.command:
-    cmd: tofu init -input=false
-    chdir: "{{ headlamp_tofu_work_dir }}"
-  register: _headlamp_tofu_init_result
-  changed_when: "'Terraform has been successfully initialized' in (_headlamp_tofu_init_result.stdout | default(''))"
-  when: not ansible_check_mode
-
-- name: Deploy Headlamp via OpenTofu Helm provider
-  ansible.builtin.command:
-    cmd: tofu apply -auto-approve -input=false
-    chdir: "{{ headlamp_tofu_work_dir }}"
-  register: _headlamp_tofu_apply_result
-  changed_when: "'Apply complete! Resources: 0 added, 0 changed, 0 destroyed.' not in (_headlamp_tofu_apply_result.stdout | default(''))"
+    cmd: >-
+      helm upgrade --install {{ headlamp_release_name }} {{ headlamp_chart_name }}
+      --namespace {{ headlamp_namespace }}
+      --create-namespace
+      --repo {{ headlamp_chart_repo }}
+      {% if headlamp_chart_version | length > 0 %}--version {{ headlamp_chart_version }}{% endif %}
+      -f {{ headlamp_tofu_work_dir }}/values.yaml
+      --wait
+      --timeout 600s
+      --kubeconfig {{ headlamp_kubeconfig_path }}
+  register: _headlamp_helm_apply_result
+  changed_when: true
   when: not ansible_check_mode
 
 - name: Resolve in-cluster ingress IP for Headlamp OIDC issuer hostname
@@ -342,5 +326,5 @@
       - "Ingress host: https://{{ headlamp_ingress_host }}"
       - "Hosts file changed: {{ _headlamp_hosts_result.changed | default(false) }}"
       - "OIDC resolver hostAlias changed: {{ _headlamp_oidc_hostalias_patch_result.changed | default(false) }}"
-      - "Tofu apply changed: {{ _headlamp_tofu_apply_result.changed | default(false) }}"
+      - "Helm apply changed: {{ _headlamp_helm_apply_result.changed | default(false) }}"
   when: armory_build_debug | default(false) | bool

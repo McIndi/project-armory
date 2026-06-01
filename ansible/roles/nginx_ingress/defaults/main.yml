@@ -2,7 +2,7 @@
 # Namespace where ingress-nginx is installed.
 nginx_ingress_namespace: ingress-nginx
 
-# Working directory for OpenTofu state and rendered files.
+# Working directory for rendered Helm values files.
 nginx_tofu_work_dir: /opt/nginx-ingress-tofu
 
 # Helm release name for ingress-nginx.
@@ -40,12 +40,12 @@ certmanager_chart_version: ""
 # Helm wait timeout (seconds) for cert-manager release apply.
 certmanager_tofu_timeout_seconds: 600
 
-# Helm values passed to cert-manager via OpenTofu helm provider.
+# Helm values passed to cert-manager release.
 certmanager_tofu_chart_values:
   crds:
     enabled: true
 
-# Helm values passed to ingress-nginx via OpenTofu helm provider.
+# Helm values passed to ingress-nginx release.
 nginx_tofu_chart_values:
   controller:
     hostNetwork: true

@@ -9,11 +9,10 @@ Configuration is environment-driven via `/vagrant/.env` (copied from `.env.examp
 - `playbooks/site.yml`: top-level playbook
 - `roles/env_guard`: preflight role that verifies required env vars are loaded
 - `roles/system_update`: role that runs `dnf` update
-- `roles/opentofu`: role that installs the `opentofu` package
 - `roles/k3s`: role that installs and configures `k3s` with SELinux, firewalld, and Keycloak OIDC authentication for the Kubernetes API server
 - `roles/openbao`: role that installs and configures OpenBao for secret management
 - `roles/nginx_ingress`: role that installs and configures nginx ingress controller with cert-manager TLS
-- `roles/beeai_agentstack_tofu`: role that uses OpenTofu to deploy the BeeAI Agent Stack Helm chart (Keycloak, PostgreSQL, SeaweedFS, API, UI)
+- `roles/beeai_agentstack_tofu`: role that deploys the BeeAI Agent Stack Helm chart directly with Helm (Keycloak, PostgreSQL, SeaweedFS, API, UI)
 - `roles/headlamp`: role that deploys Headlamp Kubernetes dashboard with Keycloak OIDC, OpenBao PKI, and Kubernetes RBAC; also configures k3s OIDC for API server token validation
 - `roles/readiness_check`: post-deployment validation role that checks all components are ready
 
@@ -99,13 +98,10 @@ test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"
 cd "${ARMORY_ANSIBLE_ROOT}"
 ansible-playbook playbooks/site.yml --tags dnf_update
 
-# Only run OpenTofu install tasks
-ansible-playbook playbooks/site.yml --tags tofu_install
-
 # Only run k3s setup tasks
 ansible-playbook playbooks/site.yml --tags k3s
 
-# Only run BeeAI Agent Stack deploy tasks (via OpenTofu + Helm provider)
+# Only run BeeAI Agent Stack deploy tasks (Helm-native flow)
 ansible-playbook playbooks/site.yml --tags beeai_install
 
 # Only run BeeAI firewall tasks (open 8333, 8334, 8336 by default)

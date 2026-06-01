@@ -8,24 +8,32 @@
         | unique
       }}
 
-- name: Check if ingress stack OpenTofu state exists
-  ansible.builtin.stat:
-    path: "{{ nginx_tofu_work_dir }}/.terraform"
-  register: _nginx_tofu_state
-
-- name: Destroy cert-manager and ingress-nginx via OpenTofu
+- name: Uninstall cert-manager helm release
   ansible.builtin.command:
-    cmd: tofu destroy -auto-approve -input=false
-    chdir: "{{ nginx_tofu_work_dir }}"
-  register: _nginx_tofu_destroy
-  changed_when: false
+    cmd: >-
+      helm uninstall {{ certmanager_release_name }}
+      --namespace {{ certmanager_namespace }}
+      --ignore-not-found
+      --kubeconfig /etc/rancher/k3s/k3s.yaml
+  register: _certmanager_helm_uninstall
+  changed_when: (_certmanager_helm_uninstall.rc | default(1)) == 0
   failed_when: false
-  when: _nginx_tofu_state.stat.exists | default(false)
 
-- name: Debug ingress stack OpenTofu destroy task
+- name: Uninstall ingress-nginx helm release
+  ansible.builtin.command:
+    cmd: >-
+      helm uninstall {{ nginx_ingress_release_name }}
+      --namespace {{ nginx_ingress_namespace }}
+      --ignore-not-found
+      --kubeconfig /etc/rancher/k3s/k3s.yaml
+  register: _nginx_helm_uninstall
+  changed_when: (_nginx_helm_uninstall.rc | default(1)) == 0
+  failed_when: false
+
+- name: Debug ingress stack Helm uninstall tasks
   ansible.builtin.debug:
     msg:
       - "Role teardown: nginx_ingress"
-      - "OpenTofu state present: {{ _nginx_tofu_state.stat.exists | default(false) }}"
-      - "OpenTofu destroy rc: {{ _nginx_tofu_destroy.rc | default('skipped') }}"
+      - "cert-manager uninstall rc: {{ _certmanager_helm_uninstall.rc | default('skipped') }}"
+      - "ingress-nginx uninstall rc: {{ _nginx_helm_uninstall.rc | default('skipped') }}"
   when: (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool

@@ -1,7 +1,7 @@
 # beeai_agentstack_tofu role
 
 ## Purpose
-Deploy BeeAI Agent Stack using OpenTofu and Helm, with credentials sourced from OpenBao and synced through Vault Secrets Operator (VSO).
+Deploy BeeAI Agent Stack using Helm, with credentials sourced from OpenBao and synced through Vault Secrets Operator (VSO).
 
 ## Supported platforms
 - Fedora (all)
@@ -9,7 +9,7 @@ Deploy BeeAI Agent Stack using OpenTofu and Helm, with credentials sourced from 
 ## Dependencies
 - Runtime dependencies:
   - k3s cluster must be available.
-  - Helm and OpenTofu must be installed.
+  - Helm must be installed.
 - Cross-role dependencies:
   - `openbao` role must run first to create BeeAI credentials and encryption key.
   - `nginx_ingress` should run before this role if ingress TLS endpoints are required immediately.
@@ -19,19 +19,19 @@ Defined in `defaults/main.yml`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `beeai_tofu_work_dir` | `/opt/beeai-agentstack-tofu` | Working directory for OpenTofu files and state operations. |
-| `beeai_vso_tofu_work_dir` | `/opt/beeai-vso-tofu` | Working directory for the VSO (Vault Secrets Operator) OpenTofu state. |
-| `beeai_tofu_kubeconfig_path` | `/etc/rancher/k3s/k3s.yaml` | Kubeconfig used for kubectl/helm/tofu operations. |
+| `beeai_tofu_work_dir` | `/opt/beeai-agentstack-tofu` | Working directory for generated Helm values files and related artifacts. |
+| `beeai_vso_tofu_work_dir` | `/opt/beeai-vso-tofu` | Working directory for VSO Helm values files and related artifacts. |
+| `beeai_tofu_kubeconfig_path` | `/etc/rancher/k3s/k3s.yaml` | Kubeconfig used for kubectl/helm operations. |
 | `beeai_firewall_manage` | `false` | Whether to manage firewalld for BeeAI-specific ports. |
 | `beeai_firewall_zone` | `public` | firewalld zone used when firewall management is enabled. |
 | `beeai_firewall_ports` | `[]` | Explicit ports to open when firewall management is enabled. |
-| `beeai_tofu_release_name` | `agentstack` | Helm release name managed via OpenTofu. |
+| `beeai_tofu_release_name` | `agentstack` | Helm release name for BeeAI Agent Stack. |
 | `beeai_tofu_namespace` | `agentstack` | Namespace where agentstack resources are deployed. |
 | `beeai_tofu_create_namespace` | `true` | Whether to create namespace during Helm deployment. |
 | `beeai_tofu_chart_repository` | `oci://ghcr.io/i-am-bee/agentstack/chart` | Helm chart repository URI. |
 | `beeai_tofu_chart_name` | `agentstack` | Helm chart name. |
 | `beeai_tofu_chart_version` | `""` | Chart version override; empty uses latest. |
-| `beeai_tofu_timeout_seconds` | `1200` | Helm timeout passed via OpenTofu variables. |
+| `beeai_tofu_timeout_seconds` | `1200` | Helm timeout (seconds) for first-pass deployment. |
 | `beeai_tofu_wait` | `true` | Wait for resources during Helm operation. |
 | `beeai_tofu_atomic` | `false` | Enable atomic Helm install/upgrade behavior. |
 | `beeai_tofu_cleanup_on_fail` | `false` | Enable Helm cleanup on failed operation. |
@@ -50,7 +50,7 @@ Defined in `defaults/main.yml`:
 | `beeai_vso_kube_rbac_proxy_tls_secret_name` | `vso-kube-rbac-proxy-tls` | TLS Secret consumed by hardened chart for kube-rbac-proxy cert/key files. |
 | `beeai_vso_kube_rbac_proxy_cert_name` | `vso-kube-rbac-proxy-cert` | cert-manager Certificate resource name for kube-rbac-proxy TLS. |
 | `beeai_vso_kube_rbac_proxy_cert_issuer_name` | `openbao-pki` | cert-manager Issuer/ClusterIssuer name used for kube-rbac-proxy cert issuance. |
-| `beeai_vso_chart_values` | map | Hardened VSO chart values merged into generated tfvars (includes kube-rbac-proxy TLS file settings). |
+| `beeai_vso_chart_values` | map | Hardened VSO chart values merged into generated values file (includes kube-rbac-proxy TLS file settings). |
 | `beeai_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | OpenBao address used by VSO connection resources. |
 | `beeai_openbao_tls_server_name` | `openbao.openbao.svc.cluster.local` | TLS server name used by VSO VaultConnection resources. |
 | `beeai_openbao_ca_secret_name` | `openbao-ca` | Secret name containing the OpenBao CA in each consuming namespace, including the VSO namespace. |
@@ -93,9 +93,9 @@ Defined in `defaults/main.yml`:
 4. Apply `VaultConnection`, `VaultAuth`, and `VaultStaticSecret` manifests.
 5. Wait for VSO-synced k8s secrets (`beeai-credentials`, `beeai-encryption-key`).
 6. Read secret data into Ansible facts (no local credentials file).
-7. Render OpenTofu files (`main.tf`, `terraform.tfvars.json`) and initialize OpenTofu.
+7. Render BeeAI Helm values and prepare deployment artifacts.
 8. Handle stale Helm/PVC conditions before apply.
-9. Apply OpenTofu deployment (first and second pass if needed).
+9. Apply Helm deployment (first and second pass if needed).
 10. Fix Keycloak OIDC audience mapper (`tasks/keycloak_oidc_fix.yml`) — sets
    `agentstack-server-audience` scope mapper to `aud: agentstack-server` and assigns
    it as a default scope on the `agentstack-ui` client. Runs after every deploy
@@ -122,7 +122,7 @@ Override example:
 ## Troubleshooting
 - Missing `beeai-credentials` or `beeai-encryption-key` secrets.
   Action: verify OpenBao role ran successfully and VSO auth resources are valid.
-- OpenTofu apply fails.
-  Action: inspect files in `beeai_tofu_work_dir` and run `tofu plan` manually for diagnostics.
+- Helm apply fails.
+  Action: inspect generated values in `beeai_tofu_work_dir` and re-run the role with `ARMORY_BUILD_DEBUG=true` for diagnostics.
 - UI ingress or auth behavior is incorrect.
   Action: verify `beeai_public_base_url`, ingress TLS secret, and service names/ports align with deployed chart outputs.

@@ -1,5 +1,5 @@
 ---
-# OpenTofu deployment settings
+# Helm deployment settings
 headlamp_tofu_work_dir: /opt/headlamp-tofu
 headlamp_kubeconfig_path: "{{ beeai_tofu_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 

@@ -17,7 +17,7 @@
         'status': 'pass' if _rc_helm_version.rc in [0, 2, 127] else 'warn',
         'detail': _rc_helm_version.stdout
           if _rc_helm_version.rc == 0
-          else 'not installed (OpenTofu helm provider manages chart deployment)',
+          else 'not installed (Helm CLI is required for chart deployment)',
         'error': _rc_helm_version.stderr | default('')
           if _rc_helm_version.rc not in [0, 2, 127]
           else ''
@@ -31,15 +31,19 @@
   failed_when: false
   when: _rc_helm_version.rc == 0
 
+# Charts are installed by referencing the source inline (--repo <url> for HTTP
+# repos, or an oci:// chart ref for OCI registries), so no persistent repos are
+# registered via `helm repo add`. An empty `helm repo list` is expected here and
+# is not a failure; this check is informational only.
 - name: Add Helm repos check to results
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
         'component': 'Helm',
         'check_name': 'Helm repositories configured',
-        'status': 'pass' if (_rc_helm_repos.rc | default(0)) == 0 else 'warn',
-        'detail': ([(_rc_helm_repos.stdout_lines | default([]) | length - 1), 0] | max) | string
-          + ' repos configured (OpenTofu manages chart fetching)',
+        'status': 'pass',
+        'detail': (([(_rc_helm_repos.stdout_lines | default([]) | length - 1), 0] | max) | string
+          + ' persistent repos registered; charts use inline --repo/OCI refs'),
         'error': ''
       }] }}
   changed_when: false

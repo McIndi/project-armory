@@ -16,10 +16,6 @@
       tags:
         - helm
         - helm_install
-    - role: opentofu
-      tags:
-        - opentofu
-        - tofu_install
     - role: k3s
       tags:
         - k3s

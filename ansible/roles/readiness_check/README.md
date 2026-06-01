@@ -9,7 +9,7 @@ Intended to be run after `beeai_agentstack_tofu` completes to verify all service
 - Fedora (all)
 
 ## Prerequisites
-- The environment should already have been provisioned by the relevant roles before running readiness checks: `env_guard`, `system_update`, `opentofu`, `k3s`, `openbao`, `nginx_ingress`, `beeai_agentstack_tofu`
+- The environment should already have been provisioned by the relevant roles before running readiness checks: `env_guard`, `system_update`, `k3s`, `openbao`, `nginx_ingress`, `beeai_agentstack_tofu`
 - This role intentionally has no runtime metadata dependencies so it can be executed in isolation.
 
 ## Variables

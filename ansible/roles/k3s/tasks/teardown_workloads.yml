@@ -1,5 +1,5 @@
 ---
-- name: List current namespaces after OpenTofu teardown
+- name: List current namespaces after Helm release teardown
   ansible.builtin.command:
     argv:
       - k3s
@@ -28,5 +28,5 @@
 - name: Report teardown completion state
   ansible.builtin.debug:
     msg:
-      - "Remaining non-system namespaces after OpenTofu teardown: {{ teardown_remaining_namespaces | join(', ') if (teardown_remaining_namespaces | length > 0) else 'none' }}"
+      - "Remaining non-system namespaces after Helm release teardown: {{ teardown_remaining_namespaces | join(', ') if (teardown_remaining_namespaces | length > 0) else 'none' }}"
       - "If any remain, inspect those namespaces for finalizers before using targeted kubectl remediation."

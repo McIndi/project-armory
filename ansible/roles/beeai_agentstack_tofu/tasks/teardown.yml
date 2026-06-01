@@ -8,40 +8,32 @@
         | unique
       }}
 
-- name: Check if BeeAI OpenTofu state exists
-  ansible.builtin.stat:
-    path: "{{ beeai_tofu_work_dir }}/.terraform"
-  register: _beeai_tofu_state
-
-- name: Destroy BeeAI Agent Stack via OpenTofu
+- name: Uninstall BeeAI Agent Stack helm release
   ansible.builtin.command:
-    cmd: tofu destroy -auto-approve -input=false
-    chdir: "{{ beeai_tofu_work_dir }}"
-  register: _beeai_tofu_destroy
-  changed_when: false
+    cmd: >-
+      helm uninstall {{ beeai_tofu_release_name }}
+      --namespace {{ beeai_tofu_namespace }}
+      --ignore-not-found
+      --kubeconfig {{ beeai_tofu_kubeconfig_path }}
+  register: _beeai_helm_uninstall
+  changed_when: (_beeai_helm_uninstall.rc | default(1)) == 0
   failed_when: false
-  when: _beeai_tofu_state.stat.exists | default(false)
 
-- name: Check if VSO OpenTofu state exists
-  ansible.builtin.stat:
-    path: "{{ beeai_vso_tofu_work_dir }}/.terraform"
-  register: _beeai_vso_tofu_state
-
-- name: Destroy Vault Secrets Operator via OpenTofu
+- name: Uninstall Vault Secrets Operator helm release
   ansible.builtin.command:
-    cmd: tofu destroy -auto-approve -input=false
-    chdir: "{{ beeai_vso_tofu_work_dir }}"
-  register: _beeai_vso_tofu_destroy
-  changed_when: false
+    cmd: >-
+      helm uninstall {{ beeai_vso_release_name }}
+      --namespace {{ beeai_vso_namespace }}
+      --ignore-not-found
+      --kubeconfig {{ beeai_tofu_kubeconfig_path }}
+  register: _beeai_vso_helm_uninstall
+  changed_when: (_beeai_vso_helm_uninstall.rc | default(1)) == 0
   failed_when: false
-  when: _beeai_vso_tofu_state.stat.exists | default(false)
 
-- name: Debug BeeAI and VSO OpenTofu destroy tasks
+- name: Debug BeeAI and VSO Helm uninstall tasks
   ansible.builtin.debug:
     msg:
       - "Role teardown: beeai_agentstack_tofu"
-      - "BeeAI OpenTofu state present: {{ _beeai_tofu_state.stat.exists | default(false) }}"
-      - "BeeAI OpenTofu destroy rc: {{ _beeai_tofu_destroy.rc | default('skipped') }}"
-      - "VSO OpenTofu state present: {{ _beeai_vso_tofu_state.stat.exists | default(false) }}"
-      - "VSO OpenTofu destroy rc: {{ _beeai_vso_tofu_destroy.rc | default('skipped') }}"
+      - "BeeAI helm uninstall rc: {{ _beeai_helm_uninstall.rc | default('skipped') }}"
+      - "VSO helm uninstall rc: {{ _beeai_vso_helm_uninstall.rc | default('skipped') }}"
   when: (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool

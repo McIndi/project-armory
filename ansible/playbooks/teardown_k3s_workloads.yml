@@ -1,5 +1,5 @@
 ---
-- name: Tear down k3s workload state through OpenTofu-managed releases
+- name: Tear down k3s workload state through Helm-managed releases
   hosts: all
   gather_facts: false
   become: true

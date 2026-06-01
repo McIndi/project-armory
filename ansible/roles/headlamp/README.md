@@ -1,7 +1,7 @@
 # headlamp Ansible Role
 
 This role automates the deployment and integration of the Headlamp Kubernetes dashboard into the BeeAI Agent Stack. It provides:
-- Automated deployment via Helm/OpenTofu
+- Automated deployment via Helm
 - External HTTPS access via nginx ingress
 - OIDC authentication with Keycloak (automated client setup)
 - PKI/TLS management via OpenBao through cert-manager
@@ -29,7 +29,7 @@ official plugins from Artifact Hub.
 - Persist effective OIDC credentials in OpenBao KV
 - Configure OpenBao policy and auth role for Headlamp VSO sync
 - Issue Headlamp ingress TLS certificate via cert-manager + OpenBao
-- Deploy Headlamp Helm chart with OpenTofu
+- Deploy Headlamp Helm chart directly with Helm
 - Validate readiness through the shared readiness_check role
 
 ## Variables

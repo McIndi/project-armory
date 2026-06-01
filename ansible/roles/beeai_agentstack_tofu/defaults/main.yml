@@ -46,6 +46,8 @@ beeai_vso_chart_name: "{{ lookup('ansible.builtin.env', 'BEEAI_VSO_CHART_NAME') 
 beeai_vso_chart_version: "{{ lookup('ansible.builtin.env', 'BEEAI_VSO_CHART_VERSION') | default('', true) }}"
 beeai_vso_namespace: vault-secrets-operator-system
 beeai_vso_require_hardened_chart: true
+# Helm wait timeout (seconds) for the VSO release apply.
+beeai_vso_helm_timeout_seconds: 300
 
 # cert-manager-managed TLS for kube-rbac-proxy in the hardened VSO chart.
 beeai_vso_kube_rbac_proxy_tls_enabled: true
@@ -142,7 +144,7 @@ beeai_tofu_chart_values:
 # failurethreshold is also used (in seconds) as the rollout wait timeout.
 beeai_tofu_keycloak_startup_probe_failurethreshold: 900
 
-# Timeout (seconds) for the second-pass tofu apply after the Keycloak patch.
+# Timeout (seconds) for the second-pass Helm apply after the Keycloak patch.
 # Needs to cover Keycloak startup + keycloak-provision hook execution.
 beeai_tofu_post_patch_timeout_seconds: 1200
 
