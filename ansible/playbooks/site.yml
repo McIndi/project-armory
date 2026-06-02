@@ -25,11 +25,15 @@
     - role: nginx_ingress
       tags:
         - nginx_ingress
-    - role: beeai_agentstack_tofu
+    - role: vso
       tags:
-        - beeai
-        - beeai_tofu
-        - beeai_install
+        - vso
+        - vso_install
+    - role: keycloak
+      tags:
+        - keycloak
+        - keycloak_install
+      when: keycloak_enabled | default(false) | bool
     - role: headlamp
       tags:
         - headlamp

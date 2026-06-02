@@ -22,9 +22,15 @@
           Re-run with -e teardown_confirm=true to continue.
       when: not (teardown_confirm | bool)
 
-    - name: Run BeeAI teardown tasks
+    - name: Run Keycloak teardown tasks
       ansible.builtin.include_role:
-        name: beeai_agentstack_tofu
+        name: keycloak
+        tasks_from: teardown
+      when: keycloak_enabled | default(false) | bool
+
+    - name: Run VSO teardown tasks
+      ansible.builtin.include_role:
+        name: vso
         tasks_from: teardown
 
     - name: Run ingress teardown tasks

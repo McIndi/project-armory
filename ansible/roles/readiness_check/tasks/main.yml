@@ -37,9 +37,9 @@
       ansible.builtin.include_tasks: check_nginx.yml
       when: readiness_check_nginx_enabled | default(true) | bool
 
-    - name: Check BeeAI readiness
-      ansible.builtin.include_tasks: check_beeai.yml
-      when: readiness_check_beeai_enabled | default(true) | bool
+    - name: Check Keycloak readiness
+      ansible.builtin.include_tasks: check_keycloak.yml
+      when: readiness_check_keycloak_enabled | default(false) | bool
 
     - name: Check Headlamp readiness
       ansible.builtin.include_tasks: check_headlamp.yml

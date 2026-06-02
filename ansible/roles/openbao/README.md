@@ -1,7 +1,7 @@
 # openbao role
 
 ## Purpose
-Deploy OpenBao and configure it for PKI issuance, Kubernetes auth, and BeeAI secret storage.
+Deploy OpenBao and configure it for PKI issuance, Kubernetes auth, and platform secret storage.
 
 ## Supported platforms
 - Fedora (all)
@@ -12,7 +12,7 @@ Deploy OpenBao and configure it for PKI issuance, Kubernetes auth, and BeeAI sec
   - Helm must be installed.
 - Cross-role dependencies:
   - Consumed by `nginx_ingress` (PKI issuer integration).
-  - Consumed by `beeai_agentstack_tofu` (VSO-authenticated secret sync).
+  - Consumed by `keycloak` and `headlamp` (policy/role creation and secret sync).
 
 ## Variables
 Defined in `defaults/main.yml`:
@@ -42,8 +42,6 @@ Defined in `defaults/main.yml`:
 | `openbao_pki_internal_allowed_domains` | `svc.cluster.local` | Additional internal DNS suffixes allowed for in-cluster service certs. |
 | `openbao_pki_allowed_domains` | `armory.local,svc.cluster.local` | Allowed certificate domains. |
 | `openbao_pki_cert_ttl` | `8760h` | Issued certificate max TTL. |
-| `openbao_beeai_namespace` | `agentstack` | Namespace used for BeeAI auth role bindings. |
-| `openbao_vso_sa_name` | `beeai-vso` | Service account used by Vault Secrets Operator auth role. |
 | `openbao_certmanager_namespace` | `cert-manager` | Namespace used for cert-manager auth role binding. |
 | `openbao_certmanager_sa_name` | `cert-manager` | cert-manager service account bound to PKI policy. |
 | `openbao_firewall_manage` | `true` | Whether to remove obsolete public firewalld openings for legacy OpenBao NodePorts. |
@@ -55,7 +53,6 @@ Defined in `defaults/main.yml`:
 3. Initialize OpenBao on first run and persist encrypted init keys (`init.yml`).
 4. Unseal OpenBao on subsequent runs when needed (`unseal.yml`).
 5. Configure engines, auth methods, policies, and auth roles (`configure.yml`).
-6. Generate and persist BeeAI credentials/encryption key in KV (`credentials.yml`).
 
 ## Usage
 ```yaml

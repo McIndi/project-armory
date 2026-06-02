@@ -1,6 +1,6 @@
 # headlamp Ansible Role
 
-This role automates the deployment and integration of the Headlamp Kubernetes dashboard into the BeeAI Agent Stack. It provides:
+This role automates deployment and integration of the Headlamp Kubernetes dashboard. It provides:
 - Automated deployment via Helm
 - External HTTPS access via nginx ingress
 - OIDC authentication with Keycloak (automated client setup)
@@ -37,4 +37,4 @@ See `defaults/main.yml` for configurable options, including ingress host,
 OIDC realm/client, OpenBao paths, and plugin-manager settings.
 
 ## Usage
-Include this role after `beeai_agentstack_tofu` so Keycloak is already deployed.
+Include this role after `keycloak` so OIDC resources are already deployed.

@@ -26,9 +26,9 @@
       }] }}
   changed_when: false
 
-- name: Check ingress rules for BeeAI
+- name: Check ingress rules for public domain
   ansible.builtin.command: >-
-    k3s kubectl get ingress -n agentstack
+    k3s kubectl get ingress -n {{ readiness_check_ingress_tls_namespace }}
     -o jsonpath='{range .items[*]}{range .spec.rules[*]}{.host}{"\n"}{end}{end}'
   environment:
     KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
@@ -41,16 +41,16 @@
     _readiness_results: >-
       {{ _readiness_results + [{
         'component': 'nginx ingress',
-        'check_name': 'BeeAI ingress rules present',
+        'check_name': 'Public ingress rules present',
         'status': 'pass' if readiness_check_public_domain in (_rc_nginx_ingress_rules.stdout_lines | default([])) else 'warn',
         'detail': (_rc_nginx_ingress_rules.stdout_lines | select('equalto', readiness_check_public_domain) | list | length | string) + ' ingress rules for ' + readiness_check_public_domain,
         'error': ''
       }] }}
   changed_when: false
 
-- name: Check TLS secret for BeeAI ingress
+- name: Check TLS secret for ingress
   ansible.builtin.command: >-
-    k3s kubectl get secret -n agentstack
+    k3s kubectl get secret -n {{ readiness_check_ingress_tls_namespace }}
     -o jsonpath='{range .items[?(@.type=="kubernetes.io/tls")]}{.metadata.name}{"\n"}{end}'
   environment:
     KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"

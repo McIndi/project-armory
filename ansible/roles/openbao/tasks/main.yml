@@ -39,7 +39,3 @@
     - name: OpenBao configuration
       ansible.builtin.import_tasks: configure.yml
       tags: [openbao, openbao_configure]
-
-    - name: BeeAI credentials in OpenBao
-      ansible.builtin.import_tasks: credentials.yml
-      tags: [openbao, openbao_credentials, beeai]

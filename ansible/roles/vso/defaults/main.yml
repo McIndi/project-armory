@@ -1,0 +1,58 @@
+---
+# Vault Secrets Operator (VSO) — shared operator install.
+# Per-consumer resources (VaultConnection/VaultAuth/VaultStaticSecret) live in
+# each consuming role (keycloak, headlamp), not here.
+
+vso_namespace: vault-secrets-operator-system
+vso_release_name: vault-secrets-operator
+vso_work_dir: /opt/vso
+vso_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
+# Hardened/forked VSO chart coordinates (required). Prefer a local chart path for
+# demo/dev; otherwise a pinned published chart that supports explicit
+# kube-rbac-proxy TLS cert/key files.
+vso_chart_repo: "{{ lookup('ansible.builtin.env', 'VSO_CHART_REPO') | default('', true) }}"
+vso_chart_path: "{{ lookup('ansible.builtin.env', 'VSO_CHART_PATH') | default('', true) }}"
+vso_chart_name: "{{ lookup('ansible.builtin.env', 'VSO_CHART_NAME') | default('', true) }}"
+vso_chart_version: "{{ lookup('ansible.builtin.env', 'VSO_CHART_VERSION') | default('', true) }}"
+vso_require_hardened_chart: true
+vso_helm_timeout_seconds: 300
+
+# cert-manager-managed TLS for the hardened chart's kube-rbac-proxy.
+vso_kube_rbac_proxy_tls_enabled: true
+vso_kube_rbac_proxy_tls_secret_name: vso-kube-rbac-proxy-tls
+vso_kube_rbac_proxy_tls_mount_path: /etc/kube-rbac-proxy/tls
+vso_kube_rbac_proxy_tls_cert_file: "{{ vso_kube_rbac_proxy_tls_mount_path }}/tls.crt"
+vso_kube_rbac_proxy_tls_key_file: "{{ vso_kube_rbac_proxy_tls_mount_path }}/tls.key"
+
+vso_kube_rbac_proxy_metrics_service_name: "{{ vso_release_name }}-metrics-service"
+vso_kube_rbac_proxy_cert_name: vso-kube-rbac-proxy-cert
+vso_kube_rbac_proxy_cert_duration: "8760h"
+vso_kube_rbac_proxy_cert_renew_before: "720h"
+vso_kube_rbac_proxy_cert_issuer_name: openbao-pki
+vso_kube_rbac_proxy_cert_issuer_kind: ClusterIssuer
+vso_kube_rbac_proxy_cert_issuer_group: cert-manager.io
+# Leave empty to avoid cert-manager 64-byte commonName limit on long FQDNs.
+vso_kube_rbac_proxy_cert_common_name: ""
+vso_kube_rbac_proxy_cert_dns_names:
+  - "{{ vso_kube_rbac_proxy_metrics_service_name }}.{{ vso_namespace }}.svc.cluster.local"
+
+# Hardened chart values expected by the forked chart implementation.
+vso_chart_values:
+  controller:
+    kubeRbacProxy:
+      tls:
+        enabled: "{{ vso_kube_rbac_proxy_tls_enabled }}"
+        existingSecret: "{{ vso_kube_rbac_proxy_tls_secret_name }}"
+        mountPath: "{{ vso_kube_rbac_proxy_tls_mount_path }}"
+        certFile: "{{ vso_kube_rbac_proxy_tls_cert_file }}"
+        keyFile: "{{ vso_kube_rbac_proxy_tls_key_file }}"
+
+# OpenBao connection for the operator's defaultVaultConnection.
+vso_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+vso_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
+vso_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+vso_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

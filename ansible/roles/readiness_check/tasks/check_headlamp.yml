@@ -95,7 +95,7 @@
     url: "{{ readiness_check_headlamp_url }}"
     method: GET
     validate_certs: "{{ readiness_check_validate_tls }}"
-    timeout: "{{ readiness_check_beeai_readiness_timeout }}"
+    timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
     status_code: [200, 301, 302, 401, 403]
   register: _rc_headlamp_https
   changed_when: false
@@ -112,7 +112,7 @@
       Host: "{{ readiness_check_headlamp_host_header }}"
     validate_certs: false
     follow_redirects: none
-    timeout: "{{ readiness_check_beeai_readiness_timeout }}"
+    timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
     status_code: [200, 301, 302, 307, 401, 403]
   register: _rc_headlamp_https_fallback
   changed_when: false

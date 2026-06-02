@@ -213,29 +213,6 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Write VSO policy (read beeai secrets, deny openbao init keys)
-      ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/policies/acl/vso"
-        method: POST
-        headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
-        body_format: json
-        body:
-          policy: |
-            path "{{ openbao_kv_mount }}/data/beeai/*" {
-              capabilities = ["read"]
-            }
-            path "{{ openbao_kv_mount }}/metadata/beeai/*" {
-              capabilities = ["list", "read"]
-            }
-            path "{{ openbao_kv_mount }}/data/openbao/*" {
-              capabilities = ["deny"]
-            }
-        status_code: [200, 204]
-      register: _openbao_vso_policy_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
-
     - name: Write cert-manager policy (sign certs via PKI)
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/sys/policies/acl/cert-manager"
@@ -253,26 +230,6 @@
             }
         status_code: [200, 204]
       register: _openbao_certmanager_policy_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
-
-    - name: Create k8s auth role for VSO
-      ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ openbao_vso_sa_name }}"
-        method: POST
-        headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
-        body_format: json
-        body:
-          bound_service_account_names:
-            - "{{ openbao_vso_sa_name }}"
-          bound_service_account_namespaces:
-            - "{{ openbao_beeai_namespace }}"
-          policies:
-            - vso
-          ttl: "1h"
-        status_code: [200, 204]
-      register: _openbao_vso_auth_role_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 

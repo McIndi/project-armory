@@ -8,7 +8,7 @@ readiness_check_helm_enabled: true
 readiness_check_openbao_enabled: true
 readiness_check_vso_enabled: true
 readiness_check_nginx_enabled: true
-readiness_check_beeai_enabled: true
+readiness_check_keycloak_enabled: true
 readiness_check_headlamp_enabled: true
 
 # Network connectivity defaults
@@ -43,7 +43,7 @@ readiness_check_nginx_namespace: ingress-nginx
 readiness_check_nginx_controller_label: "app.kubernetes.io/name=ingress-nginx"
 readiness_check_certmanager_namespace: cert-manager
 readiness_check_openbao_clusterissuer_name: openbao-pki
-readiness_check_ingress_tls_namespace: agentstack
+readiness_check_ingress_tls_namespace: keycloak
 readiness_check_ingress_tls_certificate_name: armory-tls
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
@@ -52,11 +52,14 @@ readiness_check_ingress_probe_ip: "{{ ansible_default_ipv4.address | default('12
 readiness_check_ingress_https_port: 443
 readiness_check_ingress_probe_url: "https://{{ readiness_check_ingress_probe_ip }}:{{ readiness_check_ingress_https_port }}"
 
-# BeeAI / Agent Stack settings
-readiness_check_beeai_namespace: agentstack
-readiness_check_beeai_url: "{{ readiness_check_public_base_url }}"
-readiness_check_beeai_readiness_timeout: 30
-readiness_check_beeai_host_header: "{{ readiness_check_public_domain }}"
+# Keycloak settings
+readiness_check_keycloak_namespace: keycloak
+readiness_check_keycloak_service_name: keycloak-service
+readiness_check_keycloak_realm: armory
+readiness_check_keycloak_url: "{{ readiness_check_public_base_url }}/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
+readiness_check_keycloak_readiness_timeout: 30
+readiness_check_keycloak_host_header: "{{ readiness_check_public_domain }}"
+readiness_check_keycloak_admin_secret_name: keycloak-initial-admin
 
 # Headlamp settings
 readiness_check_headlamp_namespace: headlamp

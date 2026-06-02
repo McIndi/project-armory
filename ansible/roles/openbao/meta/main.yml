@@ -4,7 +4,7 @@ galaxy_info:
   role_name: openbao
   namespace: mcindi
   company: "McIndi Solutions"
-  description: "Deploy and configure OpenBao, including PKI and BeeAI credential provisioning."
+  description: "Deploy and configure OpenBao, including PKI and Kubernetes auth integration."
   license: "MIT"
   min_ansible_version: "2.9"
   platforms:

@@ -1,7 +1,7 @@
 ---
 # Helm deployment settings
 headlamp_tofu_work_dir: /opt/headlamp-tofu
-headlamp_kubeconfig_path: "{{ beeai_tofu_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+headlamp_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 
 # Headlamp Helm release settings
 headlamp_namespace: headlamp
@@ -24,14 +24,20 @@ headlamp_cert_duration: "8760h"
 headlamp_cert_renew_before: "720h"
 
 # Keycloak OIDC settings
-headlamp_keycloak_realm: agentstack
+#
+headlamp_keycloak_enabled: true
+headlamp_keycloak_realm: armory
+headlamp_keycloak_namespace: keycloak
+headlamp_keycloak_service_name: keycloak-service
+headlamp_keycloak_service_port: 8080
+headlamp_keycloak_admin_secret_name: keycloak-initial-admin
+headlamp_keycloak_admin_password_key: password
+headlamp_keycloak_admin_username_from_secret: true
 headlamp_keycloak_admin_username: admin
-headlamp_keycloak_service_name: "{{ beeai_keycloak_service_name | default('keycloak') }}"
-headlamp_keycloak_service_port: "{{ beeai_keycloak_service_port | default(8336) }}"
 headlamp_oidc_client_id: headlamp
 # If empty, a strong secret is generated once and persisted to OpenBao.
 headlamp_oidc_client_secret: ""
-headlamp_oidc_issuer_url: "{{ (beeai_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + headlamp_keycloak_realm }}"
+headlamp_oidc_issuer_url: "{{ (keycloak_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + headlamp_keycloak_realm }}"
 # Keep this to scopes Keycloak accepts by default for this client.
 # Headlamp already requests OpenID, so including openid here can duplicate it.
 headlamp_oidc_scopes: "profile,email"
@@ -52,9 +58,9 @@ headlamp_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
 headlamp_openbao_oidc_path: headlamp/oidc
 
 # VSO sync settings for Headlamp namespace
-headlamp_openbao_cluster_addr: "{{ beeai_openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
-headlamp_openbao_tls_server_name: "{{ beeai_openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
-headlamp_openbao_ca_secret_name: "{{ beeai_openbao_ca_secret_name | default('openbao-ca') }}"
+headlamp_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+headlamp_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
+headlamp_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
 headlamp_openbao_k8s_role: headlamp-vso
 headlamp_openbao_policy_name: headlamp-vso
 headlamp_vso_sa_name: headlamp-vso

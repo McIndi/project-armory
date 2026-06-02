@@ -112,14 +112,6 @@ openbao_pki_allowed_domains: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_D
 # Default 8760h is approximately 1 year.
 openbao_pki_cert_ttl: "8760h"
 
-# Namespace where BeeAI workloads run.
-# Must match beeai_tofu_namespace in beeai_agentstack_tofu defaults.
-openbao_beeai_namespace: agentstack
-
-# Service account in BeeAI namespace used for VSO authentication to OpenBao.
-# Must match beeai_openbao_vso_sa_name in beeai_agentstack_tofu defaults.
-openbao_vso_sa_name: beeai-vso
-
 # Namespace where cert-manager runs.
 openbao_certmanager_namespace: cert-manager
 

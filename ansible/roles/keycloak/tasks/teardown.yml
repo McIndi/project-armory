@@ -1,0 +1,38 @@
+---
+- name: Register Keycloak namespace for teardown checks
+  ansible.builtin.set_fact:
+    teardown_role_target_namespaces: >-
+      {{ (teardown_role_target_namespaces | default([])) + [keycloak_namespace] | unique }}
+
+- name: Delete KeycloakRealmImport (ignore if absent)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl delete keycloakrealmimport {{ keycloak_realm }}-realm
+      -n {{ keycloak_namespace }} --ignore-not-found
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _kc_td_realm
+  changed_when: "'deleted' in (_kc_td_realm.stdout | default(''))"
+  failed_when: false
+
+- name: Delete Keycloak custom resource (ignore if absent)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl delete keycloak {{ keycloak_cr_name }}
+      -n {{ keycloak_namespace }} --ignore-not-found --timeout=120s
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _kc_td_cr
+  changed_when: "'deleted' in (_kc_td_cr.stdout | default(''))"
+  failed_when: false
+
+- name: Delete Keycloak Operator (ignore if absent)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl delete -n {{ keycloak_namespace }}
+      -f {{ keycloak_k8s_resources_base_url }}/kubernetes.yml --ignore-not-found
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _kc_td_operator
+  changed_when: "'deleted' in (_kc_td_operator.stdout | default(''))"
+  failed_when: false
