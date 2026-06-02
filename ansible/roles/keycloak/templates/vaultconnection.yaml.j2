@@ -1,0 +1,11 @@
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: {{ keycloak_vault_connection_name }}
+  namespace: {{ keycloak_namespace }}
+spec:
+  address: {{ keycloak_openbao_cluster_addr }}
+  tlsServerName: {{ keycloak_openbao_tls_server_name }}
+  caCertSecretRef: {{ keycloak_openbao_ca_secret_name }}
+  skipTLSVerify: false

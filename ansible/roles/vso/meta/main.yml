@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: vso
+  author: armory
+  description: Install the Vault Secrets Operator (hardened chart) as a shared cluster prerequisite.
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+dependencies: []

@@ -1,0 +1,91 @@
+---
+# When true, enables standalone Keycloak deployment and bootstrap tasks.
+keycloak_enabled: false
+
+# ── General ───────────────────────────────────────────────────────────────────
+keycloak_namespace: keycloak
+keycloak_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+keycloak_work_dir: /opt/keycloak
+
+# ── Keycloak Operator + CRDs ────────────────────────────────────────────────────
+# Pin to a keycloak-k8s-resources tag (matches the Keycloak server version the
+# operator deploys). Operator, CRDs, and server image all track this tag.
+keycloak_operator_version: "26.5.2"
+keycloak_k8s_resources_base_url: "https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/{{ keycloak_operator_version }}/kubernetes"
+keycloak_operator_deployment_name: keycloak-operator
+keycloak_crd_keycloaks: keycloaks.k8s.keycloak.org
+keycloak_crd_realmimports: keycloakrealmimports.k8s.keycloak.org
+# Upstream operator startup probe (~35s) + 700m CPU limit are too tight for
+# slow/CPU-throttled hosts where the Quarkus operator boots in ~45s+. Patch both.
+keycloak_operator_startup_probe_failurethreshold: 40
+keycloak_operator_cpu_limit: "2"
+keycloak_operator_rollout_timeout_seconds: 600
+
+# ── Keycloak custom resource ────────────────────────────────────────────────────
+keycloak_cr_name: keycloak
+keycloak_instances: 1
+# Operator-created Service + bootstrap admin Secret derive from the CR name.
+keycloak_service_name: "{{ keycloak_cr_name }}-service"
+keycloak_service_port: 8080
+keycloak_initial_admin_secret: "{{ keycloak_cr_name }}-initial-admin"
+# Loosen hostname strict mode so in-cluster callers (Headlamp admin REST on the
+# ClusterIP service) are not redirected to the public host. Equivalent to the
+# old KC_HOSTNAME_STRICT=false patch.
+keycloak_hostname_strict: false
+# Timeout (seconds) waiting for the Keycloak CR to reach Ready (cold-JVM start).
+keycloak_ready_timeout_seconds: 900
+
+# ── Public URL / realm ──────────────────────────────────────────────────────────
+keycloak_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true) }}"
+keycloak_public_host: "{{ keycloak_public_base_url | urlsplit('hostname') }}"
+keycloak_realm: armory
+
+# ── Ingress (own resource; edge TLS at nginx) ────────────────────────────────────
+keycloak_ingress_enabled: true
+keycloak_ingress_class: nginx
+keycloak_ingress_tls_secret: armory-tls
+keycloak_ingress_host: "{{ keycloak_public_host }}"
+
+# ── Realm seed: admin end-user (logs into Headlamp; bound to cluster-admin by k3s) ─
+# This is a realm user, distinct from the operator's master bootstrap admin.
+keycloak_realm_admin_username: admin
+keycloak_realm_admin_email: "{{ lookup('ansible.builtin.env', 'ARMORY_ADMIN_EMAIL') | default('admin@armory.dev', true) }}"
+keycloak_realm_admin_first_name: Admin
+keycloak_realm_admin_last_name: User
+keycloak_admin_group: armory-admins
+
+# ── PostgreSQL StatefulSet (single-node backing store) ───────────────────────────
+keycloak_postgresql_enabled: true
+keycloak_pg_image: "postgres:16"
+keycloak_pg_service: postgres
+keycloak_db_name: keycloak
+keycloak_db_username: keycloak
+keycloak_pg_storage_size: "8Gi"
+# Empty = use the cluster default StorageClass (k3s local-path).
+keycloak_pg_storage_class: ""
+keycloak_pg_rollout_timeout_seconds: 300
+
+# ── OpenBao + VSO (Vault Secrets Operator) — DB credentials only ─────────────────
+keycloak_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+keycloak_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+keycloak_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
+keycloak_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
+keycloak_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+keycloak_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
+
+# KV paths: DB creds are VSO-synced; the realm-admin password is read by Ansible
+# only (injected into the realm import), never synced to a k8s Secret.
+keycloak_openbao_db_path: keycloak/db
+keycloak_openbao_realm_admin_path: keycloak/realm-admin
+keycloak_openbao_policy_name: keycloak-vso
+keycloak_openbao_k8s_role: keycloak-vso
+
+# VSO resources in the keycloak namespace.
+keycloak_vso_sa_name: keycloak-vso
+keycloak_vault_connection_name: default
+keycloak_vault_auth_name: keycloak-vaultauth
+keycloak_db_secret_name: keycloak-db-secret
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: enabling this prints secrets/tokens into logs and output.
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

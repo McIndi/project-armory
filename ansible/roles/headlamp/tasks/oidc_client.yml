@@ -5,7 +5,7 @@
   ansible.builtin.command:
     cmd: >-
       k3s kubectl get svc {{ headlamp_keycloak_service_name }}
-      -n {{ beeai_tofu_namespace | default('agentstack') }}
+      -n {{ headlamp_keycloak_namespace }}
       -o jsonpath={.spec.clusterIP}
   environment:
     KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
@@ -16,12 +16,12 @@
   ansible.builtin.set_fact:
     _headlamp_kc_base_url: "http://{{ _headlamp_kc_cluster_ip_result.stdout }}:{{ headlamp_keycloak_service_port }}"
 
-- name: Get Keycloak admin password from keycloak-secret
+- name: Get Keycloak admin password from admin secret
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get secret keycloak-secret
-      -n {{ beeai_tofu_namespace | default('agentstack') }}
-      -o jsonpath={.data.admin-password}
+      k3s kubectl get secret {{ headlamp_keycloak_admin_secret_name }}
+      -n {{ headlamp_keycloak_namespace }}
+      -o jsonpath={.data.{{ headlamp_keycloak_admin_password_key }}}
   environment:
     KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
   register: _headlamp_kc_admin_pw_b64
@@ -33,6 +33,30 @@
     _headlamp_kc_admin_password: "{{ _headlamp_kc_admin_pw_b64.stdout | b64decode }}"
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
+- name: Get Keycloak admin username from admin secret
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ headlamp_keycloak_admin_secret_name }}
+      -n {{ headlamp_keycloak_namespace }}
+      -o jsonpath={.data.username}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_kc_admin_user_b64
+  changed_when: false
+  when: headlamp_keycloak_admin_username_from_secret | bool
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Resolve Keycloak admin username
+  ansible.builtin.set_fact:
+    _headlamp_kc_admin_user: >-
+      {{
+        (_headlamp_kc_admin_user_b64.stdout | b64decode)
+        if ((headlamp_keycloak_admin_username_from_secret | bool)
+            and (_headlamp_kc_admin_user_b64.stdout | default('') | length) > 0)
+        else headlamp_keycloak_admin_username
+      }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
 - name: Obtain Keycloak admin token (retry until Keycloak is ready)
   ansible.builtin.uri:
     url: "{{ _headlamp_kc_base_url }}/realms/master/protocol/openid-connect/token"
@@ -40,7 +64,7 @@
     body_format: form-urlencoded
     body:
       client_id: admin-cli
-      username: "{{ headlamp_keycloak_admin_username }}"
+      username: "{{ _headlamp_kc_admin_user }}"
       password: "{{ _headlamp_kc_admin_password }}"
       grant_type: password
     status_code: 200

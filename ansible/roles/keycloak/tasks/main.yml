@@ -1,0 +1,426 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Deploy standalone Keycloak (Operator + PostgreSQL StatefulSet)
+  tags: [keycloak, keycloak_install, keycloak_oidc]
+  block:
+    # ── Namespace ──────────────────────────────────────────────────────────────
+    - name: Ensure Keycloak namespace exists
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create namespace {{ keycloak_namespace }}
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_namespace_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply Keycloak namespace manifest
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _keycloak_namespace_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_namespace_apply
+      changed_when: >-
+        'created' in (_keycloak_namespace_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    # ── OpenBao: generate + persist credentials ─────────────────────────────────
+    - name: Ensure OpenBao root token is available
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: load_openbao_root_token.yml
+
+    - name: Read current Keycloak DB credentials from OpenBao
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        status_code: [200, 404]
+      register: _keycloak_db_creds_current
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Build Keycloak DB credentials (username fixed, password generated once)
+      ansible.builtin.set_fact:
+        _keycloak_db_creds: >-
+          {{
+            {
+              'username': keycloak_db_username,
+              'password': (
+                (_keycloak_db_creds_current.json.data.data.password)
+                if ((_keycloak_db_creds_current.status | default(404)) == 200
+                    and (_keycloak_db_creds_current.json.data.data.password | default('') | length) > 0)
+                else lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits')
+              )
+            }
+          }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Store Keycloak DB credentials in OpenBao
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          data: "{{ _keycloak_db_creds }}"
+        status_code: [200, 204]
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Read current realm-admin password from OpenBao
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        status_code: [200, 404]
+      register: _keycloak_realm_admin_current
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Build realm-admin password (generated once, persisted)
+      ansible.builtin.set_fact:
+        _keycloak_realm_admin_password: >-
+          {{
+            (_keycloak_realm_admin_current.json.data.data.password)
+            if ((_keycloak_realm_admin_current.status | default(404)) == 200
+                and (_keycloak_realm_admin_current.json.data.data.password | default('') | length) > 0)
+            else lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits')
+          }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Store realm-admin password in OpenBao
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          data:
+            username: "{{ keycloak_realm_admin_username }}"
+            password: "{{ _keycloak_realm_admin_password }}"
+        status_code: [200, 204]
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Write OpenBao ACL policy for Keycloak DB credentials (VSO read)
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_openbao_policy_name }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          policy: |
+            path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}" {
+              capabilities = ["read"]
+            }
+
+            path "{{ keycloak_openbao_kv_mount }}/metadata/{{ keycloak_openbao_db_path }}" {
+              capabilities = ["read"]
+            }
+        status_code: [200, 204]
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Configure OpenBao Kubernetes auth role for Keycloak VSO sync
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/auth/kubernetes/role/{{ keycloak_openbao_k8s_role }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          bound_service_account_names:
+            - "{{ keycloak_vso_sa_name }}"
+          bound_service_account_namespaces:
+            - "{{ keycloak_namespace }}"
+          policies:
+            - "{{ keycloak_openbao_policy_name }}"
+          ttl: 24h
+        status_code: [200, 204]
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    # ── VSO wiring: sync DB secret from OpenBao ─────────────────────────────────
+    - name: Read OpenBao CA secret for the Keycloak namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ keycloak_openbao_ca_secret_name }}
+          --namespace {{ keycloak_openbao_namespace }}
+          -o jsonpath={.data.ca\\.crt}
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_openbao_ca_data
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write OpenBao CA certificate file for the Keycloak namespace
+      ansible.builtin.copy:
+        dest: /tmp/openbao-ca-keycloak.crt
+        content: "{{ (_keycloak_openbao_ca_data.stdout | trim) | b64decode }}"
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Generate OpenBao CA secret manifest for the Keycloak namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ keycloak_openbao_ca_secret_name }}
+          --namespace {{ keycloak_namespace }}
+          --from-file=ca.crt=/tmp/openbao-ca-keycloak.crt
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_openbao_ca_secret_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply OpenBao CA secret in the Keycloak namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _keycloak_openbao_ca_secret_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_openbao_ca_secret_apply
+      changed_when: >-
+        'configured' in (_keycloak_openbao_ca_secret_apply.stdout | default('')) or
+        'created' in (_keycloak_openbao_ca_secret_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Remove temporary OpenBao CA certificate file
+      ansible.builtin.file:
+        path: /tmp/openbao-ca-keycloak.crt
+        state: absent
+      when: not ansible_check_mode
+
+    - name: Apply Keycloak VaultConnection and VaultAuth resources
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'vaultconnection.yaml.j2') }}\n---\n{{ lookup('template', 'vaultauth.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_vault_auth_apply
+      changed_when: >-
+        'configured' in (_keycloak_vault_auth_apply.stdout | default('')) or
+        'created' in (_keycloak_vault_auth_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Apply Keycloak VaultStaticSecret (DB credentials)
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'vaultstaticsecret.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_vss_apply
+      changed_when: >-
+        'configured' in (_keycloak_vss_apply.stdout | default('')) or
+        'created' in (_keycloak_vss_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Wait for keycloak-db-secret to be synced by VSO
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ keycloak_db_secret_name }}
+          --namespace {{ keycloak_namespace }}
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_db_secret_check
+      until: _keycloak_db_secret_check.rc == 0
+      retries: 20
+      delay: 6
+      changed_when: false
+      when: not ansible_check_mode
+
+    # ── PostgreSQL StatefulSet ──────────────────────────────────────────────────
+    - name: Apply PostgreSQL StatefulSet and Service
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'postgres.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_pg_apply
+      changed_when: >-
+        'configured' in (_keycloak_pg_apply.stdout | default('')) or
+        'created' in (_keycloak_pg_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+
+    - name: Wait for PostgreSQL StatefulSet rollout
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status statefulset/{{ keycloak_pg_service }}
+          --namespace {{ keycloak_namespace }}
+          --timeout={{ keycloak_pg_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_pg_rollout
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+
+    # ── Keycloak Operator: CRDs + operator Deployment ───────────────────────────
+    - name: Install Keycloak CRDs (cluster-scoped, pinned version)
+      ansible.builtin.command:
+        cmd: "k3s kubectl apply --server-side -f {{ keycloak_k8s_resources_base_url }}/{{ item }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      loop:
+        - "{{ keycloak_crd_keycloaks }}-v1.yml"
+        - "{{ keycloak_crd_realmimports }}-v1.yml"
+      register: _keycloak_crd_apply
+      changed_when: >-
+        'configured' in (_keycloak_crd_apply.stdout | default('')) or
+        'created' in (_keycloak_crd_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Wait for Keycloak CRDs to be established
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait --for=condition=Established
+          crd/{{ item }} --timeout=120s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      loop:
+        - "{{ keycloak_crd_keycloaks }}"
+        - "{{ keycloak_crd_realmimports }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Install Keycloak Operator into the Keycloak namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl apply -n {{ keycloak_namespace }}
+          -f {{ keycloak_k8s_resources_base_url }}/kubernetes.yml
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_operator_apply
+      changed_when: >-
+        'configured' in (_keycloak_operator_apply.stdout | default('')) or
+        'created' in (_keycloak_operator_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    # The upstream operator Deployment ships a short startup probe
+    # (delay 5s + 3x10s ~= 35s) and a 700m CPU limit. On slow/CPU-throttled
+    # hosts the Quarkus operator boots in ~45s+, so kubelet kills it before it
+    # listens, causing an endless restart loop. Raise the startup window and
+    # CPU limit so the operator can finish booting.
+    - name: Patch Keycloak Operator startup probe and CPU for slow-JVM hosts
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl patch deployment {{ keycloak_operator_deployment_name }}
+          --namespace {{ keycloak_namespace }}
+          --type=strategic
+          --patch
+          {{ ({
+               "spec": {
+                 "template": {
+                   "spec": {
+                     "containers": [{
+                       "name": keycloak_operator_deployment_name,
+                       "startupProbe": {"failureThreshold": keycloak_operator_startup_probe_failurethreshold},
+                       "resources": {"limits": {"cpu": keycloak_operator_cpu_limit}}
+                     }]
+                   }
+                 }
+               }
+             }) | to_json | quote }}
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_operator_patch
+      changed_when: "'(no change)' not in (_keycloak_operator_patch.stdout | default(''))"
+      when: not ansible_check_mode
+
+    - name: Wait for Keycloak Operator deployment to be available
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status deployment/{{ keycloak_operator_deployment_name }}
+          --namespace {{ keycloak_namespace }}
+          --timeout={{ keycloak_operator_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_operator_rollout
+      changed_when: false
+      when: not ansible_check_mode
+
+    # ── Keycloak custom resource ────────────────────────────────────────────────
+    - name: Apply Keycloak custom resource
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'keycloak.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_cr_apply
+      changed_when: >-
+        'configured' in (_keycloak_cr_apply.stdout | default('')) or
+        'created' in (_keycloak_cr_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Wait for Keycloak custom resource to become Ready
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait --for=condition=Ready
+          keycloak/{{ keycloak_cr_name }}
+          --namespace {{ keycloak_namespace }}
+          --timeout={{ keycloak_ready_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_cr_ready
+      changed_when: false
+      when: not ansible_check_mode
+
+    # ── Realm import ────────────────────────────────────────────────────────────
+    - name: Apply Keycloak realm import
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'realmimport.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_realm_apply
+      changed_when: >-
+        'configured' in (_keycloak_realm_apply.stdout | default('')) or
+        'created' in (_keycloak_realm_apply.stdout | default(''))
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Wait for Keycloak realm import to complete
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait --for=condition=Done
+          keycloakrealmimport/{{ keycloak_realm }}-realm
+          --namespace {{ keycloak_namespace }}
+          --timeout={{ keycloak_ready_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_realm_done
+      changed_when: false
+      when: not ansible_check_mode
+
+    # ── Ingress (edge TLS at nginx) ─────────────────────────────────────────────
+    - name: Apply Keycloak Ingress
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'ingress.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_ingress_apply
+      changed_when: >-
+        'configured' in (_keycloak_ingress_apply.stdout | default('')) or
+        'created' in (_keycloak_ingress_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+        - keycloak_ingress_enabled | bool
+  when: not ansible_check_mode

@@ -1,0 +1,47 @@
+---
+# Bootstrap import of the `armory` realm. Import-oriented: creates the realm,
+# seed admin user, admin group, and a groups protocol mapper. Ongoing per-client
+# config (e.g. the Headlamp OIDC client) is handled by the consuming role via the
+# Keycloak admin REST API, not here.
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: {{ keycloak_realm }}-realm
+  namespace: {{ keycloak_namespace }}
+spec:
+  keycloakCRName: {{ keycloak_cr_name }}
+  realm:
+    realm: {{ keycloak_realm }}
+    enabled: true
+    sslRequired: external
+    groups:
+      - name: {{ keycloak_admin_group }}
+    clientScopes:
+      - name: groups
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "false"
+        protocolMappers:
+          - name: groups
+            protocol: openid-connect
+            protocolMapper: oidc-group-membership-mapper
+            config:
+              claim.name: groups
+              full.path: "false"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+    users:
+      - username: {{ keycloak_realm_admin_username }}
+        enabled: true
+        emailVerified: true
+        email: {{ keycloak_realm_admin_email }}
+        firstName: {{ keycloak_realm_admin_first_name }}
+        lastName: {{ keycloak_realm_admin_last_name }}
+        groups:
+          - /{{ keycloak_admin_group }}
+        credentials:
+          - type: password
+            value: {{ _keycloak_realm_admin_password | to_json }}
+            temporary: false

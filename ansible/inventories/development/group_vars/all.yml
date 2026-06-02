@@ -1,0 +1,10 @@
+---
+# Global overrides for the development inventory.
+
+# Cut over to the standalone Keycloak (Operator + Postgres StatefulSet) role.
+# Must live here (group_vars/all), NOT in the keycloak role defaults, so that
+# consumer roles (headlamp, k3s, readiness_check) — which cannot see the keycloak
+# role's own defaults — switch their Keycloak coordinates to the standalone
+# deployment (realm `armory`, ns `keycloak`, svc `keycloak-service:8080`,
+# admin secret `keycloak-initial-admin`).
+keycloak_enabled: true

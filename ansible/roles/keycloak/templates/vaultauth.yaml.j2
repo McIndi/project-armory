@@ -1,0 +1,21 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ keycloak_vso_sa_name }}
+  namespace: {{ keycloak_namespace }}
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: {{ keycloak_vault_auth_name }}
+  namespace: {{ keycloak_namespace }}
+spec:
+  vaultConnectionRef: {{ keycloak_vault_connection_name }}
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: {{ keycloak_openbao_k8s_role }}
+    serviceAccount: {{ keycloak_vso_sa_name }}
+    audiences:
+      - vault

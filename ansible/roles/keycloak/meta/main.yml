@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: keycloak
+  author: armory
+  description: Deploy standalone Keycloak with OpenBao-backed credentials and realm bootstrap.
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+dependencies: []

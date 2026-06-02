@@ -1,0 +1,30 @@
+---
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: {{ keycloak_cr_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/part-of: keycloak
+spec:
+  instances: {{ keycloak_instances }}
+  db:
+    vendor: postgres
+    host: {{ keycloak_pg_service }}
+    port: 5432
+    database: {{ keycloak_db_name }}
+    usernameSecret:
+      name: {{ keycloak_db_secret_name }}
+      key: username
+    passwordSecret:
+      name: {{ keycloak_db_secret_name }}
+      key: password
+  http:
+    httpEnabled: true
+  ingress:
+    enabled: false
+  hostname:
+    hostname: {{ keycloak_public_base_url }}
+    strict: {{ (keycloak_hostname_strict | bool) | string | lower }}
+  proxy:
+    headers: xforwarded

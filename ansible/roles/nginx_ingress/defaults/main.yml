@@ -88,7 +88,9 @@ nginx_ingress_cert_renew_before: "720h"
 
 # Namespace where the armory.local TLS Certificate and secret are created.
 # Must match the namespace of ingress resources referencing secretName: armory-tls.
-nginx_ingress_tls_namespace: agentstack
+# armory.local is served by the standalone Keycloak ingress (ns keycloak); TLS
+# secrets are namespaced, so the shared cert must live alongside that ingress.
+nginx_ingress_tls_namespace: keycloak
 
 # Whether this role manages firewalld rules for ingress traffic (ports 80/443).
 # Disable if firewall is managed outside Ansible.

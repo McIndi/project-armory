@@ -1,0 +1,201 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Install Vault Secrets Operator (hardened chart)
+  tags: [vso, vso_install]
+  block:
+    - name: Validate hardened VSO chart configuration
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              (vso_chart_path | default('') | trim) | length > 0
+            )
+            or
+            (
+              ((vso_chart_repo | default('') | trim) | length > 0)
+              and ((vso_chart_name | default('') | trim) | length > 0)
+              and ((vso_chart_version | default('') | trim) | length > 0)
+              and ((vso_chart_repo | trim) != 'https://helm.releases.hashicorp.com')
+            )
+        fail_msg: >-
+          Hardened VSO chart is required. Set VSO_CHART_PATH to a local hardened
+          chart directory, or set VSO_CHART_REPO, VSO_CHART_NAME, and
+          VSO_CHART_VERSION to a pinned forked chart that supports explicit
+          kube-rbac-proxy TLS cert/key flags.
+      when: vso_require_hardened_chart | bool
+
+    - name: Ensure VSO working directory exists
+      ansible.builtin.file:
+        path: "{{ vso_work_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Build effective VSO Helm values
+      ansible.builtin.set_fact:
+        _vso_effective_chart_values: >-
+          {{
+            vso_chart_values | combine({
+              "controller": {
+                "kubeRbacProxy": {
+                  "tls": {
+                    "enabled": vso_kube_rbac_proxy_tls_enabled | bool
+                  }
+                }
+              },
+              "defaultVaultConnection": {
+                "enabled": true,
+                "address": vso_openbao_cluster_addr,
+                "tlsServerName": vso_openbao_tls_server_name,
+                "caCertSecret": vso_openbao_ca_secret_name,
+                "caCertSecretRef": vso_openbao_ca_secret_name,
+                "skipTLSVerify": false
+              }
+            }, recursive=true)
+          }}
+      changed_when: false
+
+    - name: Render VSO Helm values file
+      ansible.builtin.copy:
+        dest: "{{ vso_work_dir }}/values.yaml"
+        mode: "0600"
+        content: "{{ _vso_effective_chart_values | to_nice_yaml(indent=2) }}"
+
+    - name: Ensure VSO namespace exists
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create namespace {{ vso_namespace }}
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_namespace_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply VSO namespace manifest
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _vso_namespace_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_namespace_apply
+      changed_when: >-
+        'created' in (_vso_namespace_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Read OpenBao CA secret from OpenBao namespace for VSO
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ vso_openbao_ca_secret_name }}
+          --namespace {{ vso_openbao_namespace }}
+          -o jsonpath='{.data.ca\.crt}'
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_openbao_ca_secret_b64
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write temporary OpenBao CA certificate file for VSO
+      ansible.builtin.copy:
+        dest: /tmp/openbao-ca-vso.crt
+        mode: "0600"
+        content: "{{ _vso_openbao_ca_secret_b64.stdout | b64decode }}"
+      when: not ansible_check_mode
+
+    - name: Generate OpenBao CA secret manifest for VSO namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ vso_openbao_ca_secret_name }}
+          --namespace {{ vso_namespace }}
+          --from-file=ca.crt=/tmp/openbao-ca-vso.crt
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_openbao_ca_secret_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply OpenBao CA secret in VSO namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _vso_openbao_ca_secret_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_openbao_ca_secret_apply
+      changed_when: >-
+        'configured' in (_vso_openbao_ca_secret_apply.stdout | default('')) or
+        'created' in (_vso_openbao_ca_secret_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Apply cert-manager Certificate for VSO kube-rbac-proxy TLS
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'kube_rbac_proxy_certificate.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_kube_rbac_proxy_cert_apply
+      changed_when: >-
+        'configured' in (_vso_kube_rbac_proxy_cert_apply.stdout | default('')) or
+        'created' in (_vso_kube_rbac_proxy_cert_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+        - vso_kube_rbac_proxy_tls_enabled | bool
+
+    - name: Wait for VSO kube-rbac-proxy certificate to become Ready
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait
+          --namespace {{ vso_namespace }}
+          --for=condition=Ready
+          certificate/{{ vso_kube_rbac_proxy_cert_name }}
+          --timeout=180s
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_kube_rbac_proxy_cert_wait
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - vso_kube_rbac_proxy_tls_enabled | bool
+
+    - name: Wait for VSO kube-rbac-proxy TLS Secret
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ vso_kube_rbac_proxy_tls_secret_name }}
+          --namespace {{ vso_namespace }}
+      environment:
+        KUBECONFIG: "{{ vso_kubeconfig_path }}"
+      register: _vso_kube_rbac_proxy_tls_secret_wait
+      changed_when: false
+      retries: 20
+      delay: 6
+      until: _vso_kube_rbac_proxy_tls_secret_wait.rc == 0
+      when:
+        - not ansible_check_mode
+        - vso_kube_rbac_proxy_tls_enabled | bool
+
+    - name: Remove temporary OpenBao CA certificate file for VSO
+      ansible.builtin.file:
+        path: /tmp/openbao-ca-vso.crt
+        state: absent
+      when: not ansible_check_mode
+
+    - name: Deploy Vault Secrets Operator via Helm
+      ansible.builtin.command:
+        cmd: >-
+          helm upgrade --install {{ vso_release_name }}
+          {{ (vso_chart_path | trim) if ((vso_chart_path | default('') | trim) | length > 0) else vso_chart_name }}
+          --namespace {{ vso_namespace }}
+          --create-namespace
+          {% if ((vso_chart_path | default('') | trim) | length == 0) %}--repo {{ vso_chart_repo }}{% endif %}
+          {% if ((vso_chart_path | default('') | trim) | length == 0) and (vso_chart_version | length > 0) %}--version {{ vso_chart_version }}{% endif %}
+          -f {{ vso_work_dir }}/values.yaml
+          --wait
+          --timeout {{ vso_helm_timeout_seconds }}s
+          --kubeconfig {{ vso_kubeconfig_path }}
+      register: _vso_helm_apply_result
+      changed_when: true
+      when: not ansible_check_mode
+  when: not ansible_check_mode
