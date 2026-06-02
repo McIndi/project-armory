@@ -10,28 +10,12 @@
         mode: "0755"
       register: _nginx_tofu_workdir_result
 
-    - name: Debug nginx ingress workdir task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Ensure nginx ingress working directory exists"
-          - "Directory: {{ nginx_tofu_work_dir }}"
-          - "Task changed: {{ _nginx_tofu_workdir_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Render cert-manager Helm values file
       ansible.builtin.copy:
         dest: "{{ nginx_tofu_work_dir }}/cert-manager-values.yaml"
         mode: "0600"
         content: "{{ certmanager_tofu_chart_values | to_nice_yaml(indent=2) }}"
       register: _certmanager_values_result
-
-    - name: Debug cert-manager values render task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Render cert-manager Helm values file"
-          - "File: {{ nginx_tofu_work_dir }}/cert-manager-values.yaml"
-          - "Task changed: {{ _certmanager_values_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Deploy cert-manager via Helm
       ansible.builtin.command:
@@ -49,15 +33,6 @@
       changed_when: true
       when: not ansible_check_mode
 
-    - name: Debug cert-manager Helm deploy task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Deploy cert-manager via Helm"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Task changed: {{ _certmanager_helm_apply_result.changed | default(false) }}"
-          - "Exit code: {{ _certmanager_helm_apply_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Wait for cert-manager webhook to be ready
       ansible.builtin.command:
         cmd: >-
@@ -71,28 +46,12 @@
       changed_when: false
       when: not ansible_check_mode
 
-    - name: Debug cert-manager webhook wait task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Wait for cert-manager webhook to be ready"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Exit code: {{ _certmanager_wait_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Render ingress-nginx Helm values file
       ansible.builtin.copy:
         dest: "{{ nginx_tofu_work_dir }}/ingress-nginx-values.yaml"
         mode: "0600"
         content: "{{ nginx_tofu_chart_values | to_nice_yaml(indent=2) }}"
       register: _nginx_values_result
-
-    - name: Debug ingress-nginx values render task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Render ingress-nginx Helm values file"
-          - "File: {{ nginx_tofu_work_dir }}/ingress-nginx-values.yaml"
-          - "Task changed: {{ _nginx_values_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Deploy ingress-nginx via Helm
       ansible.builtin.command:
@@ -110,15 +69,6 @@
       changed_when: true
       when: not ansible_check_mode
 
-    - name: Debug ingress-nginx Helm deploy task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Deploy ingress-nginx via Helm"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Task changed: {{ _nginx_helm_apply_result.changed | default(false) }}"
-          - "Exit code: {{ _nginx_helm_apply_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Open HTTP firewall port (80/tcp)
       ansible.posix.firewalld:
         zone: "{{ nginx_ingress_firewall_zone }}"
@@ -129,15 +79,6 @@
       register: _nginx_http_port_result
       when: nginx_ingress_firewall_manage | bool
 
-    - name: Debug HTTP firewall task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Open HTTP firewall port (80/tcp)"
-          - "Executed: {{ nginx_ingress_firewall_manage | bool }}"
-          - "Zone: {{ nginx_ingress_firewall_zone }}"
-          - "Task changed: {{ _nginx_http_port_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Open HTTPS firewall port (443/tcp)
       ansible.posix.firewalld:
         zone: "{{ nginx_ingress_firewall_zone }}"
@@ -147,28 +88,3 @@
         state: enabled
       register: _nginx_https_port_result
       when: nginx_ingress_firewall_manage | bool
-
-    - name: Debug HTTPS firewall task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Open HTTPS firewall port (443/tcp)"
-          - "Executed: {{ nginx_ingress_firewall_manage | bool }}"
-          - "Zone: {{ nginx_ingress_firewall_zone }}"
-          - "Task changed: {{ _nginx_https_port_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
-
-  rescue:
-    - name: Debug nginx install flow failure context
-      ansible.builtin.debug:
-        msg:
-          - "Role: nginx_ingress (install.yml)"
-          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Fail nginx install flow with context
-      ansible.builtin.fail:
-        msg: >-
-          nginx_ingress install flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
-          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

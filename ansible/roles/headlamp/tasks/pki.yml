@@ -44,12 +44,3 @@
   register: _headlamp_cert_wait
   changed_when: false
   when: not ansible_check_mode
-
-- name: Debug Headlamp PKI summary
-  ansible.builtin.debug:
-    msg:
-      - "Task: Headlamp PKI certificate provisioning"
-      - "Namespace/secret: {{ headlamp_namespace }} / {{ headlamp_tls_secret_name }}"
-      - "Issuer: {{ headlamp_tls_issuer_name }}"
-      - "Certificate apply changed: {{ _headlamp_cert_apply.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool

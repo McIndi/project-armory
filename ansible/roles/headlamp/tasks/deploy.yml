@@ -316,15 +316,3 @@
   register: _headlamp_rollout_result
   changed_when: false
   when: not ansible_check_mode
-
-- name: Debug Headlamp deploy summary
-  ansible.builtin.debug:
-    msg:
-      - "Task: Headlamp deployment complete"
-      - "Namespace/release: {{ headlamp_namespace }}/{{ headlamp_release_name }}"
-      - "OIDC secret synced: {{ headlamp_oidc_secret_name }}"
-      - "Ingress host: https://{{ headlamp_ingress_host }}"
-      - "Hosts file changed: {{ _headlamp_hosts_result.changed | default(false) }}"
-      - "OIDC resolver hostAlias changed: {{ _headlamp_oidc_hostalias_patch_result.changed | default(false) }}"
-      - "Helm apply changed: {{ _headlamp_helm_apply_result.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool

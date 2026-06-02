@@ -123,6 +123,5 @@ Override example:
 - Missing `beeai-credentials` or `beeai-encryption-key` secrets.
   Action: verify OpenBao role ran successfully and VSO auth resources are valid.
 - Helm apply fails.
-  Action: inspect generated values in `beeai_tofu_work_dir` and re-run the role with `ARMORY_BUILD_DEBUG=true` for diagnostics.
 - UI ingress or auth behavior is incorrect.
   Action: verify `beeai_public_base_url`, ingress TLS secret, and service names/ports align with deployed chart outputs.

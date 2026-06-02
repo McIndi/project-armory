@@ -47,9 +47,3 @@
         'error': ''
       }] }}
   changed_when: false
-
-- name: Debug Helm checks
-  ansible.builtin.debug:
-    msg:
-      - "Helm checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Helm') | list | length }} checks"
-  when: armory_build_debug | default(false) | bool

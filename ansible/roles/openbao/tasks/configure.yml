@@ -15,14 +15,6 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Debug secret mounts discovery task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Get current secret mounts"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Mount count discovered: {{ (_openbao_secret_mounts.json | default({})) | length if _openbao_secret_mounts is defined else 'n/a' }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Get current auth methods
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/sys/auth"
@@ -33,14 +25,6 @@
       register: _openbao_auth_mounts
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug auth methods discovery task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Get current auth methods"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Auth methods discovered: {{ (_openbao_auth_mounts.json | default({})) | length if _openbao_auth_mounts is defined else 'n/a' }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Enable KV v2 secrets engine
       ansible.builtin.uri:
@@ -60,15 +44,6 @@
         - not ansible_check_mode
         - "(openbao_kv_mount + '/') not in (_openbao_secret_mounts.json | default({}))"
 
-    - name: Debug KV engine enable task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Enable KV v2 secrets engine"
-          - "Executed: {{ (not ansible_check_mode) and ((openbao_kv_mount + '/') not in (_openbao_secret_mounts.json | default({}))) }}"
-          - "Mount path: {{ openbao_kv_mount }}"
-          - "HTTP status: {{ _openbao_enable_kv_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Check whether init keys are already stored in OpenBao KV
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/{{ openbao_kv_mount }}/metadata/openbao/init"
@@ -79,14 +54,6 @@
       register: _openbao_init_kv_check
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug init key existence check task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Check whether init keys are already stored in OpenBao KV"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Init key record exists: {{ (_openbao_init_kv_check.status | default(404)) == 200 if _openbao_init_kv_check is defined else 'unknown' }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Write init keys to OpenBao KV for audited human retrieval
       ansible.builtin.uri:
@@ -107,14 +74,6 @@
         - _openbao_init_kv_check.status | default(404) == 404
         - openbao_unseal_keys is defined
 
-    - name: Debug init key KV write task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Write init keys to OpenBao KV"
-          - "Executed: {{ (not ansible_check_mode) and ((_openbao_init_kv_check.status | default(404)) == 404) and (openbao_unseal_keys is defined) }}"
-          - "HTTP status: {{ _openbao_write_init_kv_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Enable PKI secrets engine
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ openbao_pki_mount }}"
@@ -133,15 +92,6 @@
         - not ansible_check_mode
         - "(openbao_pki_mount + '/') not in (_openbao_secret_mounts.json | default({}))"
 
-    - name: Debug PKI engine enable task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Enable PKI secrets engine"
-          - "Executed: {{ (not ansible_check_mode) and ((openbao_pki_mount + '/') not in (_openbao_secret_mounts.json | default({}))) }}"
-          - "Mount path: {{ openbao_pki_mount }}"
-          - "HTTP status: {{ _openbao_enable_pki_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Check whether PKI root CA already exists
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_mount }}/cert/ca"
@@ -152,14 +102,6 @@
       register: _openbao_pki_ca_check
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug PKI root CA check task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Check whether PKI root CA already exists"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "HTTP status: {{ _openbao_pki_ca_check.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Generate PKI root CA
       ansible.builtin.uri:
@@ -180,15 +122,6 @@
         - not ansible_check_mode
         - (_openbao_pki_ca_check.status | default(404)) in [400, 404]
 
-    - name: Debug PKI root CA generation task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Generate PKI root CA"
-          - "Executed: {{ (not ansible_check_mode) and ((_openbao_pki_ca_check.status | default(404)) in [400, 404]) }}"
-          - "Common name: {{ openbao_pki_common_name }}"
-          - "HTTP status: {{ _openbao_generate_ca_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Configure PKI issuing and CRL URLs
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_mount }}/config/urls"
@@ -203,14 +136,6 @@
       register: _openbao_pki_urls_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug PKI URL configuration task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Configure PKI issuing and CRL URLs"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "HTTP status: {{ _openbao_pki_urls_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Create PKI certificate role
       ansible.builtin.uri:
@@ -234,15 +159,6 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Debug PKI certificate role task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Create PKI certificate role"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Role name: {{ openbao_pki_cert_role }}"
-          - "HTTP status: {{ _openbao_pki_role_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Enable Kubernetes auth method
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/sys/auth/kubernetes"
@@ -259,14 +175,6 @@
         - not ansible_check_mode
         - "'kubernetes/' not in (_openbao_auth_mounts.json | default({}))"
 
-    - name: Debug Kubernetes auth enable task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Enable Kubernetes auth method"
-          - "Executed: {{ (not ansible_check_mode) and ('kubernetes/' not in (_openbao_auth_mounts.json | default({}))) }}"
-          - "HTTP status: {{ _openbao_enable_k8s_auth_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Get k3s cluster CA certificate
       ansible.builtin.command:
         cmd: >-
@@ -276,15 +184,6 @@
       register: _k3s_ca_cert
       changed_when: false
       when: not ansible_check_mode
-
-    - name: Debug cluster CA retrieval task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Get k3s cluster CA certificate"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Exit code: {{ _k3s_ca_cert.rc | default('n/a') }}"
-          - "Certificate content present: {{ (_k3s_ca_cert.stdout | default('') | length) > 0 }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Create bound service account token for OpenBao token review
       ansible.builtin.command:
@@ -296,15 +195,6 @@
       changed_when: false
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug service account token task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Create bound service account token for OpenBao token review"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Exit code: {{ _openbao_sa_token.rc | default('n/a') }}"
-          - "Token captured in memory: {{ (_openbao_sa_token.stdout | default('') | length) > 0 }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Configure Kubernetes auth method
       ansible.builtin.uri:
@@ -322,14 +212,6 @@
       register: _openbao_k8s_auth_config_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug Kubernetes auth configuration task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Configure Kubernetes auth method"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "HTTP status: {{ _openbao_k8s_auth_config_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Write VSO policy (read beeai secrets, deny openbao init keys)
       ansible.builtin.uri:
@@ -354,14 +236,6 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Debug VSO policy task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Write VSO policy"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "HTTP status: {{ _openbao_vso_policy_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Write cert-manager policy (sign certs via PKI)
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/sys/policies/acl/cert-manager"
@@ -381,14 +255,6 @@
       register: _openbao_certmanager_policy_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug cert-manager policy task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Write cert-manager policy"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "HTTP status: {{ _openbao_certmanager_policy_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Create k8s auth role for VSO
       ansible.builtin.uri:
@@ -410,15 +276,6 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Debug VSO auth role task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Create k8s auth role for VSO"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Role target: {{ openbao_vso_sa_name }} / {{ openbao_beeai_namespace }}"
-          - "HTTP status: {{ _openbao_vso_auth_role_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Create k8s auth role for cert-manager
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/cert-manager"
@@ -438,28 +295,3 @@
       register: _openbao_certmanager_auth_role_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
-
-    - name: Debug cert-manager auth role task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Create k8s auth role for cert-manager"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "Role target: {{ openbao_certmanager_sa_name }} / {{ openbao_certmanager_namespace }}"
-          - "HTTP status: {{ _openbao_certmanager_auth_role_result.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-  rescue:
-    - name: Debug OpenBao configure flow failure context
-      ansible.builtin.debug:
-        msg:
-          - "Role: openbao (configure.yml)"
-          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Fail OpenBao configure flow with context
-      ansible.builtin.fail:
-        msg: >-
-          openbao configure flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
-          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

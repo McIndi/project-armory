@@ -27,14 +27,6 @@
   ansible.builtin.set_fact:
     _kc_base_url: "http://{{ _kc_cluster_ip_result.stdout }}:{{ beeai_keycloak_service_port }}"
 
-- name: Debug Keycloak base URL
-  ansible.builtin.debug:
-    msg:
-      - "Keycloak internal URL: {{ _kc_base_url }}"
-  when: armory_build_debug | default(false) | bool
-
-# ── Obtain admin access token ─────────────────────────────────────────────────
-
 - name: Get Keycloak admin password from keycloak-secret
   ansible.builtin.command:
     cmd: >-
@@ -147,16 +139,6 @@
   register: _kc_mapper_update_result
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
-- name: Debug audience mapper update
-  ansible.builtin.debug:
-    msg:
-      - "Task: Update agentstack-server-audience mapper"
-      - "Previous value: {{ _kc_current_audience }}"
-      - "Changed: {{ _kc_current_audience != 'agentstack-server' }}"
-  when: armory_build_debug | default(false) | bool
-
-# ── Assign agentstack-server-audience as default scope for agentstack-ui ──────
-
 - name: Look up agentstack-ui client in Keycloak
   ansible.builtin.uri:
     url: "{{ _kc_base_url }}/admin/realms/agentstack/clients?clientId=agentstack-ui"
@@ -205,11 +187,3 @@
   when: not _kc_scope_already_assigned
   register: _kc_scope_assign_result
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-
-- name: Debug scope assignment
-  ansible.builtin.debug:
-    msg:
-      - "Task: Assign agentstack-server-audience to agentstack-ui default scopes"
-      - "Already assigned: {{ _kc_scope_already_assigned }}"
-      - "Changed: {{ not _kc_scope_already_assigned }}"
-  when: armory_build_debug | default(false) | bool

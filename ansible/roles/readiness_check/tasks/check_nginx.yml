@@ -123,9 +123,3 @@
         'error': _rc_ingress_certificate_rotation.stderr | default('')
       }] }}
   changed_when: false
-
-- name: Debug nginx checks
-  ansible.builtin.debug:
-    msg:
-      - "nginx checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'nginx ingress') | list | length }} checks"
-  when: armory_build_debug | default(false) | bool

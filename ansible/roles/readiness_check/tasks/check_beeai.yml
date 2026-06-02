@@ -149,10 +149,3 @@
         'error': ''
       }] }}
   changed_when: false
-
-- name: Debug BeeAI checks
-  ansible.builtin.debug:
-    msg:
-      - "BeeAI checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'BeeAI Agent Stack') | list | length }} checks"
-      - "BeeAI URL: {{ readiness_check_beeai_url }}"
-  when: armory_build_debug | default(false) | bool

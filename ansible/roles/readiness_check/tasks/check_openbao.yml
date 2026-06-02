@@ -115,10 +115,3 @@
         'error': ''
       }] }}
   changed_when: false
-
-- name: Debug OpenBao checks
-  ansible.builtin.debug:
-    msg:
-      - "OpenBao checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'OpenBao') | list | length }} checks"
-      - "OpenBao address: {{ _rc_openbao_addr }}"
-  when: armory_build_debug | default(false) | bool

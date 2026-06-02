@@ -85,8 +85,6 @@ cd "${ARMORY_ANSIBLE_ROOT}"
 ansible-playbook playbooks/readiness_check.yml
 ```
 
-This runs only the preflight environment guard plus the readiness role. Use `playbooks/site.yml --tags readiness_check` only if you specifically want to run readiness checks through the main playbook entrypoint. The readiness playbook outputs a summary table showing component status (pass/warn/fail) and indicates whether the environment is ready for use. Run with `ARMORY_BUILD_DEBUG=true` for detailed per-check diagnostics.
-
 ## Run Only Specific Tasks
 
 ```bash
@@ -131,20 +129,9 @@ ansible-playbook playbooks/readiness_check.yml
 - `/vagrant` is world-writable on most Vagrant guests, so using environment-driven config avoids relying on local `ansible.cfg` discovery.
 - The VSO deployment path now requires a hardened VSO Helm chart (fork) with explicit kube-rbac-proxy TLS cert/key support. In `.env`, either set `BEEAI_VSO_CHART_PATH` to a local chart directory in this repo, or set `BEEAI_VSO_CHART_REPO`, `BEEAI_VSO_CHART_NAME`, and `BEEAI_VSO_CHART_VERSION` for a published chart, before running `--tags beeai_install`.
 
-## Debug Mode
+## Sensitive Output
 
-Set `ARMORY_BUILD_DEBUG=true` in `/vagrant/.env` when you want task-level execution context during a run.
-
-```bash
-cd /vagrant
-set -a; source .env; set +a
-export ARMORY_BUILD_DEBUG=true
-
-cd "${ARMORY_ANSIBLE_ROOT}"
-ansible-playbook playbooks/site.yml
-```
-
-By default, sensitive task output remains redacted (`no_log`) even when debug mode is enabled.
+By default, sensitive task output remains redacted (`no_log`).
 
 - Keep redaction enabled (default):
 
@@ -160,15 +147,6 @@ export ARMORY_LOG_NOLOG=true
 
 Only set `ARMORY_LOG_NOLOG=true` in tightly controlled environments and rotate exposed credentials after use.
 
-With debug mode enabled, roles emit a short companion debug task after each operational task. Those messages are intended to answer a few operator questions quickly:
-
-- which task just ran
-- whether it executed or was skipped
-- whether it changed anything
-- simple status details such as exit code, HTTP status, object counts, or presence checks
-
-The debug output is designed to avoid printing secret values. It reports booleans and status metadata instead of passwords, tokens, keys, or raw secret payloads.
-
 ## Failure Context
 
 Most larger task flows are wrapped in `block` and `rescue` sections. When a task in one of those flows fails, the role reports:
@@ -176,8 +154,6 @@ Most larger task flows are wrapped in `block` and `rescue` sections. When a task
 - the logical section that failed
 - the failing task name
 - the Ansible failure message
-
-If you hit a role failure, rerun with `ARMORY_BUILD_DEBUG=true` first. That gives you the nearest companion debug output before the failure plus the section-level rescue context after it.
 
 ## Retrieve Generated Credentials
 

@@ -231,9 +231,3 @@
         'error': ''
       }] }}
   changed_when: false
-
-- name: Debug VSO checks
-  ansible.builtin.debug:
-    msg:
-      - "VSO checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Vault Secrets Operator') | list | length }} checks"
-  when: armory_build_debug | default(false) | bool

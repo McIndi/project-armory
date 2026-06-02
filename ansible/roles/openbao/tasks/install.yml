@@ -191,14 +191,6 @@
     mode: "0644"
   register: _openbao_values_rendered
 
-- name: Debug OpenBao values render task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Render OpenBao Helm values"
-      - "File: {{ openbao_work_dir }}/values.yaml"
-      - "Task changed: {{ _openbao_values_rendered.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool
-
 - name: Deploy OpenBao via Helm
   ansible.builtin.command:
     cmd: >-
@@ -214,16 +206,6 @@
   register: _openbao_helm_apply_result
   changed_when: true
   when: not ansible_check_mode
-
-- name: Debug OpenBao Helm deploy task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Deploy OpenBao via Helm"
-      - "Executed: {{ not ansible_check_mode }}"
-      - "Release/namespace: {{ openbao_release_name }}/{{ openbao_namespace }}"
-      - "Task changed: {{ _openbao_helm_apply_result.changed | default(false) }}"
-      - "Exit code: {{ _openbao_helm_apply_result.rc | default('n/a') }}"
-  when: armory_build_debug | default(false) | bool
 
 - name: Read OpenBao service ClusterIP for host-local access
   ansible.builtin.command:
@@ -252,14 +234,6 @@
   register: _openbao_hosts_result
   when: not ansible_check_mode
 
-- name: Debug OpenBao host-local DNS mapping task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Ensure OpenBao service DNS resolves locally on the VM host"
-      - "Mapping: {{ _openbao_service_cluster_ip.stdout | default('') | trim }} {{ openbao_tls_server_name }}"
-      - "Task changed: {{ _openbao_hosts_result.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool
-
 - name: Recreate OpenBao pod after Helm apply
   ansible.builtin.command:
     cmd: >-
@@ -286,14 +260,6 @@
   changed_when: false
   when: not ansible_check_mode
 
-- name: Debug OpenBao ClusterRoleBinding generation task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Create ClusterRoleBinding for OpenBao SA"
-      - "Executed: {{ not ansible_check_mode }}"
-      - "Exit code: {{ _openbao_crb_yaml.rc | default('n/a') }}"
-  when: armory_build_debug | default(false) | bool
-
 - name: Apply ClusterRoleBinding for OpenBao SA
   ansible.builtin.command:
     cmd: >-
@@ -304,14 +270,6 @@
   register: _openbao_crb_apply
   changed_when: false
   when: not ansible_check_mode
-
-- name: Debug OpenBao ClusterRoleBinding apply task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Apply ClusterRoleBinding for OpenBao SA"
-      - "Executed: {{ not ansible_check_mode }}"
-      - "Exit code: {{ _openbao_crb_apply.rc | default('n/a') }}"
-  when: armory_build_debug | default(false) | bool
 
 - name: Wait for OpenBao pod to be ready
   block:
@@ -330,14 +288,6 @@
       retries: 60
       delay: 5
 
-    - name: Debug OpenBao pod creation wait task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Wait for OpenBao pod to be created"
-          - "Pod selector output length: {{ (_openbao_pod_names.stdout | default('') | length) }}"
-          - "Exit code: {{ _openbao_pod_names.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Wait for OpenBao pod phase Running
       ansible.builtin.command:
         cmd: >-
@@ -351,13 +301,6 @@
       register: _openbao_wait_running
       changed_when: false
 
-    - name: Debug OpenBao pod running wait task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Wait for OpenBao pod phase Running"
-          - "Exit code: {{ _openbao_wait_running.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Wait for OpenBao API to respond before init
       ansible.builtin.uri:
         url: "{{ openbao_api_addr }}/v1/sys/seal-status"
@@ -368,65 +311,6 @@
       retries: 60
       delay: 5
       changed_when: false
-
-    - name: Debug OpenBao API readiness task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Wait for OpenBao API to respond before init"
-          - "HTTP status: {{ _openbao_api_preinit_status.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-  rescue:
-    - name: Capture OpenBao pod details after readiness timeout
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl describe pod
-          --selector app.kubernetes.io/name=openbao
-          --namespace {{ openbao_namespace }}
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _openbao_pod_describe
-      changed_when: false
-      failed_when: false
-
-    - name: Debug OpenBao pod describe capture task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Capture OpenBao pod details after readiness timeout"
-          - "Exit code: {{ _openbao_pod_describe.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Capture OpenBao logs after readiness timeout
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl logs
-          --selector app.kubernetes.io/name=openbao
-          --namespace {{ openbao_namespace }}
-          --all-containers=true
-          --tail=200
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _openbao_pod_logs
-      changed_when: false
-      failed_when: false
-
-    - name: Debug OpenBao pod log capture task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Capture OpenBao logs after readiness timeout"
-          - "Exit code: {{ _openbao_pod_logs.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Fail with OpenBao readiness diagnostics
-      ansible.builtin.fail:
-        msg: |
-          OpenBao pod did not become reachable for bootstrap within {{ openbao_startup_wait_timeout }}.
-
-          Pod describe output:
-          {{ _openbao_pod_describe.stdout | default('n/a') }}
-
-          Pod logs (last 200 lines):
-          {{ _openbao_pod_logs.stdout | default('n/a') }}
   when: not ansible_check_mode
 
 - name: Remove legacy OpenBao firewall port exposure
@@ -438,13 +322,3 @@
     state: disabled
   register: _openbao_firewall_port_result
   when: openbao_firewall_manage | bool
-
-- name: Debug OpenBao firewall cleanup task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Remove legacy OpenBao firewall port exposure"
-      - "Executed: {{ openbao_firewall_manage | bool }}"
-      - "Zone/port: {{ openbao_firewall_zone }} / {{ openbao_node_port }}/tcp"
-      - "Task changed: {{ _openbao_firewall_port_result.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool
-

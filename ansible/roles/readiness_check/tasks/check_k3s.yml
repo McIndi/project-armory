@@ -83,9 +83,3 @@
         'error': ''
       }] }}
   changed_when: false
-
-- name: Debug k3s checks
-  ansible.builtin.debug:
-    msg:
-      - "k3s checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'k3s') | list | length }} checks"
-  when: armory_build_debug | default(false) | bool

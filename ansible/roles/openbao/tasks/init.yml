@@ -14,25 +14,10 @@
       delay: 6
       when: not ansible_check_mode
 
-    - name: Debug initialization status task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Check OpenBao initialization status"
-          - "Executed: {{ not ansible_check_mode }}"
-          - "HTTP status: {{ _openbao_seal_status.status | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Set initialized fact
       ansible.builtin.set_fact:
         openbao_initialized: "{{ _openbao_seal_status.json.initialized | default(false) }}"
       when: not ansible_check_mode
-
-    - name: Debug initialized fact task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Set initialized fact"
-          - "Initialized: {{ openbao_initialized | default(false) }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Generate OpenBao vault password
       ansible.builtin.command:
@@ -43,14 +28,6 @@
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
-
-    - name: Debug vault password generation task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Generate OpenBao vault password"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "Task changed: {{ _openbao_vault_pass_gen.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Write vault password file (root-only, stays on VM)
       ansible.builtin.copy:
@@ -64,15 +41,6 @@
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
-
-    - name: Debug vault password file write task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Write vault password file"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "File: {{ openbao_vault_pass_file }}"
-          - "Task changed: {{ _openbao_vault_pass_file_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Initialize OpenBao
       ansible.builtin.uri:
@@ -89,15 +57,6 @@
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
 
-    - name: Debug OpenBao init API task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Initialize OpenBao"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "Init result captured: {{ _openbao_init_result is defined }}"
-          - "Shares/Threshold: {{ openbao_key_shares }} / {{ openbao_key_threshold }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Set init key facts
       ansible.builtin.set_fact:
         openbao_unseal_keys: "{{ _openbao_init_result.json.keys_base64 }}"
@@ -106,15 +65,6 @@
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
-
-    - name: Debug init key fact task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Set init key facts"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "Unseal keys loaded in memory: {{ openbao_unseal_keys is defined }}"
-          - "Root token loaded in memory: {{ openbao_root_token is defined }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Write plaintext init-keys to temp file
       ansible.builtin.copy:
@@ -135,15 +85,6 @@
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
 
-    - name: Debug plaintext init key file task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Write plaintext init-keys to temp file"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "File: {{ openbao_init_keys_file }}.plain"
-          - "Task changed: {{ _openbao_plain_keys_file_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Encrypt init-keys file with Ansible Vault
       ansible.builtin.command:
         cmd: >-
@@ -157,15 +98,6 @@
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
 
-    - name: Debug init key encryption task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Encrypt init-keys file with Ansible Vault"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "Output file: {{ openbao_init_keys_file }}"
-          - "Exit code: {{ _openbao_encrypt_keys_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Remove plaintext temp file
       ansible.builtin.file:
         path: "{{ openbao_init_keys_file }}.plain"
@@ -174,14 +106,6 @@
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
-
-    - name: Debug plaintext cleanup task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Remove plaintext temp file"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "Task changed: {{ _openbao_remove_plain_file_result.changed | default(false) }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Unseal OpenBao immediately after init
       ansible.builtin.uri:
@@ -197,28 +121,3 @@
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
-
-    - name: Debug initial unseal task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Unseal OpenBao immediately after init"
-          - "Executed: {{ not (openbao_initialized | default(true)) and not ansible_check_mode }}"
-          - "Threshold submissions attempted: {{ openbao_key_threshold }}"
-          - "Result records captured: {{ (_openbao_initial_unseal_result.results | default([])) | length }}"
-      when: armory_build_debug | default(false) | bool
-
-  rescue:
-    - name: Debug OpenBao init flow failure context
-      ansible.builtin.debug:
-        msg:
-          - "Role: openbao (init.yml)"
-          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Fail OpenBao init flow with context
-      ansible.builtin.fail:
-        msg: >-
-          openbao init flow failed at '{{ ansible_failed_task.name | default('unknown') }}'.
-          Set ARMORY_BUILD_DEBUG=true for companion diagnostics.

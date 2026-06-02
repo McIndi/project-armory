@@ -1,18 +1,8 @@
 ---
-- name: Resolve ARMORY_BUILD_DEBUG flag
+- name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_build_debug: "{{ (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool }}"
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
-
-- name: Debug logging controls for system update role
-  ansible.builtin.debug:
-    msg:
-      - "Role: system_update"
-      - "ARMORY_BUILD_DEBUG: {{ armory_build_debug | default(false) | bool }}"
-      - "ARMORY_LOG_NOLOG: {{ armory_log_nolog | default(false) | bool }}"
-      - "Sensitive task redaction enabled: {{ not (armory_log_nolog | default(false) | bool) }}"
-  when: armory_build_debug | default(false) | bool
 
 - name: Run system update flow with diagnostics
   block:
@@ -26,35 +16,3 @@
         update_only: "{{ system_update_update_only | bool }}"
         update_cache: "{{ system_update_update_cache | bool }}"
       register: _system_update_result
-
-    - name: Debug dnf update task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Update installed packages with dnf"
-          - "Requested state: {{ system_update_package_state }}"
-          - "Update only: {{ system_update_update_only | bool }}"
-          - "Update cache: {{ system_update_update_cache | bool }}"
-          - "Task changed: {{ _system_update_result.changed | default(false) }}"
-          - "Task failed: {{ _system_update_result.failed | default(false) }}"
-          - "Packages processed: {{ (_system_update_result.results | default([])) | length }}"
-      when: armory_build_debug | default(false) | bool
-
-  rescue:
-    - name: Debug system update failure context
-      ansible.builtin.debug:
-        msg:
-          - "Role: system_update"
-          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Fail system update flow with context
-      ansible.builtin.fail:
-        msg: >-
-          system_update failed at '{{ ansible_failed_task.name | default('unknown') }}'.
-          Set ARMORY_BUILD_DEBUG=true for detailed companion diagnostics.

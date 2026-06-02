@@ -31,7 +31,6 @@ Defined in `defaults/main.yml`:
 | `readiness_check_fail_on_issues` | `true` | Fail at end of role if any critical issues detected. |
 
 ## Task flow
-1. Resolve `ARMORY_BUILD_DEBUG` flag from environment.
 2. Initialize result aggregator facts.
 3. Import subtask files (one per component):
    - `check_host.yml`: firewall rules, SELinux status, DNS resolution, kernel parameters, installed packages.
@@ -63,7 +62,6 @@ ansible-playbook playbooks/site.yml -e 'readiness_check_beeai_enabled=true readi
 
 Run with debug output:
 ```bash
-export ARMORY_BUILD_DEBUG=true
 ansible-playbook playbooks/site.yml --tags readiness_check
 ```
 
@@ -72,7 +70,6 @@ ansible-playbook playbooks/site.yml --tags readiness_check
 - **Credential checks fail**: If `readiness_check_validate_credentials=true`, this may indicate bad credentials in OpenBao or Kubernetes secrets. Verify using commands in the main README.md.
 - **TLS certificate checks fail**: Verify ingress TLS secrets exist and are valid: `kubectl get secret -n agentstack`.
 - **k3s not ready**: Check node status with `kubectl get nodes` and pod status with `kubectl get pods -n kube-system`.
-- **No output or silent failures**: Rerun with `ARMORY_BUILD_DEBUG=true` for task-level diagnostics.
 
 ## Notes
 - The role does **not** perform exhaustive integration tests or data validation; it checks basic connectivity and readiness indicators.

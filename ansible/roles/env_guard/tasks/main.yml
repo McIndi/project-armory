@@ -1,18 +1,8 @@
 ---
-- name: Resolve ARMORY_BUILD_DEBUG flag
+- name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_build_debug: "{{ (lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('false', true)) | bool }}"
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
-
-- name: Debug logging controls for env guard role
-  ansible.builtin.debug:
-    msg:
-      - "Role: env_guard"
-      - "ARMORY_BUILD_DEBUG: {{ armory_build_debug | default(false) | bool }}"
-      - "ARMORY_LOG_NOLOG: {{ armory_log_nolog | default(false) | bool }}"
-      - "Sensitive task redaction enabled: {{ not (armory_log_nolog | default(false) | bool) }}"
-  when: armory_build_debug | default(false) | bool
 
 - name: Validate required environment guard values with diagnostics
   block:
@@ -20,15 +10,6 @@
       ansible.builtin.set_fact:
         env_guard_sentry_value: "{{ lookup('ansible.builtin.env', env_guard_sentry_var_name) }}"
       changed_when: false
-
-    - name: Debug sentry variable lookup task
-      ansible.builtin.debug:
-        msg:
-          - "Task: Read sentry environment variable"
-          - "Sentry variable name: {{ env_guard_sentry_var_name }}"
-          - "Value present: {{ (env_guard_sentry_value | length) > 0 }}"
-          - "Value matches expected: {{ env_guard_sentry_value == env_guard_expected_value }}"
-      when: armory_build_debug | default(false) | bool
 
     - name: Ensure sentry environment variable is set
       ansible.builtin.assert:
@@ -40,13 +21,6 @@
           cd "${ARMORY_PROJECT_ROOT:-<repo-root>}"; set -a; source .env; set +a
         success_msg: "Environment sentry variable '{{ env_guard_sentry_var_name }}' is set."
 
-    - name: Debug sentry presence assertion
-      ansible.builtin.debug:
-        msg:
-          - "Task: Ensure sentry environment variable is set"
-          - "Assertion passed: {{ (env_guard_sentry_value | length) > 0 }}"
-      when: armory_build_debug | default(false) | bool
-
     - name: Ensure sentry environment variable has expected value
       ansible.builtin.assert:
         that:
@@ -56,31 +30,3 @@
           '{{ env_guard_sentry_value }}' but expected '{{ env_guard_expected_value }}'.
           Re-copy .env from .env.example and source it again.
         success_msg: "Environment sentry value is valid."
-
-    - name: Debug sentry value assertion
-      ansible.builtin.debug:
-        msg:
-          - "Task: Ensure sentry environment variable has expected value"
-          - "Assertion passed: {{ env_guard_sentry_value == env_guard_expected_value }}"
-          - "ARMORY_BUILD_DEBUG raw env value: {{ lookup('ansible.builtin.env', 'ARMORY_BUILD_DEBUG') | default('', true) }}"
-      when: armory_build_debug | default(false) | bool
-
-  rescue:
-    - name: Debug env guard failure context
-      ansible.builtin.debug:
-        msg:
-          - "Role: env_guard"
-          - "Failure task: {{ ansible_failed_task.name | default('unknown') }}"
-          - "Failure message: {{ ansible_failed_result.msg | default('n/a') }}"
-          - "Failure rc: {{ ansible_failed_result.rc | default('n/a') }}"
-          - "Failure cmd: {{ ansible_failed_result.cmd | default('n/a') }}"
-          - "Failure stderr: {{ ansible_failed_result.stderr | default('n/a') }}"
-          - "Failure stdout: {{ ansible_failed_result.stdout | default('n/a') }}"
-          - "Failure exception: {{ ansible_failed_result.exception | default('n/a') }}"
-      when: armory_build_debug | default(false) | bool
-
-    - name: Fail env guard flow with context
-      ansible.builtin.fail:
-        msg: >-
-          env_guard failed at '{{ ansible_failed_task.name | default('unknown') }}'.
-          Set ARMORY_BUILD_DEBUG=true for task-by-task diagnostics.

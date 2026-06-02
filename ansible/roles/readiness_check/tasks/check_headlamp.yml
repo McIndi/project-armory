@@ -140,10 +140,3 @@
           else ''
       }] }}
   changed_when: false
-
-- name: Debug Headlamp checks
-  ansible.builtin.debug:
-    msg:
-      - "Headlamp checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Headlamp') | list | length }} checks"
-      - "Headlamp URL: {{ readiness_check_headlamp_url }}"
-  when: armory_build_debug | default(false) | bool

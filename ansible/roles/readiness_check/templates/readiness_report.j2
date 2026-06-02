@@ -53,11 +53,9 @@ Checks: {{ component_checks | length }} total
 {% elif failed_checks == 0 and warned_checks > 0 %}
 [WARN] Environment is mostly ready, but review warnings above.
    - Address warnings before proceeding to production use.
-   - Set ARMORY_BUILD_DEBUG=true and rerun for detailed diagnostics.
 {% else %}
 [FAIL] Critical issues detected. Environment is not ready.
    - Fix failed checks above before retrying.
-   - Set ARMORY_BUILD_DEBUG=true and rerun for detailed diagnostics.
    - If problems persist, review role logs and check component READMEs.
 {% endif %}
 

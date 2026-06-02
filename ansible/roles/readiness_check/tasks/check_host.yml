@@ -38,14 +38,6 @@
       }] }}
   changed_when: false
 
-- name: Debug host checks
-  ansible.builtin.debug:
-    msg:
-      - "Host readiness checks complete"
-      - "Firewall: {{ _rc_firewall_status.stdout | default('unknown') }}"
-      - "SELinux: {{ _rc_selinux_status.stdout | trim | default('unknown') }}"
-  when: armory_build_debug | default(false) | bool
-
 - name: Check DNS resolution for public domain
   ansible.builtin.command: getent hosts {{ readiness_check_public_domain }}
   register: _rc_dns_check
@@ -81,9 +73,3 @@
         'error': _rc_k3s_host_service.stderr | default('')
       }] }}
   changed_when: false
-
-- name: Debug host final checks
-  ansible.builtin.debug:
-    msg:
-      - "Host checks aggregated: {{ _readiness_results | selectattr('component', 'equalto', 'Host') | list | length }} checks"
-  when: armory_build_debug | default(false) | bool

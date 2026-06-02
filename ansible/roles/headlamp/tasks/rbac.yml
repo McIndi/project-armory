@@ -21,12 +21,3 @@
     KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
   register: _headlamp_rbac_apply
   changed_when: "'configured' in (_headlamp_rbac_apply.stdout | default('')) or 'created' in (_headlamp_rbac_apply.stdout | default(''))"
-
-- name: Debug Headlamp RBAC task
-  ansible.builtin.debug:
-    msg:
-      - "Task: Apply ClusterRoleBinding for Headlamp admin user"
-      - "Subject: User 'admin'"
-      - "Role: cluster-admin"
-      - "Changed: {{ _headlamp_rbac_apply.changed | default(false) }}"
-  when: armory_build_debug | default(false) | bool

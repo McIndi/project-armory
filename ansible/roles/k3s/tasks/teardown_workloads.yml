@@ -24,9 +24,3 @@
         | difference(teardown_keep_namespaces | default([]))
         | sort
       }}
-
-- name: Report teardown completion state
-  ansible.builtin.debug:
-    msg:
-      - "Remaining non-system namespaces after Helm release teardown: {{ teardown_remaining_namespaces | join(', ') if (teardown_remaining_namespaces | length > 0) else 'none' }}"
-      - "If any remain, inspect those namespaces for finalizers before using targeted kubectl remediation."

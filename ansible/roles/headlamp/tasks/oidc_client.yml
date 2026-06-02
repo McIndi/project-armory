@@ -269,13 +269,3 @@
     - (headlamp_oidc_effective_client_secret | string | length) > 0
     - (_headlamp_oidc_ca_pem | default('') | length) > 0
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-
-- name: Debug Headlamp OIDC automation summary
-  ansible.builtin.debug:
-    msg:
-      - "Task: Keycloak OIDC client automation"
-      - "Realm/client: {{ headlamp_keycloak_realm }}/{{ headlamp_oidc_client_id }}"
-      - "Client existed before run: {{ _headlamp_client_exists | default(false) }}"
-      - "OpenBao path: {{ headlamp_openbao_kv_mount }}/{{ headlamp_openbao_oidc_path }}"
-      - "OpenBao write status: {{ _headlamp_openbao_oidc_store_result.status | default('n/a') }}"
-  when: armory_build_debug | default(false) | bool
