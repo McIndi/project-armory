@@ -1,0 +1,163 @@
+---
+# Auto-rotation of the realm `armory` admin login.
+# SA (for OpenBao k8s auth) + ConfigMap (rotation script) + CronJob.
+# The job authenticates to Keycloak with a dedicated service-account client
+# (realm-management `manage-users`), NOT the master bootstrap admin.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ keycloak_rotator_sa_name }}
+  namespace: {{ keycloak_namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ keycloak_rotator_cron_name }}-script
+  namespace: {{ keycloak_namespace }}
+data:
+  rotate.py: |
+    import json, os, secrets, ssl, string, sys
+    import urllib.request, urllib.parse, urllib.error
+
+    def http(method, url, data=None, headers=None, cafile=None, form=False):
+        h = dict(headers or {})
+        body = None
+        if data is not None:
+            if form:
+                body = urllib.parse.urlencode(data).encode()
+                h["Content-Type"] = "application/x-www-form-urlencoded"
+            else:
+                body = json.dumps(data).encode()
+                h.setdefault("Content-Type", "application/json")
+        req = urllib.request.Request(url, data=body, method=method, headers=h)
+        ctx = ssl.create_default_context(cafile=cafile) if url.startswith("https") else None
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                raw = r.read()
+                return r.status, (json.loads(raw) if raw else {})
+        except urllib.error.HTTPError as e:
+            sys.stderr.write("HTTP %s %s %s: %r\n" % (e.code, method, url, e.read()[:300]))
+            raise
+
+    def env(k):
+        v = os.environ.get(k)
+        if not v:
+            sys.exit("missing env %s" % k)
+        return v
+
+    addr = env("OPENBAO_ADDR")
+    ca = env("OPENBAO_CA_FILE")
+    mount = env("OPENBAO_KV_MOUNT")
+    kc = env("KEYCLOAK_URL")
+    realm = env("KEYCLOAK_REALM")
+    username = env("REALM_ADMIN_USERNAME")
+    length = int(os.environ.get("PASSWORD_LENGTH", "24"))
+
+    jwt = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+    _, j = http("POST", "%s/v1/auth/kubernetes/login" % addr,
+                {"role": env("OPENBAO_K8S_ROLE"), "jwt": jwt}, cafile=ca)
+    bh = {"X-Vault-Token": j["auth"]["client_token"]}
+
+    _, j = http("GET", "%s/v1/%s/data/%s" % (addr, mount, env("OPENBAO_ROTATOR_PATH")),
+                headers=bh, cafile=ca)
+    rot = j["data"]["data"]
+    client_id = rot.get("client_id") or env("ROTATOR_CLIENT_ID")
+
+    _, j = http("POST", "%s/realms/%s/protocol/openid-connect/token" % (kc, realm),
+                {"grant_type": "client_credentials", "client_id": client_id,
+                 "client_secret": rot["client_secret"]}, form=True)
+    kh = {"Authorization": "Bearer %s" % j["access_token"]}
+
+    _, users = http("GET",
+                    "%s/admin/realms/%s/users?username=%s&exact=true" % (kc, realm, username),
+                    headers=kh)
+    if not users:
+        sys.exit("realm user '%s' not found" % username)
+    uid = users[0]["id"]
+
+    alphabet = string.ascii_letters + string.digits
+    newpw = "".join(secrets.choice(alphabet) for _ in range(length))
+
+    http("PUT", "%s/admin/realms/%s/users/%s/reset-password" % (kc, realm, uid),
+         {"type": "password", "value": newpw, "temporary": False}, headers=kh)
+    http("POST", "%s/v1/%s/data/%s" % (addr, mount, env("OPENBAO_REALM_ADMIN_PATH")),
+         {"data": {"username": username, "password": newpw}}, headers=bh, cafile=ca)
+    print("rotated realm-admin password for user '%s'" % username)
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ keycloak_rotator_cron_name }}
+  namespace: {{ keycloak_namespace }}
+spec:
+  schedule: "{{ keycloak_realm_admin_rotation_schedule }}"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          serviceAccountName: {{ keycloak_rotator_sa_name }}
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate
+              image: {{ keycloak_rotator_image }}
+              imagePullPolicy: IfNotPresent
+              command: ["python3", "/app/rotate.py"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: OPENBAO_ADDR
+                  value: "{{ keycloak_openbao_cluster_addr }}"
+                - name: OPENBAO_CA_FILE
+                  value: /etc/openbao-ca/ca.crt
+                - name: OPENBAO_KV_MOUNT
+                  value: "{{ keycloak_openbao_kv_mount }}"
+                - name: OPENBAO_K8S_ROLE
+                  value: "{{ keycloak_rotator_openbao_k8s_role }}"
+                - name: OPENBAO_ROTATOR_PATH
+                  value: "{{ keycloak_openbao_rotator_path }}"
+                - name: OPENBAO_REALM_ADMIN_PATH
+                  value: "{{ keycloak_openbao_realm_admin_path }}"
+                - name: KEYCLOAK_URL
+                  value: "{{ keycloak_internal_http_url }}"
+                - name: KEYCLOAK_REALM
+                  value: "{{ keycloak_realm }}"
+                - name: ROTATOR_CLIENT_ID
+                  value: "{{ keycloak_rotator_client_id }}"
+                - name: REALM_ADMIN_USERNAME
+                  value: "{{ keycloak_realm_admin_username }}"
+                - name: PASSWORD_LENGTH
+                  value: "{{ keycloak_realm_admin_rotation_password_length }}"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              volumeMounts:
+                - name: openbao-ca
+                  mountPath: /etc/openbao-ca
+                  readOnly: true
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+          volumes:
+            - name: openbao-ca
+              secret:
+                secretName: {{ keycloak_openbao_ca_secret_name }}
+            - name: script
+              configMap:
+                name: {{ keycloak_rotator_cron_name }}-script

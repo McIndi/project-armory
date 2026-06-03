@@ -1,0 +1,233 @@
+---
+# Provision the realm-admin password auto-rotation CronJob and its dependencies:
+#   - a dedicated Keycloak service-account client with realm-management
+#     `manage-users` (so the CronJob never uses the master bootstrap admin),
+#   - OpenBao policy + k8s auth role granting read of the rotator client secret
+#     and write of the realm-admin KV path,
+#   - the SA/ConfigMap/CronJob manifests.
+# Idempotent; safe to re-run.
+
+- name: Ensure OpenBao root token is available
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: load_openbao_root_token.yml
+
+- name: Get Keycloak service ClusterIP for rotator setup
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get svc {{ keycloak_service_name }}
+      -n {{ keycloak_namespace }} -o jsonpath={.spec.clusterIP}
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _kc_rotator_cluster_ip
+  changed_when: false
+
+- name: Set Keycloak internal base URL fact for rotator setup
+  ansible.builtin.set_fact:
+    _kc_rotator_base_url: "http://{{ _kc_rotator_cluster_ip.stdout }}:{{ keycloak_service_port }}"
+
+- name: Read bootstrap-admin credentials for rotator setup
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ keycloak_bootstrap_admin_secret_name }}
+      -n {{ keycloak_namespace }} -o jsonpath={.data.{{ item }}}
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  loop: [username, password]
+  register: _kc_rotator_admin_creds_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Obtain Keycloak master admin token for rotator setup
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ _kc_rotator_admin_creds_b64.results[0].stdout | b64decode }}"
+      password: "{{ _kc_rotator_admin_creds_b64.results[1].stdout | b64decode }}"
+      grant_type: password
+    status_code: 200
+  register: _kc_rotator_token
+  retries: 5
+  delay: 10
+  until: _kc_rotator_token.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set rotator admin token fact
+  ansible.builtin.set_fact:
+    _kc_rotator_admin_token: "{{ _kc_rotator_token.json.access_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Look up rotator client in Keycloak
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients?clientId={{ keycloak_rotator_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    status_code: 200
+  register: _kc_rotator_client_lookup
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Create rotator service-account client
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      clientId: "{{ keycloak_rotator_client_id }}"
+      name: Realm Admin Password Rotator
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      standardFlowEnabled: false
+      implicitFlowEnabled: false
+      directAccessGrantsEnabled: false
+      serviceAccountsEnabled: true
+    status_code: 201
+  when: (_kc_rotator_client_lookup.json | length) == 0
+  register: _kc_rotator_client_create
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Re-read rotator client after ensure
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients?clientId={{ keycloak_rotator_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    status_code: 200
+  register: _kc_rotator_client_final
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set rotator client internal id
+  ansible.builtin.set_fact:
+    _kc_rotator_client_id_internal: "{{ (_kc_rotator_client_final.json | first).id }}"
+
+- name: Get rotator client service-account user
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients/{{ _kc_rotator_client_id_internal }}/service-account-user"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    status_code: 200
+  register: _kc_rotator_sa_user
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Look up realm-management client
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients?clientId=realm-management"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    status_code: 200
+  register: _kc_realm_mgmt_client
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Get manage-users role from realm-management
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients/{{ (_kc_realm_mgmt_client.json | first).id }}/roles/manage-users"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    status_code: 200
+  register: _kc_manage_users_role
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Assign manage-users to the rotator service account (idempotent)
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/users/{{ _kc_rotator_sa_user.json.id }}/role-mappings/clients/{{ (_kc_realm_mgmt_client.json | first).id }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      - id: "{{ _kc_manage_users_role.json.id }}"
+        name: "{{ _kc_manage_users_role.json.name }}"
+    status_code: [204]
+  register: _kc_rotator_role_assign
+  changed_when: true
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Read rotator client secret
+  ansible.builtin.uri:
+    url: "{{ _kc_rotator_base_url }}/admin/realms/{{ keycloak_realm }}/clients/{{ _kc_rotator_client_id_internal }}/client-secret"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    status_code: 200
+  register: _kc_rotator_client_secret
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Store rotator client credentials in OpenBao
+  ansible.builtin.uri:
+    url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_rotator_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      data:
+        client_id: "{{ keycloak_rotator_client_id }}"
+        client_secret: "{{ _kc_rotator_client_secret.json.value }}"
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Write OpenBao ACL policy for the rotator (read rotator, write realm-admin)
+  ansible.builtin.uri:
+    url: "{{ keycloak_openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_rotator_openbao_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_rotator_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}" {
+          capabilities = ["create", "update", "read"]
+        }
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Configure OpenBao Kubernetes auth role for the rotator
+  ansible.builtin.uri:
+    url: "{{ keycloak_openbao_api_addr }}/v1/auth/kubernetes/role/{{ keycloak_rotator_openbao_k8s_role }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      bound_service_account_names:
+        - "{{ keycloak_rotator_sa_name }}"
+      bound_service_account_namespaces:
+        - "{{ keycloak_namespace }}"
+      policies:
+        - "{{ keycloak_rotator_openbao_policy_name }}"
+      ttl: 10m
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Apply realm-admin rotator manifests (SA, ConfigMap, CronJob)
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ lookup('template', 'realm_admin_rotator.yaml.j2') }}"
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _kc_rotator_apply
+  changed_when: >-
+    'configured' in (_kc_rotator_apply.stdout | default('')) or
+    'created' in (_kc_rotator_apply.stdout | default(''))

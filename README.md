@@ -147,12 +147,20 @@ Only set `ARMORY_LOG_NOLOG=true` in tightly controlled environments and rotate e
 The deployment uses Keycloak plus OpenBao/VSO. Re-runs reuse existing values unless secrets are intentionally rotated.
 
 ```bash
-# Keycloak master admin (operator bootstrap account)
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-initial-admin -o jsonpath='{.data.username}' | base64 -d; echo"
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+# Keycloak master admin (OpenBao-generated bootstrap account)
+# Source of truth is OpenBao at secret/keycloak/bootstrap-admin; the Secret below
+# is materialized from it and consumed by spec.bootstrapAdmin at CR creation.
+vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
+vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
-# Realm armory admin password (username: admin) is stored in OpenBao at:
-# secret/keycloak/realm-admin (key: password)
+# Realm armory admin (username: admin) — THIS is the Headlamp login.
+# Source of truth is OpenBao secret/keycloak/realm-admin; VSO mirrors it into the
+# keycloak-realm-admin Secret (refreshAfter 60s), so just read the Secret:
+vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.username}' | base64 -d; echo"
+vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+
+# Fallback (read OpenBao directly, e.g. before VSO has synced):
+vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/init-keys.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"root_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-admin | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'"
 
 # Keycloak DB credentials synced by VSO
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o jsonpath='{.data.username}' | base64 -d; echo"
@@ -163,8 +171,8 @@ vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o js
 
 | Purpose | Where |
 |---|---|
-| Keycloak master admin | secret `keycloak-initial-admin` (ns `keycloak`), keys `username` and `password` |
-| Realm `armory` admin (Headlamp login) | OpenBao `secret/keycloak/realm-admin`, key `password` |
+| Keycloak master admin (console `/admin` only) | OpenBao `secret/keycloak/bootstrap-admin` -> secret `keycloak-bootstrap-admin` (ns `keycloak`), keys `username` and `password` |
+| Realm `armory` admin — **Headlamp login** (username `admin`) | OpenBao `secret/keycloak/realm-admin` -> VSO -> secret `keycloak-realm-admin` (ns `keycloak`), key `password` |
 | Keycloak DB | OpenBao `secret/keycloak/db` -> VSO -> secret `keycloak-db-secret` |
 
 ## Access Keycloak and Headlamp
@@ -184,7 +192,25 @@ vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o js
 ### Headlamp login
 
 - Username: `admin`
-- Password: value stored at OpenBao `secret/keycloak/realm-admin` (also synced by role workflows where configured)
+- Password: OpenBao `secret/keycloak/realm-admin`, mirrored by VSO into the `keycloak-realm-admin` Secret (ns `keycloak`). See "Retrieve Generated Credentials" above.
+
+#### Automatic password rotation
+
+The realm `admin` password is rotated hands-off by the `keycloak-realm-admin-rotate`
+CronJob (ns `keycloak`, ~monthly, `keycloak_realm_admin_rotation_schedule`). It
+authenticates to Keycloak with a dedicated service-account client
+(`realm-admin-rotator`, realm-management `manage-users` — not the master admin),
+resets the user, and writes the new value to OpenBao; VSO propagates it to the
+`keycloak-realm-admin` Secret within ~60s. Existing Headlamp sessions keep working
+(tokens live to expiry); only your next login needs the refreshed password.
+
+Trigger an immediate rotation:
+
+```bash
+vagrant ssh -c "sudo k3s kubectl create job -n keycloak rotate-now-\$RANDOM --from=cronjob/keycloak-realm-admin-rotate"
+```
+
+Disable rotation by setting `keycloak_realm_admin_rotation_enabled: false`.
 
 ## Teardown
 

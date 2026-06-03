@@ -59,7 +59,7 @@ readiness_check_keycloak_realm: armory
 readiness_check_keycloak_url: "{{ readiness_check_public_base_url }}/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
 readiness_check_keycloak_readiness_timeout: 30
 readiness_check_keycloak_host_header: "{{ readiness_check_public_domain }}"
-readiness_check_keycloak_admin_secret_name: keycloak-initial-admin
+readiness_check_keycloak_admin_secret_name: keycloak-bootstrap-admin
 
 # Headlamp settings
 readiness_check_headlamp_namespace: headlamp

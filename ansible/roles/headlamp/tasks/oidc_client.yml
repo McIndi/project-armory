@@ -215,6 +215,47 @@
   register: _headlamp_kc_client_update_result
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
+- name: List existing protocol mappers on the Headlamp client
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}/protocol-mappers/models"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+    status_code: 200
+  register: _headlamp_kc_client_mappers
+  changed_when: false
+  when: _headlamp_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+# k3s authorises the OIDC user via the `groups` claim (oidc-groups-claim=groups).
+# The realm import no longer ships a `groups` client scope, so emit the claim
+# with a client-bound group-membership mapper that always applies, independent of
+# the scopes Headlamp requests (profile,email).
+- name: Ensure groups protocol mapper on the Headlamp client
+  ansible.builtin.uri:
+    url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}/protocol-mappers/models"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _headlamp_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: groups
+      protocol: openid-connect
+      protocolMapper: oidc-group-membership-mapper
+      config:
+        claim.name: groups
+        full.path: "false"
+        id.token.claim: "true"
+        access.token.claim: "true"
+        userinfo.token.claim: "true"
+    status_code: 201
+  when:
+    - _headlamp_client_internal_id | length > 0
+    - "'groups' not in (_headlamp_kc_client_mappers.json | default([]) | map(attribute='name') | list)"
+  register: _headlamp_kc_groups_mapper_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
 - name: Rotate Headlamp client secret when explicitly provided
   ansible.builtin.uri:
     url: "{{ _headlamp_kc_base_url }}/admin/realms/{{ headlamp_keycloak_realm }}/clients/{{ _headlamp_client_internal_id }}/client-secret"

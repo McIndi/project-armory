@@ -24,10 +24,19 @@ keycloak_operator_rollout_timeout_seconds: 600
 # ── Keycloak custom resource ────────────────────────────────────────────────────
 keycloak_cr_name: keycloak
 keycloak_instances: 1
-# Operator-created Service + bootstrap admin Secret derive from the CR name.
+# Operator-created Service derives from the CR name.
 keycloak_service_name: "{{ keycloak_cr_name }}-service"
 keycloak_service_port: 8080
-keycloak_initial_admin_secret: "{{ keycloak_cr_name }}-initial-admin"
+
+# ── Master bootstrap admin (OpenBao-generated) ──────────────────────────────────
+# By default the operator auto-creates a `<cr-name>-initial-admin` Secret with a
+# throwaway `temp-admin` user. Instead we provision the bootstrap admin from an
+# OpenBao-generated credential and point spec.bootstrapAdmin.user.secret at it, so
+# no platform credential lives outside OpenBao. Consumers (headlamp, readiness)
+# read this Secret. Only consumed at first Keycloak creation.
+keycloak_bootstrap_admin_secret_name: keycloak-bootstrap-admin
+keycloak_bootstrap_admin_username: armory-admin
+keycloak_openbao_bootstrap_admin_path: keycloak/bootstrap-admin
 # Loosen hostname strict mode so in-cluster callers (Headlamp admin REST on the
 # ClusterIP service) are not redirected to the public host. Equivalent to the
 # old KC_HOSTNAME_STRICT=false patch.
@@ -85,6 +94,33 @@ keycloak_vso_sa_name: keycloak-vso
 keycloak_vault_connection_name: default
 keycloak_vault_auth_name: keycloak-vaultauth
 keycloak_db_secret_name: keycloak-db-secret
+# VSO mirror of the realm `armory` admin login (the Headlamp login). Convenience
+# only — lets operators `kubectl get secret` instead of reading OpenBao directly.
+# refreshAfter on the VaultStaticSecret means a rotated OpenBao value propagates
+# here automatically. NOTE: this widens read access to anyone with secret-get in
+# the keycloak namespace; keep namespace RBAC tight.
+keycloak_realm_admin_secret_name: keycloak-realm-admin
+
+# ── realm-admin password auto-rotation (in-cluster CronJob) ─────────────────────
+# A CronJob rotates the realm `admin` login on a schedule with zero operator
+# action: it generates a new password, resets the Keycloak user via the admin REST
+# API (using a dedicated service-account client, NOT the master admin), and writes
+# the value to OpenBao. VSO then propagates it to the keycloak-realm-admin Secret.
+# Existing OIDC sessions survive rotation (tokens live to expiry); only the next
+# login needs the refreshed password.
+keycloak_realm_admin_rotation_enabled: true
+# ~monthly: 03:00 on the 1st. Cron cannot express "every 30 days" exactly.
+keycloak_realm_admin_rotation_schedule: "0 3 1 * *"
+keycloak_realm_admin_rotation_password_length: 24
+keycloak_rotator_image: "python:3.12-slim"
+keycloak_rotator_cron_name: keycloak-realm-admin-rotate
+keycloak_rotator_sa_name: keycloak-realm-admin-rotator
+keycloak_rotator_client_id: realm-admin-rotator
+keycloak_openbao_rotator_path: keycloak/rotator
+keycloak_rotator_openbao_policy_name: keycloak-realm-admin-rotator
+keycloak_rotator_openbao_k8s_role: keycloak-realm-admin-rotator
+# In-cluster plain-HTTP Keycloak endpoint the CronJob targets (no TLS in-cluster).
+keycloak_internal_http_url: "http://{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc:{{ keycloak_service_port }}"
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: enabling this prints secrets/tokens into logs and output.

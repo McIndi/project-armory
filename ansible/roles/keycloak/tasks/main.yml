@@ -115,6 +115,76 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
+    # ── Master bootstrap admin: OpenBao-generated, replaces operator temp-admin ──
+    - name: Read current master bootstrap-admin password from OpenBao
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_bootstrap_admin_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        status_code: [200, 404]
+      register: _keycloak_bootstrap_admin_current
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Build master bootstrap-admin password (generated once, persisted)
+      ansible.builtin.set_fact:
+        _keycloak_bootstrap_admin_password: >-
+          {{
+            (_keycloak_bootstrap_admin_current.json.data.data.password)
+            if ((_keycloak_bootstrap_admin_current.status | default(404)) == 200
+                and (_keycloak_bootstrap_admin_current.json.data.data.password | default('') | length) > 0)
+            else lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits')
+          }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Store master bootstrap-admin credentials in OpenBao
+      ansible.builtin.uri:
+        url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_bootstrap_admin_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          data:
+            username: "{{ keycloak_bootstrap_admin_username }}"
+            password: "{{ _keycloak_bootstrap_admin_password }}"
+        status_code: [200, 204]
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    # The Secret must exist before the Keycloak CR is applied: the operator reads
+    # spec.bootstrapAdmin.user.secret at first creation. Render via kubectl
+    # dry-run|apply so the credentials never touch the host filesystem.
+    - name: Generate master bootstrap-admin Secret manifest
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ keycloak_bootstrap_admin_secret_name }}
+          --namespace {{ keycloak_namespace }}
+          --from-literal=username={{ keycloak_bootstrap_admin_username }}
+          --from-literal=password={{ _keycloak_bootstrap_admin_password }}
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_bootstrap_admin_secret_yaml
+      changed_when: false
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Apply master bootstrap-admin Secret in the Keycloak namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _keycloak_bootstrap_admin_secret_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_bootstrap_admin_secret_apply
+      changed_when: >-
+        'configured' in (_keycloak_bootstrap_admin_secret_apply.stdout | default('')) or
+        'created' in (_keycloak_bootstrap_admin_secret_apply.stdout | default(''))
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
     - name: Write OpenBao ACL policy for Keycloak DB credentials (VSO read)
       ansible.builtin.uri:
         url: "{{ keycloak_openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_openbao_policy_name }}"
@@ -129,6 +199,14 @@
             }
 
             path "{{ keycloak_openbao_kv_mount }}/metadata/{{ keycloak_openbao_db_path }}" {
+              capabilities = ["read"]
+            }
+
+            path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}" {
+              capabilities = ["read"]
+            }
+
+            path "{{ keycloak_openbao_kv_mount }}/metadata/{{ keycloak_openbao_realm_admin_path }}" {
               capabilities = ["read"]
             }
         status_code: [200, 204]
@@ -227,6 +305,18 @@
       changed_when: >-
         'configured' in (_keycloak_vss_apply.stdout | default('')) or
         'created' in (_keycloak_vss_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Apply Keycloak VaultStaticSecret (realm-admin login mirror)
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'vaultstaticsecret_realm_admin.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_realm_admin_vss_apply
+      changed_when: >-
+        'configured' in (_keycloak_realm_admin_vss_apply.stdout | default('')) or
+        'created' in (_keycloak_realm_admin_vss_apply.stdout | default(''))
       when: not ansible_check_mode
 
     - name: Wait for keycloak-db-secret to be synced by VSO
@@ -423,4 +513,11 @@
       when:
         - not ansible_check_mode
         - keycloak_ingress_enabled | bool
+
+    # ── realm-admin password auto-rotation ──────────────────────────────────────
+    - name: Provision realm-admin password rotation CronJob
+      ansible.builtin.include_tasks: rotator.yml
+      when:
+        - not ansible_check_mode
+        - keycloak_realm_admin_rotation_enabled | bool
   when: not ansible_check_mode

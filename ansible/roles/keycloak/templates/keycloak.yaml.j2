@@ -8,6 +8,9 @@ metadata:
     app.kubernetes.io/part-of: keycloak
 spec:
   instances: {{ keycloak_instances }}
+  bootstrapAdmin:
+    user:
+      secret: {{ keycloak_bootstrap_admin_secret_name }}
   db:
     vendor: postgres
     host: {{ keycloak_pg_service }}
