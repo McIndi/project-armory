@@ -1,7 +1,6 @@
-# Ansible Project
+# Project Armory
 
-This Ansible project is intended to be run inside the Fedora VM from `/vagrant/ansible`.
-Configuration is environment-driven via `/vagrant/.env` (copied from `.env.example`).
+Project Armory is an open-source reference architecture for running AI agents safely inside regulated enterprises. It wires together the controls a Fortune 100 security team will actually ask about: identity (Keycloak OIDC, all the way down to the k3s API server), secrets and PKI (OpenBao + Vault Secrets Operator + cert-manager), RBAC, TLS-everywhere ingress, and an audit-ready agent runtime (BeeAI Agent Stack, a Linux Foundation project). Armory uses only open-source components, provisioned end-to-end with Ansible and OpenTofu. Clone it, stand it up in a VM, and use it as the foundation for your own secure agent platform.
 
 ## Structure
 
