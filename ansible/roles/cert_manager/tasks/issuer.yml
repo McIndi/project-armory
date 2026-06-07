@@ -1,55 +1,15 @@
 ---
 - name: Provision cert-manager issuer resources with diagnostics
   block:
-    - name: Read OpenBao CA secret from OpenBao namespace
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl get secret {{ nginx_openbao_ca_secret_name }}
-          --namespace openbao
-          -o jsonpath={.data.ca\\.crt}
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _certmanager_openbao_ca_data
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Write OpenBao CA certificate file for cert-manager
-      ansible.builtin.copy:
-        dest: /tmp/openbao-ca-certmanager.crt
-        content: "{{ (_certmanager_openbao_ca_data.stdout | trim) | b64decode }}"
-        mode: "0600"
-      when: not ansible_check_mode
-
-    - name: Generate OpenBao CA secret manifest for cert-manager namespace
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create secret generic {{ nginx_openbao_ca_secret_name }}
-          --namespace {{ certmanager_namespace }}
-          --from-file=ca.crt=/tmp/openbao-ca-certmanager.crt
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _certmanager_openbao_ca_secret_yaml
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Apply OpenBao CA secret in cert-manager namespace
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _certmanager_openbao_ca_secret_yaml.stdout }}"
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _certmanager_openbao_ca_secret_apply
-      changed_when: >-
-        'configured' in (_certmanager_openbao_ca_secret_apply.stdout | default('')) or
-        'created' in (_certmanager_openbao_ca_secret_apply.stdout | default(''))
-      when: not ansible_check_mode
-
-    - name: Remove temporary OpenBao CA certificate file for cert-manager
-      ansible.builtin.file:
-        path: /tmp/openbao-ca-certmanager.crt
-        state: absent
-      when: not ansible_check_mode
+    - name: Ensure OpenBao CA secret exists in cert-manager namespace
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: copy_openbao_ca_secret.yml
+      vars:
+        common_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+        common_ca_secret_name: "{{ nginx_openbao_ca_secret_name }}"
+        common_ca_source_namespace: "{{ openbao_namespace | default('openbao') }}"
+        common_ca_target_namespace: "{{ certmanager_namespace }}"
 
     - name: Apply cert-manager ClusterIssuer for OpenBao PKI
       ansible.builtin.command:

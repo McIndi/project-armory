@@ -1,0 +1,41 @@
+---
+- name: Assert certificate helper inputs
+  ansible.builtin.assert:
+    that:
+      - (common_certificate_name | default('') | trim | length) > 0
+      - (common_certificate_namespace | default('') | trim | length) > 0
+      - (common_certificate_secret_name | default('') | trim | length) > 0
+      - (common_certificate_issuer_name | default('') | trim | length) > 0
+      - (common_certificate_duration | default('') | trim | length) > 0
+      - (common_certificate_renew_before | default('') | trim | length) > 0
+      - (common_certificate_dns_names | default([]) | length) > 0
+    fail_msg: >-
+      Missing required inputs for common certificate helper.
+      Required: name, namespace, secret_name, issuer_name, duration, renew_before, dns_names.
+  when: not ansible_check_mode
+
+- name: Apply cert-manager Certificate resource
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f -
+    stdin: "{{ lookup('template', 'certificate.yaml.j2') }}"
+  environment:
+    KUBECONFIG: "{{ common_kubeconfig_path }}"
+  register: _common_certificate_apply
+  changed_when: >-
+    'configured' in (_common_certificate_apply.stdout | default('')) or
+    'created' in (_common_certificate_apply.stdout | default(''))
+  when: not ansible_check_mode
+
+- name: Wait for cert-manager Certificate to become Ready
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl wait
+      --namespace {{ common_certificate_namespace }}
+      --for=condition=Ready
+      certificate/{{ common_certificate_name }}
+      --timeout={{ common_certificate_wait_timeout_seconds }}s
+  environment:
+    KUBECONFIG: "{{ common_kubeconfig_path }}"
+  register: _common_certificate_wait
+  changed_when: false
+  when: not ansible_check_mode

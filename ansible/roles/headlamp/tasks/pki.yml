@@ -20,27 +20,18 @@
   changed_when: "'created' in (_headlamp_ns_apply.stdout | default(''))"
   when: not ansible_check_mode
 
-- name: Apply Headlamp Certificate resource
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ lookup('template', 'headlamp_certificate.yaml.j2') }}"
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_cert_apply
-  changed_when: >-
-    'configured' in (_headlamp_cert_apply.stdout | default('')) or
-    'created' in (_headlamp_cert_apply.stdout | default(''))
-  when: not ansible_check_mode
-
-- name: Wait for Headlamp TLS certificate to be issued
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl wait certificate {{ headlamp_tls_secret_name }}
-      --for=condition=Ready
-      --namespace {{ headlamp_namespace }}
-      --timeout=180s
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_cert_wait
-  changed_when: false
-  when: not ansible_check_mode
+- name: Ensure Headlamp TLS certificate exists and is ready
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: apply_certificate.yml
+  vars:
+    common_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
+    common_certificate_name: "{{ headlamp_tls_secret_name }}"
+    common_certificate_namespace: "{{ headlamp_namespace }}"
+    common_certificate_secret_name: "{{ headlamp_tls_secret_name }}"
+    common_certificate_issuer_name: "{{ headlamp_tls_issuer_name }}"
+    common_certificate_duration: "{{ headlamp_cert_duration }}"
+    common_certificate_renew_before: "{{ headlamp_cert_renew_before }}"
+    common_certificate_common_name: "{{ headlamp_ingress_host }}"
+    common_certificate_dns_names:
+      - "{{ headlamp_ingress_host }}"
