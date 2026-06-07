@@ -1,0 +1,49 @@
+---
+# Working directory for rendered Helm values files.
+certmanager_tofu_work_dir: "{{ nginx_tofu_work_dir | default('/opt/nginx-ingress-tofu') }}"
+
+# Namespace for cert-manager installation.
+certmanager_namespace: cert-manager
+
+# Helm release name for cert-manager.
+certmanager_release_name: cert-manager
+
+# Helm repository URL for cert-manager chart.
+certmanager_chart_repo: https://charts.jetstack.io
+
+# Chart name in the cert-manager repository.
+certmanager_chart_name: cert-manager
+
+# cert-manager chart version.
+# Empty string lets Helm choose the latest available version.
+certmanager_chart_version: ""
+
+# Helm wait timeout (seconds) for cert-manager release apply.
+certmanager_tofu_timeout_seconds: 600
+
+# Helm values passed to cert-manager release.
+certmanager_tofu_chart_values:
+  crds:
+    enabled: true
+
+# OpenBao in-cluster API address used by cert-manager issuer integration.
+# Must match openbao_cluster_addr in openbao defaults.
+nginx_openbao_cluster_addr: "https://openbao.openbao.svc.cluster.local:8200"
+nginx_openbao_tls_server_name: openbao.openbao.svc.cluster.local
+nginx_openbao_ca_secret_name: openbao-ca
+
+# PKI mount path used in OpenBao for certificate issuance.
+# Must match openbao_pki_mount in openbao defaults.
+nginx_openbao_pki_mount: pki
+
+# OpenBao PKI role used to sign ingress certificates.
+# Must match openbao_pki_cert_role in openbao defaults.
+nginx_openbao_pki_cert_role: "{{ openbao_pki_cert_role | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-')) }}"
+
+# Kubernetes auth role in OpenBao bound to cert-manager service account.
+# Must align with configuration created by the openbao role.
+nginx_openbao_certmanager_k8s_role: cert-manager
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

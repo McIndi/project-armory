@@ -1,18 +1,18 @@
 ---
 galaxy_info:
   author: "Clifford Bressette & Brian Kearney"
-  role_name: nginx_ingress
+  role_name: cert_manager
   namespace: mcindi
   company: "McIndi Solutions"
-  description: "Deploy ingress-nginx and ingress TLS resources."
+  description: "Deploy cert-manager and OpenBao-backed ClusterIssuer resources."
   license: "MIT"
   min_ansible_version: "2.9"
   platforms:
     - name: Fedora
       versions: [all]
   galaxy_tags:
-    - nginx
-    - ingress
+    - cert-manager
+    - certs
     - kubernetes
     - tls
 dependencies: []

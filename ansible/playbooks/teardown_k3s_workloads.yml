@@ -33,6 +33,11 @@
         name: vso
         tasks_from: teardown
 
+    - name: Run cert-manager teardown tasks
+      ansible.builtin.include_role:
+        name: cert_manager
+        tasks_from: teardown
+
     - name: Run ingress teardown tasks
       ansible.builtin.include_role:
         name: nginx_ingress
