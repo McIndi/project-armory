@@ -6,3 +6,6 @@ research/
 ansible.cfg
 .env
 *.log
+backlog.md
+CLAUDE.md
+Vagrantfile
