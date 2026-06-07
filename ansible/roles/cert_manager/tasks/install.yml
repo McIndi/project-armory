@@ -1,0 +1,45 @@
+---
+- name: Install cert-manager dependencies with diagnostics
+  block:
+    - name: Ensure cert-manager working directory exists
+      ansible.builtin.file:
+        path: "{{ certmanager_tofu_work_dir }}"
+        state: directory
+        mode: "0755"
+      register: _certmanager_tofu_workdir_result
+
+    - name: Render cert-manager Helm values file
+      ansible.builtin.copy:
+        dest: "{{ certmanager_tofu_work_dir }}/cert-manager-values.yaml"
+        mode: "0600"
+        content: "{{ certmanager_tofu_chart_values | to_nice_yaml(indent=2) }}"
+      register: _certmanager_values_result
+
+    - name: Deploy cert-manager via Helm
+      ansible.builtin.command:
+        cmd: >-
+          helm upgrade --install {{ certmanager_release_name }} {{ certmanager_chart_name }}
+          --namespace {{ certmanager_namespace }}
+          --create-namespace
+          --repo {{ certmanager_chart_repo }}
+          {% if certmanager_chart_version | length > 0 %}--version {{ certmanager_chart_version }}{% endif %}
+          -f {{ certmanager_tofu_work_dir }}/cert-manager-values.yaml
+          --wait
+          --timeout {{ certmanager_tofu_timeout_seconds }}s
+          --kubeconfig /etc/rancher/k3s/k3s.yaml
+      register: _certmanager_helm_apply_result
+      changed_when: true
+      when: not ansible_check_mode
+
+    - name: Wait for cert-manager webhook to be ready
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait deployment cert-manager-webhook
+          --for=condition=Available
+          --namespace {{ certmanager_namespace }}
+          --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certmanager_wait_result
+      changed_when: false
+      when: not ansible_check_mode

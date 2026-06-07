@@ -1,0 +1,20 @@
+---
+- name: Register cert-manager namespace for teardown checks
+  ansible.builtin.set_fact:
+    teardown_role_target_namespaces: >-
+      {{
+        (teardown_role_target_namespaces | default([]))
+        + [certmanager_namespace]
+        | unique
+      }}
+
+- name: Uninstall cert-manager helm release
+  ansible.builtin.command:
+    cmd: >-
+      helm uninstall {{ certmanager_release_name }}
+      --namespace {{ certmanager_namespace }}
+      --ignore-not-found
+      --kubeconfig /etc/rancher/k3s/k3s.yaml
+  register: _certmanager_helm_uninstall
+  changed_when: (_certmanager_helm_uninstall.rc | default(1)) == 0
+  failed_when: false

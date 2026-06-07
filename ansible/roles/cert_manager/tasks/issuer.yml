@@ -1,0 +1,74 @@
+---
+- name: Provision cert-manager issuer resources with diagnostics
+  block:
+    - name: Read OpenBao CA secret from OpenBao namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ nginx_openbao_ca_secret_name }}
+          --namespace openbao
+          -o jsonpath={.data.ca\\.crt}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certmanager_openbao_ca_data
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write OpenBao CA certificate file for cert-manager
+      ansible.builtin.copy:
+        dest: /tmp/openbao-ca-certmanager.crt
+        content: "{{ (_certmanager_openbao_ca_data.stdout | trim) | b64decode }}"
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Generate OpenBao CA secret manifest for cert-manager namespace
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create secret generic {{ nginx_openbao_ca_secret_name }}
+          --namespace {{ certmanager_namespace }}
+          --from-file=ca.crt=/tmp/openbao-ca-certmanager.crt
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certmanager_openbao_ca_secret_yaml
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply OpenBao CA secret in cert-manager namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _certmanager_openbao_ca_secret_yaml.stdout }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _certmanager_openbao_ca_secret_apply
+      changed_when: >-
+        'configured' in (_certmanager_openbao_ca_secret_apply.stdout | default('')) or
+        'created' in (_certmanager_openbao_ca_secret_apply.stdout | default(''))
+      when: not ansible_check_mode
+
+    - name: Remove temporary OpenBao CA certificate file for cert-manager
+      ansible.builtin.file:
+        path: /tmp/openbao-ca-certmanager.crt
+        state: absent
+      when: not ansible_check_mode
+
+    - name: Apply cert-manager ClusterIssuer for OpenBao PKI
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'cluster-issuer.yaml.j2') }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _cluster_issuer_result
+      changed_when: "'configured' in _cluster_issuer_result.stdout or 'created' in _cluster_issuer_result.stdout"
+      when: not ansible_check_mode
+
+    - name: Wait for OpenBao PKI ClusterIssuer readiness
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait clusterissuer openbao-pki
+          --for=condition=Ready
+          --timeout=180s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: _cluster_issuer_wait
+      changed_when: false
+      when: not ansible_check_mode

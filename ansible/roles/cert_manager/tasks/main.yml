@@ -1,0 +1,15 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Run cert-manager orchestration with diagnostics
+  block:
+    - name: cert-manager installation
+      ansible.builtin.import_tasks: install.yml
+      tags: [cert_manager, cert_manager_install]
+
+    - name: ClusterIssuer provisioning
+      ansible.builtin.import_tasks: issuer.yml
+      tags: [cert_manager, cert_manager_issuer]

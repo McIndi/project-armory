@@ -22,6 +22,10 @@
     - role: openbao
       tags:
         - openbao
+    - role: cert_manager
+      tags:
+        - cert_manager
+        - cert_manager_install
     - role: nginx_ingress
       tags:
         - nginx_ingress
