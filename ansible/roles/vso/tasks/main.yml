@@ -86,76 +86,32 @@
         'created' in (_vso_namespace_apply.stdout | default(''))
       when: not ansible_check_mode
 
-    - name: Read OpenBao CA secret from OpenBao namespace for VSO
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl get secret {{ vso_openbao_ca_secret_name }}
-          --namespace {{ vso_openbao_namespace }}
-          -o jsonpath='{.data.ca\.crt}'
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_openbao_ca_secret_b64
-      changed_when: false
-      when: not ansible_check_mode
+    - name: Ensure OpenBao CA secret exists in VSO namespace
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: copy_openbao_ca_secret.yml
+      vars:
+        common_kubeconfig_path: "{{ vso_kubeconfig_path }}"
+        common_ca_secret_name: "{{ vso_openbao_ca_secret_name }}"
+        common_ca_source_namespace: "{{ vso_openbao_namespace }}"
+        common_ca_target_namespace: "{{ vso_namespace }}"
 
-    - name: Write temporary OpenBao CA certificate file for VSO
-      ansible.builtin.copy:
-        dest: /tmp/openbao-ca-vso.crt
-        mode: "0600"
-        content: "{{ _vso_openbao_ca_secret_b64.stdout | b64decode }}"
-      when: not ansible_check_mode
-
-    - name: Generate OpenBao CA secret manifest for VSO namespace
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create secret generic {{ vso_openbao_ca_secret_name }}
-          --namespace {{ vso_namespace }}
-          --from-file=ca.crt=/tmp/openbao-ca-vso.crt
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_openbao_ca_secret_yaml
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Apply OpenBao CA secret in VSO namespace
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _vso_openbao_ca_secret_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_openbao_ca_secret_apply
-      changed_when: >-
-        'configured' in (_vso_openbao_ca_secret_apply.stdout | default('')) or
-        'created' in (_vso_openbao_ca_secret_apply.stdout | default(''))
-      when: not ansible_check_mode
-
-    - name: Apply cert-manager Certificate for VSO kube-rbac-proxy TLS
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'kube_rbac_proxy_certificate.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_kube_rbac_proxy_cert_apply
-      changed_when: >-
-        'configured' in (_vso_kube_rbac_proxy_cert_apply.stdout | default('')) or
-        'created' in (_vso_kube_rbac_proxy_cert_apply.stdout | default(''))
-      when:
-        - not ansible_check_mode
-        - vso_kube_rbac_proxy_tls_enabled | bool
-
-    - name: Wait for VSO kube-rbac-proxy certificate to become Ready
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl wait
-          --namespace {{ vso_namespace }}
-          --for=condition=Ready
-          certificate/{{ vso_kube_rbac_proxy_cert_name }}
-          --timeout=180s
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_kube_rbac_proxy_cert_wait
-      changed_when: false
+    - name: Ensure VSO kube-rbac-proxy certificate exists and is ready
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: apply_certificate.yml
+      vars:
+        common_kubeconfig_path: "{{ vso_kubeconfig_path }}"
+        common_certificate_name: "{{ vso_kube_rbac_proxy_cert_name }}"
+        common_certificate_namespace: "{{ vso_namespace }}"
+        common_certificate_secret_name: "{{ vso_kube_rbac_proxy_tls_secret_name }}"
+        common_certificate_issuer_name: "{{ vso_kube_rbac_proxy_cert_issuer_name }}"
+        common_certificate_issuer_kind: "{{ vso_kube_rbac_proxy_cert_issuer_kind }}"
+        common_certificate_issuer_group: "{{ vso_kube_rbac_proxy_cert_issuer_group }}"
+        common_certificate_duration: "{{ vso_kube_rbac_proxy_cert_duration }}"
+        common_certificate_renew_before: "{{ vso_kube_rbac_proxy_cert_renew_before }}"
+        common_certificate_common_name: "{{ vso_kube_rbac_proxy_cert_common_name | default('') }}"
+        common_certificate_dns_names: "{{ vso_kube_rbac_proxy_cert_dns_names }}"
       when:
         - not ansible_check_mode
         - vso_kube_rbac_proxy_tls_enabled | bool
@@ -175,12 +131,6 @@
       when:
         - not ansible_check_mode
         - vso_kube_rbac_proxy_tls_enabled | bool
-
-    - name: Remove temporary OpenBao CA certificate file for VSO
-      ansible.builtin.file:
-        path: /tmp/openbao-ca-vso.crt
-        state: absent
-      when: not ansible_check_mode
 
     - name: Deploy Vault Secrets Operator via Helm
       ansible.builtin.command:

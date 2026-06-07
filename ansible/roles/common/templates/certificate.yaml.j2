@@ -1,0 +1,27 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ common_certificate_name }}
+  namespace: {{ common_certificate_namespace }}
+spec:
+  secretName: {{ common_certificate_secret_name }}
+{% if common_certificate_common_name is defined and (common_certificate_common_name | trim | length) > 0 %}
+  commonName: {{ common_certificate_common_name }}
+{% endif %}
+  duration: {{ common_certificate_duration }}
+  renewBefore: {{ common_certificate_renew_before }}
+  issuerRef:
+    name: {{ common_certificate_issuer_name }}
+    kind: {{ common_certificate_issuer_kind }}
+    group: {{ common_certificate_issuer_group }}
+  dnsNames:
+{% for dns_name in common_certificate_dns_names %}
+    - {{ dns_name }}
+{% endfor %}
+{% if common_certificate_ip_addresses is defined and (common_certificate_ip_addresses | length) > 0 %}
+  ipAddresses:
+{% for ip_addr in common_certificate_ip_addresses %}
+    - {{ ip_addr }}
+{% endfor %}
+{% endif %}

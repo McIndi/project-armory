@@ -47,55 +47,15 @@
   when: not ansible_check_mode
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
-- name: Read OpenBao CA secret from OpenBao namespace for Headlamp
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get secret {{ headlamp_openbao_ca_secret_name }}
-      --namespace openbao
-      -o jsonpath={.data.ca\\.crt}
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_openbao_ca_data
-  changed_when: false
-  when: not ansible_check_mode
-
-- name: Write OpenBao CA certificate file for Headlamp namespace
-  ansible.builtin.copy:
-    dest: /tmp/openbao-ca-headlamp.crt
-    content: "{{ (_headlamp_openbao_ca_data.stdout | trim) | b64decode }}"
-    mode: "0600"
-  when: not ansible_check_mode
-
-- name: Generate OpenBao CA secret manifest for Headlamp namespace
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl create secret generic {{ headlamp_openbao_ca_secret_name }}
-      --namespace {{ headlamp_namespace }}
-      --from-file=ca.crt=/tmp/openbao-ca-headlamp.crt
-      --dry-run=client -o yaml
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_openbao_ca_secret_yaml
-  changed_when: false
-  when: not ansible_check_mode
-
-- name: Apply OpenBao CA secret in Headlamp namespace
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ _headlamp_openbao_ca_secret_yaml.stdout }}"
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_openbao_ca_secret_apply
-  changed_when: >-
-    'configured' in (_headlamp_openbao_ca_secret_apply.stdout | default('')) or
-    'created' in (_headlamp_openbao_ca_secret_apply.stdout | default(''))
-  when: not ansible_check_mode
-
-- name: Remove temporary OpenBao CA certificate file for Headlamp
-  ansible.builtin.file:
-    path: /tmp/openbao-ca-headlamp.crt
-    state: absent
-  when: not ansible_check_mode
+- name: Ensure OpenBao CA secret exists in Headlamp namespace
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: copy_openbao_ca_secret.yml
+  vars:
+    common_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
+    common_ca_secret_name: "{{ headlamp_openbao_ca_secret_name }}"
+    common_ca_source_namespace: "{{ headlamp_openbao_namespace | default(openbao_namespace | default('openbao')) }}"
+    common_ca_target_namespace: "{{ headlamp_namespace }}"
 
 - name: Apply Headlamp VaultConnection and VaultAuth resources
   ansible.builtin.command:

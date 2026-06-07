@@ -6,3 +6,16 @@ common_openbao_init_keys_file: /opt/openbao/init-keys.yml
 common_openbao_vault_pass_file: /opt/openbao/.vault-pass
 
 armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
+
+# Shared kubeconfig path for common kubectl-based helper tasks.
+common_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
+# Shared cert-manager issuer defaults for common certificate helper task.
+common_certificate_issuer_kind: ClusterIssuer
+common_certificate_issuer_group: cert-manager.io
+
+# Shared certificate wait timeout in seconds.
+common_certificate_wait_timeout_seconds: 180
+
+# Shared OpenBao namespace default for CA-copy helper task.
+common_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"

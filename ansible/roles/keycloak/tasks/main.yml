@@ -233,55 +233,15 @@
       when: not ansible_check_mode
 
     # ── VSO wiring: sync DB secret from OpenBao ─────────────────────────────────
-    - name: Read OpenBao CA secret for the Keycloak namespace
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl get secret {{ keycloak_openbao_ca_secret_name }}
-          --namespace {{ keycloak_openbao_namespace }}
-          -o jsonpath={.data.ca\\.crt}
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_openbao_ca_data
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Write OpenBao CA certificate file for the Keycloak namespace
-      ansible.builtin.copy:
-        dest: /tmp/openbao-ca-keycloak.crt
-        content: "{{ (_keycloak_openbao_ca_data.stdout | trim) | b64decode }}"
-        mode: "0600"
-      when: not ansible_check_mode
-
-    - name: Generate OpenBao CA secret manifest for the Keycloak namespace
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create secret generic {{ keycloak_openbao_ca_secret_name }}
-          --namespace {{ keycloak_namespace }}
-          --from-file=ca.crt=/tmp/openbao-ca-keycloak.crt
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_openbao_ca_secret_yaml
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Apply OpenBao CA secret in the Keycloak namespace
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _keycloak_openbao_ca_secret_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_openbao_ca_secret_apply
-      changed_when: >-
-        'configured' in (_keycloak_openbao_ca_secret_apply.stdout | default('')) or
-        'created' in (_keycloak_openbao_ca_secret_apply.stdout | default(''))
-      when: not ansible_check_mode
-
-    - name: Remove temporary OpenBao CA certificate file
-      ansible.builtin.file:
-        path: /tmp/openbao-ca-keycloak.crt
-        state: absent
-      when: not ansible_check_mode
+    - name: Ensure OpenBao CA secret exists in the Keycloak namespace
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: copy_openbao_ca_secret.yml
+      vars:
+        common_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+        common_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
+        common_ca_source_namespace: "{{ keycloak_openbao_namespace }}"
+        common_ca_target_namespace: "{{ keycloak_namespace }}"
 
     - name: Apply Keycloak VaultConnection and VaultAuth resources
       ansible.builtin.command:
