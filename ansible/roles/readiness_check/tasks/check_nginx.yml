@@ -70,25 +70,47 @@
       }] }}
   changed_when: false
 
-- name: Check OpenBao ClusterIssuer readiness
+- name: Check OpenBao external ClusterIssuer readiness
   ansible.builtin.command: >-
-    k3s kubectl get clusterissuer {{ readiness_check_openbao_clusterissuer_name }}
+    k3s kubectl get clusterissuer {{ readiness_check_openbao_external_clusterissuer_name }}
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
   environment:
     KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_openbao_clusterissuer_ready
+  register: _rc_openbao_external_clusterissuer_ready
   changed_when: false
   failed_when: false
 
-- name: Add OpenBao ClusterIssuer readiness check to results
+- name: Add OpenBao external ClusterIssuer readiness check to results
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
         'component': 'nginx ingress',
-        'check_name': 'OpenBao ClusterIssuer ready',
-        'status': 'pass' if (_rc_openbao_clusterissuer_ready.stdout | trim) == 'True' else 'fail',
-        'detail': 'Ready=' + (_rc_openbao_clusterissuer_ready.stdout | default('unknown') | trim),
-        'error': _rc_openbao_clusterissuer_ready.stderr | default('')
+        'check_name': 'OpenBao external ClusterIssuer ready',
+        'status': 'pass' if (_rc_openbao_external_clusterissuer_ready.stdout | trim) == 'True' else 'fail',
+        'detail': 'Ready=' + (_rc_openbao_external_clusterissuer_ready.stdout | default('unknown') | trim),
+        'error': _rc_openbao_external_clusterissuer_ready.stderr | default('')
+      }] }}
+  changed_when: false
+
+- name: Check OpenBao internal ClusterIssuer readiness
+  ansible.builtin.command: >-
+    k3s kubectl get clusterissuer {{ readiness_check_openbao_internal_clusterissuer_name }}
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_openbao_internal_clusterissuer_ready
+  changed_when: false
+  failed_when: false
+
+- name: Add OpenBao internal ClusterIssuer readiness check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'nginx ingress',
+        'check_name': 'OpenBao internal ClusterIssuer ready',
+        'status': 'pass' if (_rc_openbao_internal_clusterissuer_ready.stdout | trim) == 'True' else 'fail',
+        'detail': 'Ready=' + (_rc_openbao_internal_clusterissuer_ready.stdout | default('unknown') | trim),
+        'error': _rc_openbao_internal_clusterissuer_ready.stderr | default('')
       }] }}
   changed_when: false
 

@@ -29,7 +29,7 @@ vso_kube_rbac_proxy_metrics_service_name: "{{ vso_release_name }}-metrics-servic
 vso_kube_rbac_proxy_cert_name: vso-kube-rbac-proxy-cert
 vso_kube_rbac_proxy_cert_duration: "8760h"
 vso_kube_rbac_proxy_cert_renew_before: "720h"
-vso_kube_rbac_proxy_cert_issuer_name: openbao-pki
+vso_kube_rbac_proxy_cert_issuer_name: openbao-pki-internal
 vso_kube_rbac_proxy_cert_issuer_kind: ClusterIssuer
 vso_kube_rbac_proxy_cert_issuer_group: cert-manager.io
 # Leave empty to avoid cert-manager 64-byte commonName limit on long FQDNs.

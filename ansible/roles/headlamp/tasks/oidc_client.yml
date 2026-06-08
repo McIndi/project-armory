@@ -300,6 +300,8 @@
   ansible.builtin.uri:
     url: "{{ headlamp_oidc_ca_pem_url }}"
     method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
     status_code: 200
     return_content: true
   register: _headlamp_openbao_ca_pem_result

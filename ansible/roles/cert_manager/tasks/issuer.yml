@@ -24,11 +24,14 @@
     - name: Wait for OpenBao PKI ClusterIssuer readiness
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl wait clusterissuer openbao-pki
+          k3s kubectl wait clusterissuer {{ item.name }}
           --for=condition=Ready
           --timeout=180s
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ certmanager_openbao_cluster_issuers }}"
+      loop_control:
+        label: "{{ item.name }}"
       register: _cluster_issuer_wait
       changed_when: false
       when: not ansible_check_mode

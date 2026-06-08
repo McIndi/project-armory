@@ -51,6 +51,9 @@ nginx_ingress_cert_renew_before: "720h"
 # secrets are namespaced, so the shared cert must live alongside that ingress.
 nginx_ingress_tls_namespace: keycloak
 
+# ClusterIssuer used for public ingress certificates.
+nginx_ingress_tls_issuer_name: openbao-pki-external
+
 # Whether this role manages firewalld rules for ingress traffic (ports 80/443).
 # Disable if firewall is managed outside Ansible.
 nginx_ingress_firewall_manage: true

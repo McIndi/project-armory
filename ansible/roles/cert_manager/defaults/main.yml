@@ -28,21 +28,34 @@ certmanager_tofu_chart_values:
 
 # OpenBao in-cluster API address used by cert-manager issuer integration.
 # Must match openbao_cluster_addr in openbao defaults.
-nginx_openbao_cluster_addr: "https://openbao.openbao.svc.cluster.local:8200"
-nginx_openbao_tls_server_name: openbao.openbao.svc.cluster.local
-nginx_openbao_ca_secret_name: openbao-ca
-
-# PKI mount path used in OpenBao for certificate issuance.
-# Must match openbao_pki_mount in openbao defaults.
-nginx_openbao_pki_mount: pki
-
-# OpenBao PKI role used to sign ingress certificates.
-# Must match openbao_pki_cert_role in openbao defaults.
-nginx_openbao_pki_cert_role: "{{ openbao_pki_cert_role | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-')) }}"
+certmanager_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+certmanager_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
+certmanager_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
 
 # Kubernetes auth role in OpenBao bound to cert-manager service account.
 # Must align with configuration created by the openbao role.
-nginx_openbao_certmanager_k8s_role: cert-manager
+certmanager_openbao_k8s_role: "{{ openbao_certmanager_k8s_role | default('cert-manager') }}"
+
+# Issuer names exposed to consumer roles.
+certmanager_openbao_internal_clusterissuer_name: openbao-pki-internal
+certmanager_openbao_external_clusterissuer_name: openbao-pki-external
+
+# OpenBao signing path configuration for each cert-manager ClusterIssuer.
+certmanager_openbao_cluster_issuers:
+  - name: "{{ certmanager_openbao_internal_clusterissuer_name }}"
+    mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+    role: "{{ openbao_pki_internal_cert_role | default('armory-internal') }}"
+  - name: "{{ certmanager_openbao_external_clusterissuer_name }}"
+    mount: "{{ openbao_pki_external_mount | default('pki-ext') }}"
+    role: "{{ openbao_pki_external_cert_role | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-')) }}"
+
+# Backward-compatible aliases retained for legacy references.
+nginx_openbao_cluster_addr: "{{ certmanager_openbao_cluster_addr }}"
+nginx_openbao_tls_server_name: "{{ certmanager_openbao_tls_server_name }}"
+nginx_openbao_ca_secret_name: "{{ certmanager_openbao_ca_secret_name }}"
+nginx_openbao_pki_mount: "{{ openbao_pki_external_mount | default('pki-ext') }}"
+nginx_openbao_pki_cert_role: "{{ openbao_pki_external_cert_role | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-')) }}"
+nginx_openbao_certmanager_k8s_role: "{{ certmanager_openbao_k8s_role }}"
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: Enabling this will print secrets/tokens into logs and output.

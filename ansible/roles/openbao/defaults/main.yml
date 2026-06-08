@@ -89,34 +89,52 @@ openbao_key_threshold: 3
 # Mount path for KV secrets engine (used for application credentials).
 openbao_kv_mount: secret
 
-# Mount path for PKI secrets engine (used for certificate issuance).
-openbao_pki_mount: pki
+# PKI hierarchy mounts.
+# Root is dedicated to signing intermediates; leaf certs are issued from
+# internal/external intermediates only.
+openbao_pki_root_mount: pki-root
+openbao_pki_internal_mount: pki-int
+openbao_pki_external_mount: pki-ext
 
-# Common name for the root certificate authority generated in PKI setup.
-openbao_pki_common_name: "Armory Root CA"
-
-# Root CA validity period.
+# Root CA properties.
+openbao_pki_root_common_name: "Armory Root CA"
 # Default 87600h is approximately 10 years.
-openbao_pki_ttl: "87600h"
+openbao_pki_root_ttl: "87600h"
 
-# Role name used for issuing service/ingress certificates from PKI.
-openbao_pki_cert_role: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-') }}"
+# Intermediate CA properties.
+openbao_pki_internal_common_name: "Armory Internal Issuing CA"
+openbao_pki_external_common_name: "Armory External Issuing CA"
+# Default 43800h is approximately 5 years.
+openbao_pki_intermediate_ttl: "43800h"
+
+# Leaf certificate role names.
+openbao_pki_internal_cert_role: armory-internal
+openbao_pki_external_cert_role: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-') }}"
 
 # Extra internal DNS suffixes allowed for in-cluster service certificates.
 openbao_pki_internal_allowed_domains: "{{ lookup('ansible.builtin.env', 'ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS') | default('svc.cluster.local', true) }}"
 
-# Allowed DNS domain suffix for issued certificates.
-openbao_pki_allowed_domains: "{{ (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) ~ ',' ~ openbao_pki_internal_allowed_domains }}"
+# Allowed DNS domain suffixes for each issuing path.
+openbao_pki_external_allowed_domains: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
+openbao_pki_internal_allowed_domains_combined: "{{ openbao_pki_internal_allowed_domains }}"
 
 # Default leaf certificate validity period.
 # Default 8760h is approximately 1 year.
 openbao_pki_cert_ttl: "8760h"
+
+# Backward-compatible aliases retained for existing variable references.
+openbao_pki_mount: "{{ openbao_pki_external_mount }}"
+openbao_pki_common_name: "{{ openbao_pki_root_common_name }}"
+openbao_pki_ttl: "{{ openbao_pki_root_ttl }}"
+openbao_pki_cert_role: "{{ openbao_pki_external_cert_role }}"
+openbao_pki_allowed_domains: "{{ openbao_pki_external_allowed_domains }}"
 
 # Namespace where cert-manager runs.
 openbao_certmanager_namespace: cert-manager
 
 # cert-manager service account bound to OpenBao Kubernetes auth role.
 openbao_certmanager_sa_name: cert-manager
+openbao_certmanager_k8s_role: cert-manager
 
 # Whether this role manages firewalld rules for OpenBao access.
 # Disable if firewall is managed externally.

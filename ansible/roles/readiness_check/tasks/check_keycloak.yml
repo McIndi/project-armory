@@ -77,7 +77,7 @@
   register: _rc_keycloak_https
   changed_when: false
   failed_when: false
-  until: _rc_keycloak_https.status is defined
+  until: (_rc_keycloak_https.status | default(-1)) == 200
   retries: 5
   delay: 2
 
