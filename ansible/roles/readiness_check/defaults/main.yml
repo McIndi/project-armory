@@ -50,8 +50,18 @@ readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
 readiness_check_headlamp_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + readiness_check_public_domain, true) }}"
 readiness_check_ingress_probe_ip: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+readiness_check_ingress_http_port: 80
 readiness_check_ingress_https_port: 443
+readiness_check_ingress_http_probe_url: "http://{{ readiness_check_ingress_probe_ip }}:{{ readiness_check_ingress_http_port }}"
 readiness_check_ingress_probe_url: "https://{{ readiness_check_ingress_probe_ip }}:{{ readiness_check_ingress_https_port }}"
+readiness_check_http_redirect_status_codes:
+  - 301
+  - 302
+  - 307
+  - 308
+readiness_check_http_redirect_hosts:
+  - "{{ readiness_check_public_domain }}"
+  - "{{ readiness_check_headlamp_host }}"
 
 # Keycloak settings
 readiness_check_keycloak_namespace: keycloak

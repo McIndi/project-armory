@@ -145,3 +145,55 @@
         'error': _rc_ingress_certificate_rotation.stderr | default('')
       }] }}
   changed_when: false
+
+- name: Check HTTP to HTTPS redirect via ingress endpoint
+  ansible.builtin.uri:
+    url: "{{ readiness_check_ingress_http_probe_url }}"
+    method: GET
+    headers:
+      Host: "{{ item }}"
+    validate_certs: false
+    follow_redirects: none
+    timeout: "{{ readiness_check_connect_timeout }}"
+    status_code: "{{ readiness_check_http_redirect_status_codes }}"
+  loop: "{{ readiness_check_http_redirect_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _rc_http_redirect_checks
+  changed_when: false
+  failed_when: false
+
+- name: Add HTTP to HTTPS redirect check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'nginx ingress',
+        'check_name': 'HTTP redirects to HTTPS for ingress hosts',
+        'status': (
+          'pass' if (
+            (_rc_http_redirect_checks.results | default([]) | length) > 0 and
+            (
+              _rc_http_redirect_checks.results
+              | rejectattr('status', 'undefined')
+              | selectattr('status', 'in', readiness_check_http_redirect_status_codes)
+              | list
+              | length
+            ) == (_rc_http_redirect_checks.results | default([]) | length)
+          ) else 'fail'
+        ),
+        'detail': (
+          _rc_http_redirect_checks.results
+          | map(attribute='item')
+          | zip(_rc_http_redirect_checks.results | map(attribute='status'))
+          | map('join', ': HTTP ')
+          | join(', ')
+        ) if (_rc_http_redirect_checks.results | default([]) | length) > 0 else 'no redirect probe results',
+        'error': (
+          _rc_http_redirect_checks.results
+          | selectattr('status', 'undefined')
+          | map(attribute='msg')
+          | list
+          | join(' | ')
+        )
+      }] }}
+  changed_when: false
