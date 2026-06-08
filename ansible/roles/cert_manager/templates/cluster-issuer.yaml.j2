@@ -1,19 +1,22 @@
 ---
+{% for issuer in certmanager_openbao_cluster_issuers %}
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: openbao-pki
+  name: {{ issuer.name }}
 spec:
   vault:
-    server: {{ nginx_openbao_cluster_addr }}
-    serverName: {{ nginx_openbao_tls_server_name }}
+    server: {{ certmanager_openbao_cluster_addr }}
+    serverName: {{ certmanager_openbao_tls_server_name }}
     caBundleSecretRef:
-      name: {{ nginx_openbao_ca_secret_name }}
+      name: {{ certmanager_openbao_ca_secret_name }}
       key: ca.crt
-    path: {{ nginx_openbao_pki_mount }}/sign/{{ nginx_openbao_pki_cert_role }}
+    path: {{ issuer.mount }}/sign/{{ issuer.role }}
     auth:
       kubernetes:
-        role: {{ nginx_openbao_certmanager_k8s_role }}
+        role: {{ certmanager_openbao_k8s_role }}
         mountPath: /v1/auth/kubernetes
         serviceAccountRef:
           name: {{ certmanager_release_name }}
+---
+{% endfor %}

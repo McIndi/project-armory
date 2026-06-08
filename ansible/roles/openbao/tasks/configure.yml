@@ -74,9 +74,23 @@
         - _openbao_init_kv_check.status | default(404) == 404
         - openbao_unseal_keys is defined
 
-    - name: Enable PKI secrets engine
+    - name: Build PKI mount definitions
+      ansible.builtin.set_fact:
+        _openbao_pki_mounts:
+          - name: root
+            mount: "{{ openbao_pki_root_mount }}"
+            max_ttl: "{{ openbao_pki_root_ttl }}"
+          - name: internal
+            mount: "{{ openbao_pki_internal_mount }}"
+            max_ttl: "{{ openbao_pki_intermediate_ttl }}"
+          - name: external
+            mount: "{{ openbao_pki_external_mount }}"
+            max_ttl: "{{ openbao_pki_intermediate_ttl }}"
+      changed_when: false
+
+    - name: Enable PKI mounts for root and intermediates
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ openbao_pki_mount }}"
+        url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ item.mount }}"
         method: POST
         headers:
           X-Vault-Token: "{{ openbao_root_token }}"
@@ -84,68 +98,166 @@
         body:
           type: pki
           config:
-            max_lease_ttl: "{{ openbao_pki_ttl }}"
+            max_lease_ttl: "{{ item.max_ttl }}"
         status_code: [200, 204]
-      register: _openbao_enable_pki_result
+      loop: "{{ _openbao_pki_mounts }}"
+      loop_control:
+        label: "{{ item.mount }}"
+      register: _openbao_enable_pki_mount_results
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
-        - "(openbao_pki_mount + '/') not in (_openbao_secret_mounts.json | default({}))"
+        - "(item.mount + '/') not in (_openbao_secret_mounts.json | default({}))"
 
-    - name: Check whether PKI root CA already exists
+    - name: Check whether root PKI CA already exists
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_mount }}/cert/ca"
+        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_root_mount }}/cert/ca"
         method: GET
         headers:
           X-Vault-Token: "{{ openbao_root_token }}"
         status_code: [200, 204, 400, 404]
-      register: _openbao_pki_ca_check
+      register: _openbao_root_ca_check
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Generate PKI root CA
+    - name: Generate root PKI CA
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_mount }}/root/generate/internal"
+        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_root_mount }}/root/generate/internal"
         method: POST
         headers:
           X-Vault-Token: "{{ openbao_root_token }}"
         body_format: json
         body:
-          common_name: "{{ openbao_pki_common_name }}"
-          ttl: "{{ openbao_pki_ttl }}"
+          common_name: "{{ openbao_pki_root_common_name }}"
+          ttl: "{{ openbao_pki_root_ttl }}"
           key_type: rsa
           key_bits: 4096
         status_code: [200, 204]
-      register: _openbao_generate_ca_result
+      register: _openbao_generate_root_ca_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
-        - (_openbao_pki_ca_check.status | default(404)) in [400, 404]
+        - (_openbao_root_ca_check.status | default(404)) in [400, 404]
 
-    - name: Configure PKI issuing and CRL URLs
+    - name: Build issuing PKI definitions
+      ansible.builtin.set_fact:
+        _openbao_pki_issuers:
+          - name: internal
+            mount: "{{ openbao_pki_internal_mount }}"
+            common_name: "{{ openbao_pki_internal_common_name }}"
+            cert_role: "{{ openbao_pki_internal_cert_role }}"
+            allowed_domains: "{{ openbao_pki_internal_allowed_domains_combined }}"
+          - name: external
+            mount: "{{ openbao_pki_external_mount }}"
+            common_name: "{{ openbao_pki_external_common_name }}"
+            cert_role: "{{ openbao_pki_external_cert_role }}"
+            allowed_domains: "{{ openbao_pki_external_allowed_domains }}"
+      changed_when: false
+
+    - name: Check whether intermediate PKI CAs already exist
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_mount }}/config/urls"
+        url: "{{ openbao_api_addr }}/v1/{{ item.mount }}/cert/ca"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        status_code: [200, 204, 400, 404]
+      loop: "{{ _openbao_pki_issuers }}"
+      loop_control:
+        label: "{{ item.mount }}"
+      register: _openbao_intermediate_ca_checks
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: not ansible_check_mode
+
+    - name: Generate intermediate CSR for missing issuers
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/{{ item.item.mount }}/intermediate/generate/internal"
         method: POST
         headers:
           X-Vault-Token: "{{ openbao_root_token }}"
         body_format: json
         body:
-          issuing_certificates: "{{ openbao_cluster_addr }}/v1/{{ openbao_pki_mount }}/ca"
-          crl_distribution_points: "{{ openbao_cluster_addr }}/v1/{{ openbao_pki_mount }}/crl"
+          common_name: "{{ item.item.common_name }}"
+          ttl: "{{ openbao_pki_intermediate_ttl }}"
+          key_type: rsa
+          key_bits: 4096
         status_code: [200, 204]
+      loop: "{{ _openbao_intermediate_ca_checks.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.mount }}"
+      register: _openbao_intermediate_csrs
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - not ansible_check_mode
+        - (item.status | default(404)) in [400, 404]
+
+    - name: Sign missing intermediate CSRs with root CA
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_root_mount }}/root/sign-intermediate"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          csr: "{{ item.json.data.csr }}"
+          format: pem_bundle
+          ttl: "{{ openbao_pki_intermediate_ttl }}"
+          use_csr_values: true
+        status_code: [200, 204]
+      loop: "{{ _openbao_intermediate_csrs.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.mount }}"
+      register: _openbao_signed_intermediates
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - not ansible_check_mode
+        - item.json.data.csr is defined
+
+    - name: Import signed intermediate certificates
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/{{ item.item.item.item.mount }}/intermediate/set-signed"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          certificate: "{{ item.json.data.certificate }}"
+        status_code: [200, 204]
+      loop: "{{ _openbao_signed_intermediates.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.item.mount }}"
+      register: _openbao_set_signed_intermediate_results
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - not ansible_check_mode
+        - item.json.data.certificate is defined
+
+    - name: Configure issuing and CRL URLs for intermediates
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/{{ item.mount }}/config/urls"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_root_token }}"
+        body_format: json
+        body:
+          issuing_certificates: "{{ openbao_cluster_addr }}/v1/{{ item.mount }}/ca"
+          crl_distribution_points: "{{ openbao_cluster_addr }}/v1/{{ item.mount }}/crl"
+        status_code: [200, 204]
+      loop: "{{ _openbao_pki_issuers }}"
+      loop_control:
+        label: "{{ item.mount }}"
       register: _openbao_pki_urls_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Create PKI certificate role
+    - name: Create PKI certificate roles for internal and external issuers
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_mount }}/roles/{{ openbao_pki_cert_role }}"
+        url: "{{ openbao_api_addr }}/v1/{{ item.mount }}/roles/{{ item.cert_role }}"
         method: POST
         headers:
           X-Vault-Token: "{{ openbao_root_token }}"
         body_format: json
         body:
-          allowed_domains: "{{ openbao_pki_allowed_domains.split(',') | map('trim') | list }}"
+          allowed_domains: "{{ item.allowed_domains.split(',') | map('trim') | list }}"
           allow_subdomains: true
           allow_bare_domains: true
           allow_ip_sans: true
@@ -155,7 +267,10 @@
           key_type: rsa
           key_bits: 2048
         status_code: [200, 204]
-      register: _openbao_pki_role_result
+      loop: "{{ _openbao_pki_issuers }}"
+      loop_control:
+        label: "{{ item.mount }}/{{ item.cert_role }}"
+      register: _openbao_pki_role_results
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
@@ -222,10 +337,16 @@
         body_format: json
         body:
           policy: |
-            path "{{ openbao_pki_mount }}/sign/{{ openbao_pki_cert_role }}" {
+            path "{{ openbao_pki_internal_mount }}/sign/{{ openbao_pki_internal_cert_role }}" {
               capabilities = ["create", "update"]
             }
-            path "{{ openbao_pki_mount }}/issue/{{ openbao_pki_cert_role }}" {
+            path "{{ openbao_pki_internal_mount }}/issue/{{ openbao_pki_internal_cert_role }}" {
+              capabilities = ["create", "update"]
+            }
+            path "{{ openbao_pki_external_mount }}/sign/{{ openbao_pki_external_cert_role }}" {
+              capabilities = ["create", "update"]
+            }
+            path "{{ openbao_pki_external_mount }}/issue/{{ openbao_pki_external_cert_role }}" {
               capabilities = ["create", "update"]
             }
         status_code: [200, 204]
@@ -235,7 +356,7 @@
 
     - name: Create k8s auth role for cert-manager
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/cert-manager"
+        url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ openbao_certmanager_k8s_role }}"
         method: POST
         headers:
           X-Vault-Token: "{{ openbao_root_token }}"

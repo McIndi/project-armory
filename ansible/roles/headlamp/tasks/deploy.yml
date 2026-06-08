@@ -138,8 +138,7 @@
     _headlamp_chart_values: >-
       {{ {
           'clusterRoleBinding': {
-            'create': True,
-            'clusterRoleName': headlamp_cluster_role_name
+            'create': False
           },
           'config': {
             'enableHelm': True,

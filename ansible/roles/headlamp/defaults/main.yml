@@ -19,7 +19,7 @@ headlamp_ingress_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.a
 
 # TLS settings (cert-manager + OpenBao ClusterIssuer)
 headlamp_tls_secret_name: headlamp-tls
-headlamp_tls_issuer_name: openbao-pki
+headlamp_tls_issuer_name: openbao-pki-external
 headlamp_cert_duration: "8760h"
 headlamp_cert_renew_before: "720h"
 
@@ -41,7 +41,7 @@ headlamp_oidc_issuer_url: "{{ (keycloak_public_base_url | default(lookup('ansibl
 # Keep this to scopes Keycloak accepts by default for this client.
 # Headlamp already requests OpenID, so including openid here can duplicate it.
 headlamp_oidc_scopes: "profile,email"
-headlamp_oidc_ca_pem_url: "{{ headlamp_openbao_api_addr }}/v1/pki/ca/pem"
+headlamp_oidc_ca_pem_url: "{{ headlamp_openbao_api_addr }}/v1/{{ openbao_pki_external_mount | default('pki-ext') }}/ca/pem"
 headlamp_oidc_ca_secret_key: OIDC_CA_PEM
 headlamp_oidc_ca_mount_path: /etc/headlamp-oidc
 headlamp_oidc_ca_file_name: oidc-ca.pem

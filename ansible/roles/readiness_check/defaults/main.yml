@@ -42,7 +42,8 @@ readiness_check_vso_deployment_name: vault-secrets-operator-controller-manager
 readiness_check_nginx_namespace: ingress-nginx
 readiness_check_nginx_controller_label: "app.kubernetes.io/name=ingress-nginx"
 readiness_check_certmanager_namespace: cert-manager
-readiness_check_openbao_clusterissuer_name: openbao-pki
+readiness_check_openbao_external_clusterissuer_name: openbao-pki-external
+readiness_check_openbao_internal_clusterissuer_name: openbao-pki-internal
 readiness_check_ingress_tls_namespace: keycloak
 readiness_check_ingress_tls_certificate_name: armory-tls
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"

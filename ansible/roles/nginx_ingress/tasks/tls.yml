@@ -29,7 +29,7 @@
         common_certificate_name: armory-tls
         common_certificate_namespace: "{{ nginx_ingress_tls_namespace }}"
         common_certificate_secret_name: armory-tls
-        common_certificate_issuer_name: openbao-pki
+        common_certificate_issuer_name: "{{ nginx_ingress_tls_issuer_name }}"
         common_certificate_duration: "{{ nginx_ingress_cert_duration }}"
         common_certificate_renew_before: "{{ nginx_ingress_cert_renew_before }}"
         common_certificate_common_name: "{{ nginx_ingress_domain }}"
