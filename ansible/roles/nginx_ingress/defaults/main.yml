@@ -26,6 +26,16 @@ nginx_tofu_chart_values:
   controller:
     hostNetwork: true
     dnsPolicy: ClusterFirstWithHostNet
+    config:
+      ssl-redirect: "true"
+      force-ssl-redirect: "true"
+      # Redirect bare-IP and other unmatched HTTP hosts to HTTPS as well.
+      # Note: certificate hostname validation will still fail on raw IP unless
+      # you issue a cert that includes the ingress IP as an IP SAN.
+      server-snippet: |
+        if ($scheme = http) {
+          return 308 https://$host$request_uri;
+        }
     service:
       type: ClusterIP
 
