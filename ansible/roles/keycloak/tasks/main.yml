@@ -406,6 +406,22 @@
       changed_when: false
       when: not ansible_check_mode
 
+    - name: Provision Keycloak internal service TLS certificate
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: apply_certificate.yml
+      vars:
+        common_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+        common_certificate_name: "{{ keycloak_internal_tls_certificate_name }}"
+        common_certificate_namespace: "{{ keycloak_namespace }}"
+        common_certificate_secret_name: "{{ keycloak_internal_tls_secret_name }}"
+        common_certificate_issuer_name: "{{ keycloak_internal_tls_issuer_name }}"
+        common_certificate_duration: "{{ keycloak_internal_tls_certificate_duration }}"
+        common_certificate_renew_before: "{{ keycloak_internal_tls_certificate_renew_before }}"
+        common_certificate_dns_names: "{{ keycloak_internal_tls_dns_names }}"
+      when:
+        - not ansible_check_mode
+
     # ── Keycloak custom resource ────────────────────────────────────────────────
     - name: Apply Keycloak custom resource
       ansible.builtin.command:
