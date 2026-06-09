@@ -30,7 +30,12 @@ certmanager_tofu_chart_values:
 # Must match openbao_cluster_addr in openbao defaults.
 certmanager_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
 certmanager_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
-certmanager_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+certmanager_openbao_ca_secret_name: >-
+  {{
+    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
+    if (use_declarative_ca_distribution | default(false) | bool)
+    else (openbao_tls_ca_secret_name | default('openbao-ca'))
+  }}
 
 # Kubernetes auth role in OpenBao bound to cert-manager service account.
 # Must align with configuration created by the openbao role.

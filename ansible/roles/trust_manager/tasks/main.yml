@@ -1,0 +1,72 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Install and configure trust-manager
+  tags: [trust_manager, trust_manager_install]
+  block:
+    - name: Deploy trust-manager via Helm
+      ansible.builtin.command:
+        cmd: >-
+          helm upgrade --install {{ trust_manager_release_name }} {{ trust_manager_chart_ref }}
+          --namespace {{ trust_manager_namespace }}
+          --create-namespace
+          {% if trust_manager_chart_version | length > 0 %}--version {{ trust_manager_chart_version }}{% endif %}
+          --set app.trust.namespace={{ trust_manager_trust_namespace }}
+          --set secretTargets.enabled={{ (trust_manager_secret_targets_enabled | bool) | ternary('true', 'false') }}
+          --set secretTargets.authorizedSecretsAll={{ (trust_manager_secret_targets_authorized_all | bool) | ternary('true', 'false') }}
+          --wait
+          --timeout {{ trust_manager_helm_timeout_seconds }}s
+          --kubeconfig {{ trust_manager_kubeconfig_path }}
+      register: _trust_manager_helm_apply
+      changed_when: true
+      when: not ansible_check_mode
+
+    - name: Apply internal CA Bundle for declarative CA distribution
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'bundle-internal-ca.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
+      register: _trust_manager_internal_bundle_apply
+      changed_when: >-
+        'configured' in (_trust_manager_internal_bundle_apply.stdout | default('')) or
+        'created' in (_trust_manager_internal_bundle_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+
+    - name: Apply external CA Bundle for declarative CA distribution
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ lookup('template', 'bundle-external-ca.yaml.j2') }}"
+      environment:
+        KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
+      register: _trust_manager_external_bundle_apply
+      changed_when: >-
+        'configured' in (_trust_manager_external_bundle_apply.stdout | default('')) or
+        'created' in (_trust_manager_external_bundle_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+        - use_declarative_ca_distribution | bool
+        - trust_manager_external_ca_bundle_enabled | bool
+
+    - name: Wait for internal CA Bundle target secret in declarative mode
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get secret {{ trust_manager_internal_ca_target_secret_name }}
+          -n {{ item }}
+      environment:
+        KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
+      register: _trust_manager_internal_bundle_secret_wait
+      changed_when: false
+      retries: 20
+      delay: 6
+      until: _trust_manager_internal_bundle_secret_wait.rc == 0
+      loop: "{{ trust_manager_internal_ca_target_namespaces }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - not ansible_check_mode
+        - (trust_manager_internal_ca_target_namespaces | default([]) | length) > 0

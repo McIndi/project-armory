@@ -95,6 +95,7 @@
         common_ca_secret_name: "{{ vso_openbao_ca_secret_name }}"
         common_ca_source_namespace: "{{ vso_openbao_namespace }}"
         common_ca_target_namespace: "{{ vso_namespace }}"
+      when: not (use_declarative_ca_distribution | default(false) | bool)
 
     - name: Ensure VSO kube-rbac-proxy certificate exists and is ready
       ansible.builtin.import_role:

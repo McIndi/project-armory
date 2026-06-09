@@ -26,6 +26,9 @@ nginx_tofu_chart_values:
   controller:
     hostNetwork: true
     dnsPolicy: ClusterFirstWithHostNet
+    service:
+      type: ClusterIP
+      enableHttp: true
     config:
       ssl-redirect: "true"
       force-ssl-redirect: "true"
@@ -36,8 +39,6 @@ nginx_tofu_chart_values:
         if ($scheme = http) {
           return 308 https://$host$request_uri;
         }
-    service:
-      type: ClusterIP
 
 # Primary DNS name included in TLS certificates and ingress host rules.
 nginx_ingress_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
@@ -70,6 +71,11 @@ nginx_ingress_firewall_manage: true
 
 # firewalld zone where ingress HTTP/HTTPS rules are applied.
 nginx_ingress_firewall_zone: public
+
+# HTTP exposure policy.
+# redirect-only: keep port 80 and enforce redirects to HTTPS.
+# disabled: disable HTTP listener exposure and close 80/tcp firewall port.
+ingress_http_policy: redirect-only
 
 
 # When true, disables Ansible no_log redaction for sensitive tasks.

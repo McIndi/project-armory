@@ -44,6 +44,7 @@ keycloak_openbao_bootstrap_admin_path: keycloak/bootstrap-admin
 keycloak_hostname_strict: false
 # Timeout (seconds) waiting for the Keycloak CR to reach Ready (cold-JVM start).
 keycloak_ready_timeout_seconds: 900
+keycloak_statefulset_rollout_timeout_seconds: 900
 
 # ── Public URL / realm ──────────────────────────────────────────────────────────
 keycloak_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true) }}"
@@ -80,7 +81,12 @@ keycloak_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openb
 keycloak_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
 keycloak_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
 keycloak_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
-keycloak_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+keycloak_openbao_ca_secret_name: >-
+  {{
+    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
+    if (use_declarative_ca_distribution | default(false) | bool)
+    else (openbao_tls_ca_secret_name | default('openbao-ca'))
+  }}
 keycloak_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
 
 # KV paths: DB creds are VSO-synced; the realm-admin password is read by Ansible
@@ -130,11 +136,34 @@ keycloak_internal_tls_certificate_renew_before: 720h
 keycloak_internal_tls_dns_names:
   - "{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local"
 
+# Canonical in-cluster Keycloak service FQDN for internal HTTPS callers.
+keycloak_internal_service_fqdn: "{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local"
+
 # In-cluster Keycloak endpoint used by the realm-admin rotator CronJob.
-keycloak_internal_api_url: "https://{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local:{{ keycloak_service_https_port }}"
+keycloak_internal_api_url: "https://{{ keycloak_internal_service_fqdn }}:{{ keycloak_service_https_port }}"
 
 # Backward-compatible alias retained for older template references.
 keycloak_internal_http_url: "{{ keycloak_internal_api_url }}"
+
+# PostgreSQL TLS (Keycloak -> Postgres) defaults.
+keycloak_pg_tls_enabled: false
+keycloak_pg_tls_verify_mode: verify-full
+keycloak_pg_service_fqdn: "{{ keycloak_pg_service }}.{{ keycloak_namespace }}.svc.cluster.local"
+keycloak_pg_host: "{{ keycloak_pg_service_fqdn if (keycloak_pg_tls_enabled | bool) else keycloak_pg_service }}"
+keycloak_pg_tls_secret_name: keycloak-postgres-tls
+keycloak_pg_tls_certificate_name: "{{ keycloak_pg_tls_secret_name }}"
+keycloak_pg_tls_certificate_duration: "{{ openbao_pki_cert_ttl | default('8760h') }}"
+keycloak_pg_tls_certificate_renew_before: 720h
+keycloak_pg_tls_issuer_name: "{{ certmanager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
+keycloak_pg_tls_common_name: ""
+keycloak_pg_tls_dns_names:
+  - "{{ keycloak_pg_service_fqdn }}"
+keycloak_pg_tls_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
+keycloak_pg_tls_ca_bundle_path: /tmp/keycloak-postgres-ca-bundle.crt
+keycloak_pg_tls_ca_configmap_name: keycloak-postgres-ca
+keycloak_pg_tls_ca_mount_path: "/opt/keycloak/conf/truststores/configmap-{{ keycloak_pg_tls_ca_configmap_name }}"
+keycloak_pg_tls_ca_file_name: ca-bundle.crt
+keycloak_pg_tls_init_image: "{{ keycloak_pg_image }}"
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: enabling this prints secrets/tokens into logs and output.

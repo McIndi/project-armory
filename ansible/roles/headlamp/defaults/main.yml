@@ -32,7 +32,8 @@ headlamp_keycloak_service_name: keycloak-service
 headlamp_keycloak_service_port: 8080
 headlamp_keycloak_service_https_port: 8443
 headlamp_keycloak_internal_tls_secret_name: "{{ keycloak_internal_tls_secret_name | default('keycloak-internal-tls') }}"
-headlamp_keycloak_internal_api_url: "https://{{ headlamp_keycloak_service_name }}.{{ headlamp_keycloak_namespace }}.svc.cluster.local:{{ headlamp_keycloak_service_https_port }}"
+headlamp_keycloak_internal_fqdn: "{{ headlamp_keycloak_service_name }}.{{ headlamp_keycloak_namespace }}.svc.cluster.local"
+headlamp_keycloak_internal_api_url: "https://{{ headlamp_keycloak_internal_fqdn }}:{{ headlamp_keycloak_service_https_port }}"
 headlamp_keycloak_admin_secret_name: keycloak-bootstrap-admin
 headlamp_keycloak_admin_password_key: password
 headlamp_keycloak_admin_username_from_secret: true
@@ -63,7 +64,12 @@ headlamp_openbao_oidc_path: headlamp/oidc
 # VSO sync settings for Headlamp namespace
 headlamp_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
 headlamp_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
-headlamp_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+headlamp_openbao_ca_secret_name: >-
+  {{
+    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
+    if (use_declarative_ca_distribution | default(false) | bool)
+    else (openbao_tls_ca_secret_name | default('openbao-ca'))
+  }}
 headlamp_openbao_k8s_role: headlamp-vso
 headlamp_openbao_policy_name: headlamp-vso
 headlamp_vso_sa_name: headlamp-vso

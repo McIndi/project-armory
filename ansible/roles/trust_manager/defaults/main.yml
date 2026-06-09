@@ -1,0 +1,38 @@
+---
+trust_manager_namespace: cert-manager
+trust_manager_release_name: trust-manager
+trust_manager_chart_ref: "oci://quay.io/jetstack/charts/trust-manager"
+trust_manager_chart_version: ""
+trust_manager_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+trust_manager_helm_timeout_seconds: 300
+
+# Secret targets must be explicitly enabled in trust-manager.
+trust_manager_secret_targets_enabled: true
+trust_manager_secret_targets_authorized_all: true
+
+# Trust namespace is where Bundle sources (Secrets/ConfigMaps) are read from.
+trust_manager_trust_namespace: "{{ openbao_namespace | default('openbao') }}"
+
+# Declarative CA bundle distribution settings.
+use_declarative_ca_distribution: false
+trust_manager_internal_ca_bundle_name: "{{ trust_manager_internal_ca_target_secret_name }}"
+trust_manager_internal_ca_source_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+trust_manager_internal_ca_source_key: ca.crt
+trust_manager_internal_ca_target_secret_name: openbao-ca-bundle
+trust_manager_internal_ca_target_key: ca.crt
+trust_manager_internal_ca_target_namespaces:
+  - cert-manager
+  - vault-secrets-operator-system
+  - keycloak
+  - headlamp
+
+# Optional external bundle target (disabled by default).
+trust_manager_external_ca_bundle_enabled: false
+trust_manager_external_ca_bundle_name: "{{ trust_manager_external_ca_target_secret_name }}"
+trust_manager_external_ca_source_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+trust_manager_external_ca_source_key: ca.crt
+trust_manager_external_ca_target_secret_name: openbao-external-ca
+trust_manager_external_ca_target_key: ca.crt
+trust_manager_external_ca_target_namespaces: []
+
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

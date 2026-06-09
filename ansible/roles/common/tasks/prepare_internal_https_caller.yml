@@ -1,0 +1,110 @@
+---
+- name: Assert internal HTTPS caller helper inputs
+  ansible.builtin.assert:
+    that:
+      - (common_internal_https_kubeconfig_path | default('') | trim | length) > 0
+      - (common_internal_https_service_name | default('') | trim | length) > 0
+      - (common_internal_https_service_namespace | default('') | trim | length) > 0
+      - (common_internal_https_openbao_cluster_addr | default('') | trim | length) > 0
+      - (common_internal_https_openbao_ca_secret_name | default('') | trim | length) > 0
+      - (common_internal_https_ca_source_namespace | default('') | trim | length) > 0
+      - (common_internal_https_bundle_path | default('') | trim | length) > 0
+      - (common_internal_https_openbao_pki_mount | default('') | trim | length) > 0
+    fail_msg: >-
+      Missing required inputs for common internal HTTPS caller helper.
+  when: not ansible_check_mode
+
+- name: Set internal HTTPS caller helper derived facts
+  ansible.builtin.set_fact:
+    _common_internal_https_fqdn: >-
+      {{
+        common_internal_https_fqdn
+        | default(common_internal_https_service_name + '.' + common_internal_https_service_namespace + '.svc.cluster.local')
+      }}
+  changed_when: false
+
+- name: Get service ClusterIP for internal HTTPS caller DNS override
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get svc {{ common_internal_https_service_name }}
+      -n {{ common_internal_https_service_namespace }} -o jsonpath={.spec.clusterIP}
+  environment:
+    KUBECONFIG: "{{ common_internal_https_kubeconfig_path }}"
+  register: _common_internal_https_cluster_ip
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Assert internal HTTPS service ClusterIP is present
+  ansible.builtin.assert:
+    that:
+      - (_common_internal_https_cluster_ip.stdout | default('') | trim | length) > 0
+    fail_msg: >-
+      Service '{{ common_internal_https_service_name }}' in namespace
+      '{{ common_internal_https_service_namespace }}' did not return a ClusterIP.
+  when: not ansible_check_mode
+
+- name: Ensure internal HTTPS FQDN resolves locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ _common_internal_https_fqdn | regex_escape }}(\s|$)'
+    line: "{{ _common_internal_https_cluster_ip.stdout | trim }} {{ _common_internal_https_fqdn }}"
+    state: present
+  become: true
+  when: not ansible_check_mode
+
+- name: Write root CA file for internal HTTPS caller
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: write_ca_file_from_secret.yml
+  vars:
+    common_kubeconfig_path: "{{ common_internal_https_kubeconfig_path }}"
+    common_ca_secret_name: "{{ common_internal_https_openbao_ca_secret_name }}"
+    common_ca_source_namespace: "{{ common_internal_https_ca_source_namespace }}"
+    common_ca_file_path: "{{ common_internal_https_bundle_path }}"
+
+- name: Read internal issuer CA PEM for internal HTTPS caller
+  ansible.builtin.uri:
+    url: "{{ common_internal_https_openbao_cluster_addr }}/v1/{{ common_internal_https_openbao_pki_mount }}/ca/pem"
+    method: GET
+    ca_path: "{{ common_internal_https_bundle_path }}"
+    validate_certs: true
+    return_content: true
+    status_code: 200
+  register: _common_internal_https_issuer_ca
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Assert internal issuer CA response is non-empty
+  ansible.builtin.assert:
+    that:
+      - (_common_internal_https_issuer_ca.content | default('') | trim | length) > 0
+      - "'BEGIN CERTIFICATE' in (_common_internal_https_issuer_ca.content | default(''))"
+    fail_msg: >-
+      Internal issuer CA response from mount '{{ common_internal_https_openbao_pki_mount }}'
+      is empty or not PEM-formatted.
+  when: not ansible_check_mode
+
+- name: Read root CA file content for internal HTTPS caller trust bundle
+  ansible.builtin.slurp:
+    src: "{{ common_internal_https_bundle_path }}"
+  register: _common_internal_https_root_ca_file
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Assert root CA file content is non-empty
+  ansible.builtin.assert:
+    that:
+      - (_common_internal_https_root_ca_file.content | default('') | b64decode | trim | length) > 0
+      - "'BEGIN CERTIFICATE' in (_common_internal_https_root_ca_file.content | default('') | b64decode)"
+    fail_msg: >-
+      Root CA bundle file '{{ common_internal_https_bundle_path }}' is empty or not PEM-formatted.
+  when: not ansible_check_mode
+
+- name: Write combined CA trust bundle for internal HTTPS caller
+  ansible.builtin.copy:
+    dest: "{{ common_internal_https_bundle_path }}"
+    mode: "0600"
+    content: |-
+      {{ _common_internal_https_root_ca_file.content | b64decode | trim }}
+      {{ _common_internal_https_issuer_ca.content | trim }}
+  when: not ansible_check_mode

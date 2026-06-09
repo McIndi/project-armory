@@ -33,7 +33,9 @@ Defined in `defaults/main.yml`:
 
 ## Task flow
 1. Install cert-manager via Helm and wait for webhook readiness (`install.yml`).
-2. Copy OpenBao CA secret into `cert-manager` namespace (`issuer.yml`).
+2. Ensure OpenBao CA trust material is present in `cert-manager` namespace
+  (`issuer.yml`). In declarative mode (`use_declarative_ca_distribution=true`),
+  trust-manager provides this secret and manual copy is skipped.
 3. Apply OpenBao-backed ClusterIssuer and wait for Ready condition (`issuer.yml`).
 
 ## Usage

@@ -78,8 +78,8 @@
   changed_when: false
   failed_when: false
   until: (_rc_keycloak_https.status | default(-1)) == 200
-  retries: 5
-  delay: 2
+  retries: "{{ readiness_check_keycloak_well_known_retries | default(30) }}"
+  delay: "{{ readiness_check_keycloak_well_known_delay | default(6) }}"
 
 - name: Check Keycloak well-known endpoint via ingress fallback when DNS fails
   ansible.builtin.uri:
@@ -120,3 +120,108 @@
           else ''
       }] }}
   changed_when: false
+
+- name: Prepare strict Keycloak internal TLS trust bundle
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: prepare_internal_https_caller.yml
+  vars:
+    common_internal_https_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_internal_https_service_name: "{{ readiness_check_keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ readiness_check_keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ readiness_check_keycloak_internal_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ readiness_check_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ readiness_check_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ readiness_check_keycloak_ca_source_namespace }}"
+    common_internal_https_bundle_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
+    common_internal_https_openbao_pki_mount: "{{ readiness_check_openbao_pki_internal_mount }}"
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Verify Keycloak internal OIDC endpoint with strict TLS validation
+  ansible.builtin.uri:
+    url: "{{ readiness_check_keycloak_internal_url }}"
+    method: GET
+    validate_certs: true
+    ca_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
+    timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
+    status_code: 200
+  register: _rc_keycloak_strict_tls
+  changed_when: false
+  failed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Add Keycloak strict TLS trust check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Keycloak',
+        'check_name': 'Internal OIDC endpoint strict TLS trust',
+        'status': 'pass' if (_rc_keycloak_strict_tls.status | default(-1)) == 200 else 'fail',
+        'detail': 'HTTP ' + ((_rc_keycloak_strict_tls.status | default(-1)) | string) + ' via ' + readiness_check_keycloak_internal_url,
+        'error': (_rc_keycloak_strict_tls.msg | default(''))
+      }] }}
+  changed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Read Keycloak DB URL configuration from CR
+  ansible.builtin.command: >-
+    k3s kubectl get keycloak {{ readiness_check_keycloak_cr_name }}
+    -n {{ readiness_check_keycloak_namespace }}
+    -o jsonpath='{.spec.db.url}'
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_keycloak_db_url
+  changed_when: false
+  failed_when: false
+  when: readiness_check_keycloak_pg_tls_enabled | bool
+
+- name: Add Keycloak DB verify-full URL check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Keycloak',
+        'check_name': 'DB URL enforces verify-full TLS mode',
+        'status': 'pass' if ('sslmode=' + readiness_check_keycloak_pg_verify_mode) in (_rc_keycloak_db_url.stdout | default('')) else 'fail',
+        'detail': (_rc_keycloak_db_url.stdout | default('missing db.url in Keycloak CR')),
+        'error': ''
+      }] }}
+  changed_when: false
+  when: readiness_check_keycloak_pg_tls_enabled | bool
+
+- name: Add Keycloak DB hostname verification target check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Keycloak',
+        'check_name': 'DB URL host matches Postgres TLS SAN FQDN',
+        'status': 'pass' if readiness_check_keycloak_pg_service_fqdn in (_rc_keycloak_db_url.stdout | default('')) else 'fail',
+        'detail': readiness_check_keycloak_pg_service_fqdn,
+        'error': ''
+      }] }}
+  changed_when: false
+  when: readiness_check_keycloak_pg_tls_enabled | bool
+
+- name: Check PostgreSQL server TLS setting inside Postgres pod
+  ansible.builtin.command: >-
+    k3s kubectl exec statefulset/{{ readiness_check_keycloak_pg_statefulset_name }}
+    -n {{ readiness_check_keycloak_namespace }}
+    -- sh -ec "psql -U '{{ readiness_check_keycloak_db_username }}' -d '{{ readiness_check_keycloak_db_name }}' -tAc 'SHOW ssl;'"
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  register: _rc_postgres_ssl_setting
+  changed_when: false
+  failed_when: false
+  when: readiness_check_keycloak_pg_tls_enabled | bool
+
+- name: Add PostgreSQL TLS enabled check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Keycloak',
+        'check_name': 'PostgreSQL TLS negotiation enabled',
+        'status': 'pass' if (_rc_postgres_ssl_setting.stdout | default('') | trim) == 'on' else 'fail',
+        'detail': 'SHOW ssl=' + (_rc_postgres_ssl_setting.stdout | default('unknown') | trim),
+        'error': (_rc_postgres_ssl_setting.stderr | default(''))
+      }] }}
+  changed_when: false
+  when: readiness_check_keycloak_pg_tls_enabled | bool

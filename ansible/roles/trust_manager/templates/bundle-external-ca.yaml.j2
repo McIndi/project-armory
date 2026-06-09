@@ -1,0 +1,21 @@
+---
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: {{ trust_manager_external_ca_bundle_name }}
+spec:
+  sources:
+    - secret:
+        name: {{ trust_manager_external_ca_source_secret_name }}
+        key: {{ trust_manager_external_ca_source_key }}
+  target:
+    secret:
+      key: {{ trust_manager_external_ca_target_key }}
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+{% for namespace_name in trust_manager_external_ca_target_namespaces %}
+            - {{ namespace_name }}
+{% endfor %}

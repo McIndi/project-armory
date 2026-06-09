@@ -20,6 +20,25 @@ readiness_check_connect_retries: 2
 readiness_check_validate_tls: false
 readiness_check_insecure_skip_verify: false
 
+# Strict TLS trust checks for service endpoints using explicit CA bundles.
+readiness_check_strict_tls_checks_enabled: true
+readiness_check_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+readiness_check_openbao_ca_secret_name: >-
+  {{
+    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
+    if (use_declarative_ca_distribution | default(false) | bool)
+    else (openbao_tls_ca_secret_name | default('openbao-ca'))
+  }}
+readiness_check_openbao_pki_internal_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+readiness_check_openbao_pki_external_mount: "{{ openbao_pki_external_mount | default('pki-ext') }}"
+readiness_check_keycloak_internal_fqdn: "{{ readiness_check_keycloak_service_name }}.{{ readiness_check_keycloak_namespace }}.svc.cluster.local"
+readiness_check_keycloak_internal_url: "https://{{ readiness_check_keycloak_internal_fqdn }}:8443/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
+readiness_check_keycloak_ca_bundle_path: /tmp/readiness-keycloak-ca-bundle.crt
+readiness_check_keycloak_ca_source_namespace: "{{ readiness_check_keycloak_namespace }}"
+readiness_check_headlamp_ca_bundle_path: /tmp/readiness-headlamp-ca-bundle.crt
+readiness_check_headlamp_ca_source_namespace: headlamp
+readiness_check_headlamp_manage_hosts_override: true
+
 # Host checks
 readiness_check_required_packages:
   - k3s
@@ -62,15 +81,32 @@ readiness_check_http_redirect_status_codes:
 readiness_check_http_redirect_hosts:
   - "{{ readiness_check_public_domain }}"
   - "{{ readiness_check_headlamp_host }}"
+readiness_check_ingress_http_policy: "{{ ingress_http_policy | default('redirect-only') }}"
+# firewalld zone the nginx_ingress role manages the HTTP port in; used to verify
+# the 80/tcp closure when ingress_http_policy is 'disabled'.
+readiness_check_ingress_firewall_zone: "{{ nginx_ingress_firewall_zone | default('public') }}"
+readiness_check_http_disabled_expected_errors:
+  - connection refused
+  - failed to connect
+  - no route to host
+  - timed out
+  - timeout
 
 # Keycloak settings
 readiness_check_keycloak_namespace: keycloak
+readiness_check_keycloak_cr_name: keycloak
 readiness_check_keycloak_service_name: keycloak-service
 readiness_check_keycloak_realm: armory
 readiness_check_keycloak_url: "{{ readiness_check_public_base_url }}/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
 readiness_check_keycloak_readiness_timeout: 30
 readiness_check_keycloak_host_header: "{{ readiness_check_public_domain }}"
 readiness_check_keycloak_admin_secret_name: keycloak-bootstrap-admin
+readiness_check_keycloak_pg_tls_enabled: "{{ keycloak_pg_tls_enabled | default(false) | bool }}"
+readiness_check_keycloak_pg_service_fqdn: "{{ (keycloak_pg_service | default('postgres')) + '.' + readiness_check_keycloak_namespace + '.svc.cluster.local' }}"
+readiness_check_keycloak_pg_verify_mode: "{{ keycloak_pg_tls_verify_mode | default('verify-full') }}"
+readiness_check_keycloak_pg_statefulset_name: "{{ keycloak_pg_service | default('postgres') }}"
+readiness_check_keycloak_db_name: "{{ keycloak_db_name | default('keycloak') }}"
+readiness_check_keycloak_db_username: "{{ keycloak_db_username | default('keycloak') }}"
 
 # Headlamp settings
 readiness_check_headlamp_namespace: headlamp

@@ -162,6 +162,7 @@
   register: _rc_http_redirect_checks
   changed_when: false
   failed_when: false
+  when: (readiness_check_ingress_http_policy | default('redirect-only')) == 'redirect-only'
 
 - name: Add HTTP to HTTPS redirect check to results
   ansible.builtin.set_fact:
@@ -197,3 +198,32 @@
         )
       }] }}
   changed_when: false
+  when: (readiness_check_ingress_http_policy | default('redirect-only')) == 'redirect-only'
+
+# With a hostNetwork ingress controller the HTTP listener is bound directly on
+# the host, so it cannot be removed via the Service's enableHttp flag and a
+# localhost probe always reaches it (loopback bypasses firewalld). The real
+# enforcement for the 'disabled' policy is the firewalld port closure, so that
+# is what we validate here.
+- name: Query firewalld for HTTP port when ingress HTTP policy is disabled
+  ansible.builtin.command:
+    cmd: firewall-cmd --zone={{ readiness_check_ingress_firewall_zone | default('public') }} --query-port=80/tcp
+  register: _rc_http_disabled_fw
+  changed_when: false
+  failed_when: false
+  become: true
+  when: (readiness_check_ingress_http_policy | default('redirect-only')) == 'disabled'
+
+- name: Add HTTP disabled policy check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'nginx ingress',
+        'check_name': 'HTTP port closed in firewall per ingress policy',
+        'status': 'pass' if ((_rc_http_disabled_fw.stdout | default('') | trim) == 'no') else 'fail',
+        'detail': 'firewalld 80/tcp allowed=' + (_rc_http_disabled_fw.stdout | default('unknown') | trim)
+          + ' (zone ' + (readiness_check_ingress_firewall_zone | default('public')) + ')',
+        'error': (_rc_http_disabled_fw.stderr | default(''))
+      }] }}
+  changed_when: false
+  when: (readiness_check_ingress_http_policy | default('redirect-only')) == 'disabled'

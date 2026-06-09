@@ -16,58 +16,20 @@
   ansible.builtin.set_fact:
     _kc_rotator_base_url: "{{ keycloak_internal_api_url }}"
 
-- name: Get Keycloak service ClusterIP for rotator DNS override
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get svc {{ keycloak_service_name }}
-      -n {{ keycloak_namespace }} -o jsonpath={.spec.clusterIP}
-  environment:
-    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_rotator_cluster_ip
-  changed_when: false
-
-- name: Ensure Keycloak internal FQDN resolves locally for rotator setup
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^.*\s+{{ keycloak_service_name }}\.{{ keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
-    line: "{{ _kc_rotator_cluster_ip.stdout }} {{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local"
-    state: present
-  become: true
-
-- name: Write temporary Keycloak CA file for rotator setup
+- name: Prepare internal HTTPS trust bundle for rotator setup
   ansible.builtin.import_role:
     name: common
-    tasks_from: write_ca_file_from_secret.yml
+    tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
-    common_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
-    common_ca_source_namespace: "{{ keycloak_namespace }}"
-    common_ca_file_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
-
-- name: Read OpenBao internal issuer CA PEM for rotator trust bundle
-  ansible.builtin.uri:
-    url: "{{ keycloak_openbao_cluster_addr }}/v1/{{ openbao_pki_internal_mount | default('pki-int') }}/ca/pem"
-    method: GET
-    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
-    validate_certs: true
-    return_content: true
-    status_code: 200
-  register: _kc_rotator_internal_issuer_ca
-  changed_when: false
-
-- name: Read root CA file content for rotator trust bundle
-  ansible.builtin.slurp:
-    src: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
-  register: _kc_rotator_root_ca_file
-  changed_when: false
-
-- name: Write combined Keycloak trust bundle for rotator setup
-  ansible.builtin.copy:
-    dest: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
-    mode: "0600"
-    content: |-
-      {{ _kc_rotator_root_ca_file.content | b64decode | trim }}
-      {{ _kc_rotator_internal_issuer_ca.content | trim }}
+    common_internal_https_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+    common_internal_https_service_name: "{{ keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ keycloak_internal_service_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ keycloak_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ keycloak_namespace }}"
+    common_internal_https_bundle_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
 
 - name: Read bootstrap-admin credentials for rotator setup
   ansible.builtin.command:

@@ -17,6 +17,10 @@ VaultStaticSecret resources.
    kube-rbac-proxy TLS and waits for the cert/secret.
 5. `helm upgrade --install` of the hardened VSO chart.
 
+When `use_declarative_ca_distribution: true`, this role no longer performs
+namespace-local OpenBao CA copy. It expects trust-manager to have already
+synced the configured CA target Secret into the VSO namespace.
+
 ## Chart source (env)
 The hardened chart lives at `charts/vso-hardened`. Configure via environment:
 
