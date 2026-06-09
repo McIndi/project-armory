@@ -23,7 +23,9 @@ spec:
       name: {{ keycloak_db_secret_name }}
       key: password
   http:
-    httpEnabled: true
+    httpEnabled: false
+    httpsPort: {{ keycloak_service_https_port }}
+    tlsSecret: {{ keycloak_internal_tls_secret_name }}
   ingress:
     enabled: false
   hostname:

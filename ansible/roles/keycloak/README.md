@@ -17,8 +17,9 @@ OpenBao-backed DB credentials (synced via VSO) and a declarative bootstrap of th
    credentials into the `keycloak-db-secret` Secret (keys `username`/`password`).
 5. Deploys a PostgreSQL StatefulSet + Service (`postgres:16`, local-path PVC).
 6. Installs the Keycloak Operator (pinned CRDs + operator Deployment).
-7. Applies the `Keycloak` custom resource (edge TLS: `http.httpEnabled: true`,
-   `ingress.enabled: false`, `proxy.headers: xforwarded`, `hostname.strict: false`).
+7. Applies the `Keycloak` custom resource (internal HTTPS only via the existing
+   TLS secret flow, `http.httpEnabled: false`, `ingress.enabled: false`,
+   `proxy.headers: xforwarded`, `hostname.strict: false`).
 8. Applies a `KeycloakRealmImport` for the `armory` realm (seed admin user, admin
    group, groups protocol mapper). The Headlamp OIDC client is **not** created
    here — the Headlamp role provisions it via the admin REST API.
@@ -52,7 +53,7 @@ ansible-playbook playbooks/site.yml --tags keycloak_install
 | `keycloak_enabled` | `false` | Master switch (set globally). |
 | `keycloak_operator_version` | `26.5.2` | Pins CRDs + operator + server image. |
 | `keycloak_realm` | `armory` | Armory's own realm. |
-| `keycloak_cr_name` | `keycloak` | Drives Service `keycloak-service:8080` + `keycloak-initial-admin`. |
+| `keycloak_cr_name` | `keycloak` | Drives the Keycloak service and bootstrap admin secret. |
 | `keycloak_public_base_url` | `$ARMORY_PUBLIC_BASE_URL` / `https://armory.local` | Issuer + ingress host. |
 | `keycloak_ingress_tls_secret` | `armory-tls` | Referenced, not created. |
 | `keycloak_pg_image` | `postgres:16` | Backing DB. |

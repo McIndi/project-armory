@@ -27,6 +27,7 @@ keycloak_instances: 1
 # Operator-created Service derives from the CR name.
 keycloak_service_name: "{{ keycloak_cr_name }}-service"
 keycloak_service_port: 8080
+keycloak_service_https_port: 8443
 
 # ── Master bootstrap admin (OpenBao-generated) ──────────────────────────────────
 # By default the operator auto-creates a `<cr-name>-initial-admin` Secret with a
@@ -119,8 +120,21 @@ keycloak_rotator_client_id: realm-admin-rotator
 keycloak_openbao_rotator_path: keycloak/rotator
 keycloak_rotator_openbao_policy_name: keycloak-realm-admin-rotator
 keycloak_rotator_openbao_k8s_role: keycloak-realm-admin-rotator
-# In-cluster plain-HTTP Keycloak endpoint the CronJob targets (no TLS in-cluster).
-keycloak_internal_http_url: "http://{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc:{{ keycloak_service_port }}"
+
+# Internal TLS for in-cluster service-to-service Keycloak API traffic.
+keycloak_internal_tls_secret_name: keycloak-internal-tls
+keycloak_internal_tls_certificate_name: "{{ keycloak_internal_tls_secret_name }}"
+keycloak_internal_tls_issuer_name: "{{ certmanager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
+keycloak_internal_tls_certificate_duration: "{{ openbao_pki_cert_ttl | default('8760h') }}"
+keycloak_internal_tls_certificate_renew_before: 720h
+keycloak_internal_tls_dns_names:
+  - "{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local"
+
+# In-cluster Keycloak endpoint used by the realm-admin rotator CronJob.
+keycloak_internal_api_url: "https://{{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local:{{ keycloak_service_https_port }}"
+
+# Backward-compatible alias retained for older template references.
+keycloak_internal_http_url: "{{ keycloak_internal_api_url }}"
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: enabling this prints secrets/tokens into logs and output.

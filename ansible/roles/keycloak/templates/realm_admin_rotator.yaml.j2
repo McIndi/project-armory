@@ -49,6 +49,7 @@ data:
     ca = env("OPENBAO_CA_FILE")
     mount = env("OPENBAO_KV_MOUNT")
     kc = env("KEYCLOAK_URL")
+    kc_ca = env("KEYCLOAK_CA_FILE")
     realm = env("KEYCLOAK_REALM")
     username = env("REALM_ADMIN_USERNAME")
     length = int(os.environ.get("PASSWORD_LENGTH", "24"))
@@ -65,12 +66,12 @@ data:
 
     _, j = http("POST", "%s/realms/%s/protocol/openid-connect/token" % (kc, realm),
                 {"grant_type": "client_credentials", "client_id": client_id,
-                 "client_secret": rot["client_secret"]}, form=True)
+              "client_secret": rot["client_secret"]}, cafile=kc_ca, form=True)
     kh = {"Authorization": "Bearer %s" % j["access_token"]}
 
     _, users = http("GET",
                     "%s/admin/realms/%s/users?username=%s&exact=true" % (kc, realm, username),
-                    headers=kh)
+                headers=kh, cafile=kc_ca)
     if not users:
         sys.exit("realm user '%s' not found" % username)
     uid = users[0]["id"]
@@ -79,7 +80,7 @@ data:
     newpw = "".join(secrets.choice(alphabet) for _ in range(length))
 
     http("PUT", "%s/admin/realms/%s/users/%s/reset-password" % (kc, realm, uid),
-         {"type": "password", "value": newpw, "temporary": False}, headers=kh)
+          {"type": "password", "value": newpw, "temporary": False}, headers=kh, cafile=kc_ca)
     http("POST", "%s/v1/%s/data/%s" % (addr, mount, env("OPENBAO_REALM_ADMIN_PATH")),
          {"data": {"username": username, "password": newpw}}, headers=bh, cafile=ca)
     print("rotated realm-admin password for user '%s'" % username)
@@ -131,7 +132,9 @@ spec:
                 - name: OPENBAO_REALM_ADMIN_PATH
                   value: "{{ keycloak_openbao_realm_admin_path }}"
                 - name: KEYCLOAK_URL
-                  value: "{{ keycloak_internal_http_url }}"
+                  value: "{{ keycloak_internal_api_url }}"
+                - name: KEYCLOAK_CA_FILE
+                  value: /etc/keycloak-ca/ca.crt
                 - name: KEYCLOAK_REALM
                   value: "{{ keycloak_realm }}"
                 - name: ROTATOR_CLIENT_ID
@@ -151,11 +154,17 @@ spec:
                 - name: openbao-ca
                   mountPath: /etc/openbao-ca
                   readOnly: true
+                - name: keycloak-ca
+                  mountPath: /etc/keycloak-ca
+                  readOnly: true
                 - name: script
                   mountPath: /app
                   readOnly: true
           volumes:
             - name: openbao-ca
+              secret:
+                secretName: {{ keycloak_openbao_ca_secret_name }}
+            - name: keycloak-ca
               secret:
                 secretName: {{ keycloak_openbao_ca_secret_name }}
             - name: script

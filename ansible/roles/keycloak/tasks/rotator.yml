@@ -12,7 +12,11 @@
     name: common
     tasks_from: load_openbao_root_token.yml
 
-- name: Get Keycloak service ClusterIP for rotator setup
+- name: Set Keycloak internal base URL fact for rotator setup
+  ansible.builtin.set_fact:
+    _kc_rotator_base_url: "{{ keycloak_internal_api_url }}"
+
+- name: Get Keycloak service ClusterIP for rotator DNS override
   ansible.builtin.command:
     cmd: >-
       k3s kubectl get svc {{ keycloak_service_name }}
@@ -22,9 +26,48 @@
   register: _kc_rotator_cluster_ip
   changed_when: false
 
-- name: Set Keycloak internal base URL fact for rotator setup
-  ansible.builtin.set_fact:
-    _kc_rotator_base_url: "http://{{ _kc_rotator_cluster_ip.stdout }}:{{ keycloak_service_port }}"
+- name: Ensure Keycloak internal FQDN resolves locally for rotator setup
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ keycloak_service_name }}\.{{ keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
+    line: "{{ _kc_rotator_cluster_ip.stdout }} {{ keycloak_service_name }}.{{ keycloak_namespace }}.svc.cluster.local"
+    state: present
+  become: true
+
+- name: Write temporary Keycloak CA file for rotator setup
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: write_ca_file_from_secret.yml
+  vars:
+    common_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+    common_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
+    common_ca_source_namespace: "{{ keycloak_namespace }}"
+    common_ca_file_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+
+- name: Read OpenBao internal issuer CA PEM for rotator trust bundle
+  ansible.builtin.uri:
+    url: "{{ keycloak_openbao_cluster_addr }}/v1/{{ openbao_pki_internal_mount | default('pki-int') }}/ca/pem"
+    method: GET
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
+    return_content: true
+    status_code: 200
+  register: _kc_rotator_internal_issuer_ca
+  changed_when: false
+
+- name: Read root CA file content for rotator trust bundle
+  ansible.builtin.slurp:
+    src: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+  register: _kc_rotator_root_ca_file
+  changed_when: false
+
+- name: Write combined Keycloak trust bundle for rotator setup
+  ansible.builtin.copy:
+    dest: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    mode: "0600"
+    content: |-
+      {{ _kc_rotator_root_ca_file.content | b64decode | trim }}
+      {{ _kc_rotator_internal_issuer_ca.content | trim }}
 
 - name: Read bootstrap-admin credentials for rotator setup
   ansible.builtin.command:
@@ -48,6 +91,8 @@
       username: "{{ _kc_rotator_admin_creds_b64.results[0].stdout | b64decode }}"
       password: "{{ _kc_rotator_admin_creds_b64.results[1].stdout | b64decode }}"
       grant_type: password
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_rotator_token
   retries: 5
@@ -67,6 +112,8 @@
     method: GET
     headers:
       Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_rotator_client_lookup
   changed_when: false
@@ -90,6 +137,8 @@
       implicitFlowEnabled: false
       directAccessGrantsEnabled: false
       serviceAccountsEnabled: true
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 201
   when: (_kc_rotator_client_lookup.json | length) == 0
   register: _kc_rotator_client_create
@@ -101,6 +150,8 @@
     method: GET
     headers:
       Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_rotator_client_final
   changed_when: false
@@ -116,6 +167,8 @@
     method: GET
     headers:
       Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_rotator_sa_user
   changed_when: false
@@ -127,6 +180,8 @@
     method: GET
     headers:
       Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_realm_mgmt_client
   changed_when: false
@@ -138,6 +193,8 @@
     method: GET
     headers:
       Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_manage_users_role
   changed_when: false
@@ -154,6 +211,8 @@
     body:
       - id: "{{ _kc_manage_users_role.json.id }}"
         name: "{{ _kc_manage_users_role.json.name }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: [204]
   register: _kc_rotator_role_assign
   changed_when: true
@@ -165,6 +224,8 @@
     method: GET
     headers:
       Authorization: "Bearer {{ _kc_rotator_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    validate_certs: true
     status_code: 200
   register: _kc_rotator_client_secret
   changed_when: false
@@ -231,3 +292,16 @@
   changed_when: >-
     'configured' in (_kc_rotator_apply.stdout | default('')) or
     'created' in (_kc_rotator_apply.stdout | default(''))
+
+- name: Remove temporary Keycloak CA file for rotator setup
+  ansible.builtin.file:
+    path: /tmp/{{ keycloak_openbao_ca_secret_name }}-rotator-ca.crt
+    state: absent
+  changed_when: false
+
+- name: Remove temporary Keycloak internal FQDN hosts override for rotator setup
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ keycloak_service_name }}\.{{ keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
+    state: absent
+  become: true
