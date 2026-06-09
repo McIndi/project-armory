@@ -38,8 +38,8 @@ Defined in `defaults/main.yml`:
    - `check_helm.yml`: Helm CLI version, Helm repo availability.
   - `check_openbao.yml`: OpenBao TCP port 8200, health endpoint, and unsealed status via the internal TLS service address.
    - `check_vso.yml`: Vault Secrets Operator deployment running, vaultconnection resources present.
-   - `check_nginx.yml`: nginx ingress controller pods, ingress rules, TLS certificate validity.
-  - `check_keycloak.yml`: Keycloak namespace, service, admin secret, and OIDC discovery endpoint checks with ingress fallback when DNS is unavailable.
+  - `check_nginx.yml`: nginx ingress controller pods, ingress rules, TLS certificate validity, and policy-aware HTTP behavior (`redirect-only` vs `disabled`).
+  - `check_keycloak.yml`: Keycloak namespace, service, admin secret, OIDC discovery endpoint checks with ingress fallback, and Postgres TLS verify-full posture checks when enabled.
 4. Render summary report and per-component breakdown from template.
 5. Print report to console.
 6. Fail at end with aggregated issues if `readiness_check_fail_on_issues=true` and any failures detected.

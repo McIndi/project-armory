@@ -56,6 +56,7 @@
     common_ca_secret_name: "{{ headlamp_openbao_ca_secret_name }}"
     common_ca_source_namespace: "{{ headlamp_openbao_namespace | default(openbao_namespace | default('openbao')) }}"
     common_ca_target_namespace: "{{ headlamp_namespace }}"
+  when: not (use_declarative_ca_distribution | default(false) | bool)
 
 - name: Apply Headlamp VaultConnection and VaultAuth resources
   ansible.builtin.command:

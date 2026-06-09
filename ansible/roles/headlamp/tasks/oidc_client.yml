@@ -5,58 +5,20 @@
   ansible.builtin.set_fact:
     _headlamp_kc_base_url: "{{ headlamp_keycloak_internal_api_url }}"
 
-- name: Get Keycloak service ClusterIP for Headlamp OIDC DNS override
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get svc {{ headlamp_keycloak_service_name }}
-      -n {{ headlamp_keycloak_namespace }} -o jsonpath={.spec.clusterIP}
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_kc_cluster_ip
-  changed_when: false
-
-- name: Ensure Keycloak internal FQDN resolves locally for Headlamp OIDC setup
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^.*\s+{{ headlamp_keycloak_service_name }}\.{{ headlamp_keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
-    line: "{{ _headlamp_kc_cluster_ip.stdout }} {{ headlamp_keycloak_service_name }}.{{ headlamp_keycloak_namespace }}.svc.cluster.local"
-    state: present
-  become: true
-
-- name: Write temporary Keycloak CA file for Headlamp OIDC setup
+- name: Prepare internal HTTPS trust bundle for Headlamp OIDC setup
   ansible.builtin.import_role:
     name: common
-    tasks_from: write_ca_file_from_secret.yml
+    tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
-    common_ca_secret_name: "{{ headlamp_openbao_ca_secret_name }}"
-    common_ca_source_namespace: "{{ headlamp_keycloak_namespace }}"
-    common_ca_file_path: /tmp/{{ headlamp_openbao_ca_secret_name }}-headlamp-oidc-ca.crt
-
-- name: Read OpenBao internal issuer CA PEM for Headlamp OIDC trust bundle
-  ansible.builtin.uri:
-    url: "{{ headlamp_openbao_cluster_addr }}/v1/{{ openbao_pki_internal_mount | default('pki-int') }}/ca/pem"
-    method: GET
-    ca_path: /tmp/{{ headlamp_openbao_ca_secret_name }}-headlamp-oidc-ca.crt
-    validate_certs: true
-    return_content: true
-    status_code: 200
-  register: _headlamp_internal_issuer_ca
-  changed_when: false
-
-- name: Read root CA file content for Headlamp OIDC trust bundle
-  ansible.builtin.slurp:
-    src: /tmp/{{ headlamp_openbao_ca_secret_name }}-headlamp-oidc-ca.crt
-  register: _headlamp_root_ca_file
-  changed_when: false
-
-- name: Write combined Keycloak trust bundle for Headlamp OIDC setup
-  ansible.builtin.copy:
-    dest: /tmp/{{ headlamp_openbao_ca_secret_name }}-headlamp-oidc-ca.crt
-    mode: "0600"
-    content: |-
-      {{ _headlamp_root_ca_file.content | b64decode | trim }}
-      {{ _headlamp_internal_issuer_ca.content | trim }}
+    common_internal_https_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
+    common_internal_https_service_name: "{{ headlamp_keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ headlamp_keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ headlamp_keycloak_internal_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ headlamp_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ headlamp_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ headlamp_keycloak_namespace }}"
+    common_internal_https_bundle_path: /tmp/{{ headlamp_openbao_ca_secret_name }}-headlamp-oidc-ca.crt
+    common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
 
 - name: Get Keycloak admin password from admin secret
   ansible.builtin.command:
@@ -121,7 +83,7 @@
 
 - name: Set Keycloak admin token fact
   ansible.builtin.set_fact:
-    _headlamp_kc_admin_token: "{{ _headlamp_kc_token_result.json.access_token }}"
+    _headlamp_kc_admin_token: "{{ (_headlamp_kc_token_result.json.access_token | default('')) if (_headlamp_kc_token_result is defined) else '' }}"
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
 - name: Look up Headlamp OIDC client in Keycloak

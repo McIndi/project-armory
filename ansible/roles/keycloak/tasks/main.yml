@@ -242,6 +242,7 @@
         common_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
         common_ca_source_namespace: "{{ keycloak_openbao_namespace }}"
         common_ca_target_namespace: "{{ keycloak_namespace }}"
+      when: not (use_declarative_ca_distribution | default(false) | bool)
 
     - name: Apply Keycloak VaultConnection and VaultAuth resources
       ansible.builtin.command:
@@ -293,6 +294,25 @@
       changed_when: false
       when: not ansible_check_mode
 
+    - name: Ensure PostgreSQL TLS certificate exists and is ready
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: apply_certificate.yml
+      vars:
+        common_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+        common_certificate_name: "{{ keycloak_pg_tls_certificate_name }}"
+        common_certificate_namespace: "{{ keycloak_namespace }}"
+        common_certificate_secret_name: "{{ keycloak_pg_tls_secret_name }}"
+        common_certificate_issuer_name: "{{ keycloak_pg_tls_issuer_name }}"
+        common_certificate_duration: "{{ keycloak_pg_tls_certificate_duration }}"
+        common_certificate_renew_before: "{{ keycloak_pg_tls_certificate_renew_before }}"
+        common_certificate_common_name: "{{ keycloak_pg_tls_common_name | default('') }}"
+        common_certificate_dns_names: "{{ keycloak_pg_tls_dns_names }}"
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+        - keycloak_pg_tls_enabled | bool
+
     # ── PostgreSQL StatefulSet ──────────────────────────────────────────────────
     - name: Apply PostgreSQL StatefulSet and Service
       ansible.builtin.command:
@@ -321,6 +341,77 @@
       when:
         - not ansible_check_mode
         - keycloak_postgresql_enabled | bool
+
+    - name: Prepare Postgres CA bundle for Keycloak verify-full DB TLS
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: prepare_internal_https_caller.yml
+      vars:
+        common_internal_https_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+        common_internal_https_service_name: "{{ keycloak_pg_service }}"
+        common_internal_https_service_namespace: "{{ keycloak_namespace }}"
+        common_internal_https_fqdn: "{{ keycloak_pg_service_fqdn }}"
+        common_internal_https_openbao_cluster_addr: "{{ keycloak_openbao_cluster_addr }}"
+        common_internal_https_openbao_ca_secret_name: "{{ keycloak_pg_tls_ca_secret_name }}"
+        common_internal_https_ca_source_namespace: "{{ keycloak_namespace }}"
+        common_internal_https_bundle_path: "{{ keycloak_pg_tls_ca_bundle_path }}"
+        common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+        - keycloak_pg_tls_enabled | bool
+
+    - name: Create Keycloak Postgres CA ConfigMap manifest
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl create configmap {{ keycloak_pg_tls_ca_configmap_name }}
+          --namespace {{ keycloak_namespace }}
+          --from-file={{ keycloak_pg_tls_ca_file_name }}={{ keycloak_pg_tls_ca_bundle_path }}
+          --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_pg_ca_configmap_yaml
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+        - keycloak_pg_tls_enabled | bool
+
+    - name: Apply Keycloak Postgres CA ConfigMap
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f -
+        stdin: "{{ _keycloak_pg_ca_configmap_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_pg_ca_configmap_apply
+      changed_when: >-
+        'configured' in (_keycloak_pg_ca_configmap_apply.stdout | default('')) or
+        'created' in (_keycloak_pg_ca_configmap_apply.stdout | default(''))
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+        - keycloak_pg_tls_enabled | bool
+
+    - name: Remove temporary Keycloak Postgres CA bundle file
+      ansible.builtin.file:
+        path: "{{ keycloak_pg_tls_ca_bundle_path }}"
+        state: absent
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+        - keycloak_pg_tls_enabled | bool
+
+    - name: Remove temporary Postgres FQDN hosts override for DB TLS bootstrap
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^.*\s+{{ keycloak_pg_service_fqdn | regex_escape }}(\s|$)'
+        state: absent
+      become: true
+      when:
+        - not ansible_check_mode
+        - keycloak_postgresql_enabled | bool
+        - keycloak_pg_tls_enabled | bool
 
     # ── Keycloak Operator: CRDs + operator Deployment ───────────────────────────
     - name: Install Keycloak CRDs (cluster-scoped, pinned version)
@@ -436,16 +527,68 @@
       when: not ansible_check_mode
 
     - name: Wait for Keycloak custom resource to become Ready
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl wait --for=condition=Ready
-          keycloak/{{ keycloak_cr_name }}
-          --namespace {{ keycloak_namespace }}
-          --timeout={{ keycloak_ready_timeout_seconds }}s
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_cr_ready
-      changed_when: false
+      block:
+        - name: Wait for Keycloak custom resource to become Ready (initial)
+          ansible.builtin.command:
+            cmd: >-
+              k3s kubectl wait --for=condition=Ready
+              keycloak/{{ keycloak_cr_name }}
+              --namespace {{ keycloak_namespace }}
+              --timeout={{ keycloak_ready_timeout_seconds }}s
+          environment:
+            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+          register: _keycloak_cr_ready
+          changed_when: false
+      rescue:
+        - name: Read Keycloak StatefulSet rollout revisions
+          ansible.builtin.command:
+            cmd: >-
+              k3s kubectl get statefulset/{{ keycloak_cr_name }}
+              --namespace {{ keycloak_namespace }}
+              -o jsonpath='{.status.currentRevision} {.status.updateRevision}'
+          environment:
+            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+          register: _keycloak_statefulset_revisions
+          changed_when: false
+
+        - name: Force restart Keycloak StatefulSet when its revision is stale
+          ansible.builtin.command:
+            cmd: >-
+              k3s kubectl rollout restart statefulset/{{ keycloak_cr_name }}
+              --namespace {{ keycloak_namespace }}
+          environment:
+            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+          register: _keycloak_force_restart
+          changed_when: >-
+            'restarted' in (_keycloak_force_restart.stdout | default(''))
+          when: >-
+            (_keycloak_statefulset_revisions.stdout | default('') | trim | length) > 0 and
+            (_keycloak_statefulset_revisions.stdout.split() | length) == 2 and
+            (_keycloak_statefulset_revisions.stdout.split()[0] != _keycloak_statefulset_revisions.stdout.split()[1])
+
+        - name: Wait for Keycloak StatefulSet rollout after forced restart
+          ansible.builtin.command:
+            cmd: >-
+              k3s kubectl rollout status statefulset/{{ keycloak_cr_name }}
+              --namespace {{ keycloak_namespace }}
+              --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
+          environment:
+            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+          register: _keycloak_cr_rollout_recovery
+          changed_when: false
+          when: _keycloak_force_restart is defined and (_keycloak_force_restart is changed)
+
+        - name: Wait for Keycloak custom resource to become Ready (recovery)
+          ansible.builtin.command:
+            cmd: >-
+              k3s kubectl wait --for=condition=Ready
+              keycloak/{{ keycloak_cr_name }}
+              --namespace {{ keycloak_namespace }}
+              --timeout={{ keycloak_ready_timeout_seconds }}s
+          environment:
+            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+          register: _keycloak_cr_ready
+          changed_when: false
       when: not ansible_check_mode
 
     # ── Realm import ────────────────────────────────────────────────────────────
@@ -489,6 +632,18 @@
       when:
         - not ansible_check_mode
         - keycloak_ingress_enabled | bool
+
+    - name: Wait for Keycloak StatefulSet rollout before rotator provisioning
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status statefulset/{{ keycloak_cr_name }}
+          --namespace {{ keycloak_namespace }}
+          --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_statefulset_rollout
+      changed_when: false
+      when: not ansible_check_mode
 
     # ── realm-admin password auto-rotation ──────────────────────────────────────
     - name: Provision realm-admin password rotation CronJob

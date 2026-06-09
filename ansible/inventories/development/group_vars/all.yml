@@ -5,6 +5,25 @@
 # Must live here (group_vars/all), NOT in the keycloak role defaults, so that
 # consumer roles (headlamp, k3s, readiness_check) — which cannot see the keycloak
 # role's own defaults — switch their Keycloak coordinates to the standalone
-# deployment (realm `armory`, ns `keycloak`, svc `keycloak-service:8080`,
-# admin secret `keycloak-initial-admin`).
+# deployment (realm `armory`, ns `keycloak`, svc `keycloak-service:8443` for
+# internal control-plane HTTPS calls, admin secret `keycloak-bootstrap-admin`).
 keycloak_enabled: true
+
+# Declarative CA distribution (trust-manager) is staged off by default.
+trust_manager_enabled: true
+use_declarative_ca_distribution: true
+
+# Shared trust-manager internal CA distribution defaults.
+trust_manager_internal_ca_bundle_name: openbao-ca-bundle
+trust_manager_internal_ca_target_secret_name: openbao-ca-bundle
+trust_manager_internal_ca_target_namespaces:
+  - cert-manager
+  - vault-secrets-operator-system
+  - keycloak
+  - headlamp
+
+# Keycloak -> Postgres TLS rollout toggle (staged off by default for compatibility).
+keycloak_pg_tls_enabled: true
+
+# Ingress HTTP behavior policy.
+ingress_http_policy: disabled

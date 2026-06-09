@@ -140,3 +140,88 @@
           else ''
       }] }}
   changed_when: false
+
+- name: Ensure Headlamp host resolves locally for strict TLS probe
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ readiness_check_headlamp_host | regex_escape }}(\s|$)'
+    line: "{{ readiness_check_ingress_probe_ip }} {{ readiness_check_headlamp_host }}"
+    state: present
+  become: true
+  when:
+    - readiness_check_strict_tls_checks_enabled | bool
+    - readiness_check_headlamp_manage_hosts_override | bool
+
+- name: Write root CA file for strict Headlamp TLS probe
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: write_ca_file_from_secret.yml
+  vars:
+    common_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_ca_secret_name: "{{ readiness_check_openbao_ca_secret_name }}"
+    common_ca_source_namespace: "{{ readiness_check_headlamp_ca_source_namespace }}"
+    common_ca_file_path: "{{ readiness_check_headlamp_ca_bundle_path }}"
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Read OpenBao external issuer CA PEM for strict Headlamp TLS probe
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_cluster_addr }}/v1/{{ readiness_check_openbao_pki_external_mount }}/ca/pem"
+    method: GET
+    ca_path: "{{ readiness_check_headlamp_ca_bundle_path }}"
+    validate_certs: true
+    return_content: true
+    status_code: 200
+  register: _rc_headlamp_external_issuer_ca
+  changed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Assert external issuer CA response for strict Headlamp TLS probe
+  ansible.builtin.assert:
+    that:
+      - (_rc_headlamp_external_issuer_ca.content | default('') | trim | length) > 0
+      - "'BEGIN CERTIFICATE' in (_rc_headlamp_external_issuer_ca.content | default(''))"
+    fail_msg: >-
+      OpenBao external issuer CA response is empty or not PEM-formatted for strict Headlamp TLS probe.
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Read root CA file content for strict Headlamp TLS bundle
+  ansible.builtin.slurp:
+    src: "{{ readiness_check_headlamp_ca_bundle_path }}"
+  register: _rc_headlamp_root_ca_file
+  changed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Write combined CA bundle for strict Headlamp TLS probe
+  ansible.builtin.copy:
+    dest: "{{ readiness_check_headlamp_ca_bundle_path }}"
+    mode: "0600"
+    content: |-
+      {{ _rc_headlamp_root_ca_file.content | b64decode | trim }}
+      {{ _rc_headlamp_external_issuer_ca.content | trim }}
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Verify Headlamp endpoint with strict TLS validation
+  ansible.builtin.uri:
+    url: "{{ readiness_check_headlamp_url }}"
+    method: GET
+    validate_certs: true
+    ca_path: "{{ readiness_check_headlamp_ca_bundle_path }}"
+    timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
+    status_code: [200, 301, 302, 307, 401, 403]
+  register: _rc_headlamp_strict_tls
+  changed_when: false
+  failed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Add Headlamp strict TLS trust check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'Endpoint strict TLS trust',
+        'status': 'pass' if (_rc_headlamp_strict_tls.status | default(-1)) in [200, 301, 302, 307, 401, 403] else 'fail',
+        'detail': 'HTTP ' + ((_rc_headlamp_strict_tls.status | default(-1)) | string) + ' via ' + readiness_check_headlamp_url,
+        'error': (_rc_headlamp_strict_tls.msg | default(''))
+      }] }}
+  changed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool

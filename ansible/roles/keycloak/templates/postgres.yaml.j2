@@ -38,10 +38,42 @@ spec:
     spec:
       securityContext:
         fsGroup: 999
+{% if keycloak_pg_tls_enabled | bool %}
+      initContainers:
+        - name: postgres-tls-permissions
+          image: {{ keycloak_pg_tls_init_image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              cp /tls-src/tls.crt /tls/tls.crt
+              cp /tls-src/tls.key /tls/tls.key
+              if [ -f /tls-src/ca.crt ]; then cp /tls-src/ca.crt /tls/ca.crt; fi
+              chmod 600 /tls/tls.key
+              chmod 644 /tls/tls.crt
+              if [ -f /tls/ca.crt ]; then chmod 644 /tls/ca.crt; fi
+              chown 999:999 /tls/tls.key /tls/tls.crt /tls/ca.crt 2>/dev/null || true
+          volumeMounts:
+            - name: postgres-tls-source
+              mountPath: /tls-src
+              readOnly: true
+            - name: postgres-tls
+              mountPath: /tls
+{% endif %}
       containers:
         - name: postgres
           image: {{ keycloak_pg_image }}
           imagePullPolicy: IfNotPresent
+{% if keycloak_pg_tls_enabled | bool %}
+          args:
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/etc/postgresql/tls/tls.crt
+            - -c
+            - ssl_key_file=/etc/postgresql/tls/tls.key
+{% endif %}
           ports:
             - name: postgres
               containerPort: 5432
@@ -63,6 +95,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+{% if keycloak_pg_tls_enabled | bool %}
+            - name: postgres-tls
+              mountPath: /etc/postgresql/tls
+              readOnly: true
+{% endif %}
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "{{ keycloak_db_username }}", "-d", "{{ keycloak_db_name }}"]
@@ -84,6 +121,14 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+{% if keycloak_pg_tls_enabled | bool %}
+      volumes:
+        - name: postgres-tls-source
+          secret:
+            secretName: {{ keycloak_pg_tls_secret_name }}
+        - name: postgres-tls
+          emptyDir: {}
+{% endif %}
   volumeClaimTemplates:
     - metadata:
         name: data

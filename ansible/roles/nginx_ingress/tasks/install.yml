@@ -1,6 +1,33 @@
 ---
 - name: Install nginx ingress dependencies with diagnostics
   block:
+    - name: Validate ingress HTTP policy
+      ansible.builtin.assert:
+        that:
+          - (ingress_http_policy | default('redirect-only')) in ['redirect-only', 'disabled']
+        fail_msg: "ingress_http_policy must be one of: redirect-only, disabled"
+
+    - name: Build effective ingress-nginx Helm values from HTTP policy
+      ansible.builtin.set_fact:
+        _nginx_effective_chart_values: >-
+          {{
+            nginx_tofu_chart_values
+            | combine({
+                'controller': {
+                  'service': {
+                    'enableHttp': ((ingress_http_policy | default('redirect-only')) == 'redirect-only')
+                  }
+                }
+              }, recursive=True)
+            | combine(
+                {'controller': {'config': {'server-snippet': ''}}}
+                if ((ingress_http_policy | default('redirect-only')) == 'disabled')
+                else {},
+                recursive=True
+              )
+          }}
+      changed_when: false
+
     - name: Ensure nginx ingress working directory exists
       ansible.builtin.file:
         path: "{{ nginx_tofu_work_dir }}"
@@ -12,7 +39,7 @@
       ansible.builtin.copy:
         dest: "{{ nginx_tofu_work_dir }}/ingress-nginx-values.yaml"
         mode: "0600"
-        content: "{{ nginx_tofu_chart_values | to_nice_yaml(indent=2) }}"
+        content: "{{ _nginx_effective_chart_values | to_nice_yaml(indent=2) }}"
       register: _nginx_values_result
 
     - name: Deploy ingress-nginx via Helm
@@ -37,7 +64,7 @@
         port: "80/tcp"
         permanent: true
         immediate: true
-        state: enabled
+        state: "{{ 'enabled' if ((ingress_http_policy | default('redirect-only')) == 'redirect-only') else 'disabled' }}"
       register: _nginx_http_port_result
       when: nginx_ingress_firewall_manage | bool
 

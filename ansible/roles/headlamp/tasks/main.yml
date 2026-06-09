@@ -10,6 +10,7 @@
     - name: Automate Keycloak OIDC client setup for Headlamp
       ansible.builtin.import_tasks: oidc_client.yml
       tags: [headlamp, headlamp_oidc, keycloak, openbao]
+      when: not ansible_check_mode
 
     - name: Provision Headlamp TLS certificate resources
       ansible.builtin.import_tasks: pki.yml

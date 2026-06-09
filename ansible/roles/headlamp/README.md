@@ -32,6 +32,16 @@ official plugins from Artifact Hub.
 - Deploy Headlamp Helm chart directly with Helm
 - Validate readiness through the shared readiness_check role
 
+## Internal TLS caller standard
+- OIDC provisioning uses Keycloak's internal HTTPS endpoint
+	`https://<service>.<namespace>.svc.cluster.local:8443`.
+- The caller trust bundle is explicit: OpenBao root CA + internal issuer CA.
+- The role now consumes `common/tasks/prepare_internal_https_caller.yml` so DNS
+	override, CA extraction, and issuer retrieval are centralized and consistent.
+
+When `use_declarative_ca_distribution: true`, this role expects the OpenBao CA
+Secret to be delivered by trust-manager and skips manual namespace CA copy.
+
 ## Variables
 See `defaults/main.yml` for configurable options, including ingress host,
 OIDC realm/client, OpenBao paths, and plugin-manager settings.

@@ -13,9 +13,11 @@ spec:
       secret: {{ keycloak_bootstrap_admin_secret_name }}
   db:
     vendor: postgres
-    host: {{ keycloak_pg_service }}
-    port: 5432
-    database: {{ keycloak_db_name }}
+{% if keycloak_pg_tls_enabled | bool %}
+    url: "jdbc:postgresql://{{ keycloak_pg_service_fqdn }}:5432/{{ keycloak_db_name }}?sslmode={{ keycloak_pg_tls_verify_mode }}&sslrootcert={{ keycloak_pg_tls_ca_mount_path }}/{{ keycloak_pg_tls_ca_file_name }}"
+{% else %}
+    url: "jdbc:postgresql://{{ keycloak_pg_host }}:5432/{{ keycloak_db_name }}?sslmode=disable"
+{% endif %}
     usernameSecret:
       name: {{ keycloak_db_secret_name }}
       key: username
@@ -33,3 +35,9 @@ spec:
     strict: {{ (keycloak_hostname_strict | bool) | string | lower }}
   proxy:
     headers: xforwarded
+{% if keycloak_pg_tls_enabled | bool %}
+  truststores:
+    postgres:
+      configMap:
+        name: {{ keycloak_pg_tls_ca_configmap_name }}
+{% endif %}

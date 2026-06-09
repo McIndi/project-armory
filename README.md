@@ -11,6 +11,8 @@ Project Armory is an open-source reference architecture for running AI agents sa
 - `roles/helm`: role that installs Helm
 - `roles/k3s`: role that installs and configures `k3s` with Keycloak OIDC authentication for the Kubernetes API server
 - `roles/openbao`: role that installs and configures OpenBao for secret management and PKI
+- `roles/cert_manager`: role that installs cert-manager and OpenBao-backed ClusterIssuers
+- `roles/trust_manager`: role that installs trust-manager and declarative CA bundle distribution
 - `roles/nginx_ingress`: role that installs and configures ingress-nginx and cert-manager TLS
 - `roles/vso`: role that installs Vault Secrets Operator
 - `roles/keycloak`: role that deploys standalone Keycloak (operator + realm import + DB secret sync)
@@ -102,6 +104,9 @@ ansible-playbook playbooks/site.yml --tags vso_install
 # Only run Keycloak install tasks
 ansible-playbook playbooks/site.yml --tags keycloak_install
 
+# Only run trust-manager install and Bundle sync tasks
+ansible-playbook playbooks/site.yml --tags trust_manager
+
 # Only run Headlamp deploy tasks
 ansible-playbook playbooks/site.yml --tags headlamp_install
 
@@ -122,6 +127,29 @@ ansible-playbook playbooks/readiness_check.yml
 - The `env_guard` role fails fast if `ARMORY_ENV_SOURCED` is missing or invalid.
 - `/vagrant` is world-writable on most Vagrant guests, so using environment-driven config avoids relying on local `ansible.cfg` discovery.
 - The VSO deployment path requires a hardened VSO Helm chart with explicit kube-rbac-proxy TLS cert/key support. Configure `VSO_CHART_PATH` or the `VSO_CHART_REPO`/`VSO_CHART_NAME`/`VSO_CHART_VERSION` tuple in `.env`.
+
+## TLS Standards
+
+- Internal service callers must use service FQDN endpoints (`<service>.<namespace>.svc.cluster.local`) rather than short names or raw IPs.
+- Ingress backend protocol and service port must match service TLS mode (for Keycloak ingress, HTTPS upstream on port `8443`).
+- Internal HTTPS callers must use explicit CA bundles that include the OpenBao root CA and the relevant issuer CA.
+- `roles/common/tasks/prepare_internal_https_caller.yml` is the shared helper for internal caller DNS override and trust-bundle bootstrap.
+- `roles/readiness_check` now includes strict TLS trust validation checks (explicit CA path + certificate verification) for Keycloak internal OIDC and Headlamp ingress endpoints.
+
+## TLS Rollout Toggles
+
+Use the following toggles for staged rollout and fast rollback:
+
+- `use_declarative_ca_distribution`: when `true`, consumer roles use trust-manager-managed CA target Secrets instead of per-role secret copy tasks.
+- `keycloak_pg_tls_enabled`: when `true`, Keycloak uses verify-full TLS for PostgreSQL (`sslmode=verify-full`) and Postgres serves TLS.
+- `ingress_http_policy`: `redirect-only` (default compatibility) or `disabled` (close HTTP listener exposure path).
+
+Recommended enablement sequence:
+
+1. Enable `trust_manager_enabled: true` while keeping `use_declarative_ca_distribution: false`.
+2. Validate Bundle target Secrets, then set `use_declarative_ca_distribution: true`.
+3. Enable `keycloak_pg_tls_enabled: true` in non-prod first.
+4. Set `ingress_http_policy: disabled` only after readiness checks pass for that profile.
 
 ## Sensitive Output
 

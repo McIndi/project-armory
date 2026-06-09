@@ -26,6 +26,11 @@
       tags:
         - cert_manager
         - cert_manager_install
+    - role: trust_manager
+      tags:
+        - trust_manager
+        - trust_manager_install
+      when: trust_manager_enabled | default(false) | bool
     - role: nginx_ingress
       tags:
         - nginx_ingress

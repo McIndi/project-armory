@@ -7,6 +7,18 @@ covered in their own docs).
 Goal: reduce hand-rolled glue where k3s / cert-manager / Keycloak / VSO / Helm
 already provide the capability; cut duplication; improve grokability.
 
+## Decision record (2026-06-08)
+
+- Implemented: new `trust_manager` role and staged declarative CA distribution
+   toggle path (`trust_manager_enabled`, `use_declarative_ca_distribution`).
+- Implemented: Keycloak -> Postgres TLS wiring with verify-full defaults behind
+   `keycloak_pg_tls_enabled` rollout toggle.
+- Implemented: explicit ingress HTTP profile toggle
+   (`ingress_http_policy=redirect-only|disabled`) with policy-aware readiness
+   assertions.
+- Rollback controls: switch the three toggles back to compatibility defaults
+   without reverting unrelated code.
+
 ## Measured repetition (basis for the recommendations)
 Counts from the current tree (`ansible/roles`):
 
