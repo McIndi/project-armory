@@ -8,7 +8,7 @@ headlamp_namespace: headlamp
 headlamp_release_name: headlamp
 headlamp_chart_repo: https://kubernetes-sigs.github.io/headlamp
 headlamp_chart_name: headlamp
-headlamp_chart_version: ""
+headlamp_chart_version: "0.42.0"
 
 # Public ingress settings
 headlamp_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
@@ -22,6 +22,10 @@ headlamp_tls_secret_name: headlamp-tls
 headlamp_tls_issuer_name: openbao-pki-external
 headlamp_cert_duration: "8760h"
 headlamp_cert_renew_before: "720h"
+headlamp_internal_tls_secret_name: headlamp-internal-tls
+headlamp_internal_tls_issuer_name: openbao-pki-internal
+headlamp_internal_fqdn: "{{ headlamp_release_name }}.{{ headlamp_namespace }}.svc.cluster.local"
+headlamp_internal_tls_mount_path: /headlamp-internal-tls
 
 # Keycloak OIDC settings
 #

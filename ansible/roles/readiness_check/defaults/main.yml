@@ -38,6 +38,8 @@ readiness_check_keycloak_ca_source_namespace: "{{ readiness_check_keycloak_names
 readiness_check_headlamp_ca_bundle_path: /tmp/readiness-headlamp-ca-bundle.crt
 readiness_check_headlamp_ca_source_namespace: headlamp
 readiness_check_headlamp_manage_hosts_override: true
+readiness_check_headlamp_internal_fqdn: headlamp.headlamp.svc.cluster.local
+readiness_check_headlamp_internal_url: "https://{{ readiness_check_headlamp_internal_fqdn }}:8443/"
 
 # Host checks
 readiness_check_required_packages:

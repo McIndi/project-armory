@@ -225,3 +225,45 @@
       }] }}
   changed_when: false
   when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Prepare strict Headlamp internal TLS trust bundle
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: prepare_internal_https_caller.yml
+  vars:
+    common_internal_https_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_internal_https_service_name: headlamp
+    common_internal_https_service_namespace: headlamp
+    common_internal_https_fqdn: "{{ readiness_check_headlamp_internal_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ readiness_check_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ readiness_check_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ readiness_check_headlamp_ca_source_namespace }}"
+    common_internal_https_bundle_path: "{{ readiness_check_headlamp_ca_bundle_path }}"
+    common_internal_https_openbao_pki_mount: pki-int
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Verify Headlamp internal endpoint with strict TLS validation
+  ansible.builtin.uri:
+    url: "{{ readiness_check_headlamp_internal_url }}"
+    method: GET
+    validate_certs: true
+    ca_path: "{{ readiness_check_headlamp_ca_bundle_path }}"
+    timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
+    status_code: [200]
+  register: _rc_headlamp_internal_strict_tls
+  changed_when: false
+  failed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
+
+- name: Add Headlamp internal strict TLS trust check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'Internal endpoint strict TLS trust',
+        'status': 'pass' if (_rc_headlamp_internal_strict_tls.status | default(-1)) == 200 else 'fail',
+        'detail': 'HTTP ' + ((_rc_headlamp_internal_strict_tls.status | default(-1)) | string) + ' via ' + readiness_check_headlamp_internal_url,
+        'error': (_rc_headlamp_internal_strict_tls.msg | default(''))
+      }] }}
+  changed_when: false
+  when: readiness_check_strict_tls_checks_enabled | bool
