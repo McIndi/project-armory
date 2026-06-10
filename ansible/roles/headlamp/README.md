@@ -24,6 +24,11 @@ official plugins from Artifact Hub.
 - nginx ingress: External HTTPS exposure
 - k3s: Cluster-wide RBAC for admin users
 
+Headlamp also serves HTTPS on the in-cluster service hop using the
+`headlamp-internal-tls` certificate issued by `openbao-pki-internal`.
+The ingress is configured with `nginx.ingress.kubernetes.io/backend-protocol: HTTPS`
+so ingress-nginx terminates edge TLS and forwards to Headlamp over HTTPS.
+
 ## Tasks
 - Create/update Keycloak OIDC client for Headlamp
 - Persist effective OIDC credentials in OpenBao KV

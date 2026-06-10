@@ -143,6 +143,8 @@
           },
           'config': {
             'enableHelm': True,
+            'tlsCertPath': headlamp_internal_tls_mount_path + '/tls.crt',
+            'tlsKeyPath': headlamp_internal_tls_mount_path + '/tls.key',
             'extraArgs': [
               '-oidc-ca-file=' + headlamp_oidc_ca_file_path
             ],
@@ -158,6 +160,12 @@
             },
             'watchPlugins': ((headlamp_plugins_manager_enabled | bool) and ((headlamp_plugins | length) > 0))
           },
+          'probes': {
+            'scheme': 'HTTPS'
+          },
+          'service': {
+            'port': 8443
+          },
           'volumes': [{
             'name': 'headlamp-oidc-ca',
             'secret': {
@@ -167,10 +175,19 @@
                 'path': headlamp_oidc_ca_file_name
               }]
             }
+          }, {
+            'name': 'headlamp-internal-tls',
+            'secret': {
+              'secretName': headlamp_internal_tls_secret_name
+            }
           }],
           'volumeMounts': [{
             'name': 'headlamp-oidc-ca',
             'mountPath': headlamp_oidc_ca_mount_path,
+            'readOnly': True
+          }, {
+            'name': 'headlamp-internal-tls',
+            'mountPath': headlamp_internal_tls_mount_path,
             'readOnly': True
           }],
           'pluginsManager': {
@@ -187,6 +204,10 @@
           'ingress': {
             'enabled': True,
             'ingressClassName': headlamp_ingress_class,
+            'annotations': {
+              'nginx.ingress.kubernetes.io/backend-protocol': 'HTTPS',
+              'nginx.ingress.kubernetes.io/ssl-redirect': 'true'
+            },
             'hosts': [{
               'host': headlamp_ingress_host,
               'paths': [{
@@ -219,12 +240,58 @@
       --repo {{ headlamp_chart_repo }}
       {% if headlamp_chart_version | length > 0 %}--version {{ headlamp_chart_version }}{% endif %}
       -f {{ headlamp_tofu_work_dir }}/values.yaml
-      --wait
-      --timeout 600s
       --kubeconfig {{ headlamp_kubeconfig_path }}
   register: _headlamp_helm_apply_result
   changed_when: true
   when: not ansible_check_mode
+
+- name: Read Headlamp probe schemes
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get deployment {{ headlamp_release_name }}
+      --namespace {{ headlamp_namespace }}
+      -o jsonpath='{.spec.template.spec.containers[?(@.name=="headlamp")].livenessProbe.httpGet.scheme}|{.spec.template.spec.containers[?(@.name=="headlamp")].readinessProbe.httpGet.scheme}'
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_probe_schemes
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Patch Headlamp deployment probes to HTTPS
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl patch deployment {{ headlamp_release_name }}
+      --namespace {{ headlamp_namespace }}
+      --type=strategic
+      --patch
+      {{ ({
+          'spec': {
+            'template': {
+              'spec': {
+                'containers': [{
+                  'name': 'headlamp',
+                  'livenessProbe': {
+                    'httpGet': {
+                      'scheme': 'HTTPS'
+                    }
+                  },
+                  'readinessProbe': {
+                    'httpGet': {
+                      'scheme': 'HTTPS'
+                    }
+                  }
+                }]
+              }
+            }
+          }
+        }) | to_json | quote }}
+  environment:
+    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  register: _headlamp_probe_scheme_patch_result
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - (_headlamp_probe_schemes.stdout | default('')) != 'HTTPS|HTTPS'
 
 - name: Resolve in-cluster ingress IP for Headlamp OIDC issuer hostname
   ansible.builtin.command:
