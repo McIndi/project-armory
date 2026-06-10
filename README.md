@@ -140,9 +140,9 @@ ansible-playbook playbooks/readiness_check.yml
 
 Use the following toggles for staged rollout and fast rollback:
 
-- `use_declarative_ca_distribution`: when `true`, consumer roles use trust-manager-managed CA target Secrets instead of per-role secret copy tasks.
+- `use_declarative_ca_distribution`: when `true`, downstream consumer roles (vso, keycloak, headlamp, readiness_check) use trust-manager-managed CA target Secrets instead of per-role secret copy tasks. Exception: `cert_manager` always self-bootstraps from the direct `openbao-ca` copy because it runs before `trust_manager` and anchors the trust chain.
 - `keycloak_pg_tls_enabled`: when `true`, Keycloak uses verify-full TLS for PostgreSQL (`sslmode=verify-full`) and Postgres serves TLS.
-- `ingress_http_policy`: `redirect-only` (default compatibility) or `disabled` (close HTTP listener exposure path).
+- `ingress_http_policy`: `redirect-only` (default compatibility) or `disabled` (close `80/tcp` in firewalld). Note: with a hostNetwork ingress controller the HTTP listener itself stays bound; `disabled` blocks external HTTP exposure at the firewall, which is what readiness verifies.
 
 Recommended enablement sequence:
 

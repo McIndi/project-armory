@@ -52,7 +52,21 @@
         - use_declarative_ca_distribution | bool
         - trust_manager_external_ca_bundle_enabled | bool
 
-    - name: Wait for internal CA Bundle target secret in declarative mode
+# Target namespaces are created by their owning roles (vso, keycloak, headlamp),
+    # most of which run AFTER trust_manager in site.yml. trust-manager watches
+    # namespace creation and syncs Bundle targets into late-created namespaces
+    # within seconds, so here we only verify sync into namespaces that already
+    # exist; consumers created later are covered by the controller's watch.
+    - name: List existing target namespaces for Bundle sync verification
+      ansible.builtin.command:
+        cmd: k3s kubectl get namespace -o jsonpath='{.items[*].metadata.name}'
+      environment:
+        KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
+      register: _trust_manager_existing_namespaces
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Wait for internal CA Bundle target secret in existing namespaces
       ansible.builtin.command:
         cmd: >-
           k3s kubectl get secret {{ trust_manager_internal_ca_target_secret_name }}
@@ -64,7 +78,11 @@
       retries: 20
       delay: 6
       until: _trust_manager_internal_bundle_secret_wait.rc == 0
-      loop: "{{ trust_manager_internal_ca_target_namespaces }}"
+      loop: >-
+        {{
+          trust_manager_internal_ca_target_namespaces
+          | intersect(_trust_manager_existing_namespaces.stdout | default('') | split)
+        }}
       loop_control:
         label: "{{ item }}"
       when:
