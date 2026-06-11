@@ -1,5 +1,8 @@
 # Keycloak Extraction Plan — Standalone Keycloak in project-armory
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: proposed (evaluation stage — no changes applied)
 Scope: extract Keycloak from the bundled BeeAI/Agent Stack Helm chart into a
 standalone, self-owned Keycloak deployment in project-armory. Remove the
@@ -10,7 +13,7 @@ armory's Keycloak as an external OIDC provider.
 
 > Garrison-side work is **out of scope** for this document. Everything Agent
 > Stack must account for when running against an external Keycloak is captured
-> separately in [`agentstack-keycloak-reqs-for-garrison.md`](agentstack-keycloak-reqs-for-garrison.md).
+> separately in [`agentstack-keycloak-reqs-for-garrison.md`](../agentstack-keycloak-reqs-for-garrison.md).
 
 ## 1. Why
 
@@ -42,12 +45,12 @@ Keycloak part"** of that chart. A separate, standard Keycloak chart is required.
 |---|---|---|
 | Keycloak + Keycloak DB | Agent Stack chart, ns `agentstack` | bundled; image `ghcr.io/i-am-bee/agentstack/keycloak-themed:26.5.4` |
 | Realm `agentstack` + clients | chart realm import | clients `agentstack-ui`, `agentstack-server`, audience scopes, seed admin user |
-| In-cluster Keycloak fixes | [`beeai_agentstack_tofu/tasks/main.yml:696`](../ansible/roles/beeai_agentstack_tofu/tasks/main.yml) | `KC_HOSTNAME_STRICT=false` patch + startup-probe bump (~237s cold-JVM start) |
-| Audience mapper fix | [`keycloak_oidc_fix.yml`](../ansible/roles/beeai_agentstack_tofu/tasks/keycloak_oidc_fix.yml) | forces `aud: agentstack-server` (Agent Stack specific) |
+| In-cluster Keycloak fixes | [`beeai_agentstack_tofu/tasks/main.yml:696`](../../ansible/roles/beeai_agentstack_tofu/tasks/main.yml) | `KC_HOSTNAME_STRICT=false` patch + startup-probe bump (~237s cold-JVM start) |
+| Audience mapper fix | [`keycloak_oidc_fix.yml`](../../ansible/roles/beeai_agentstack_tofu/tasks/keycloak_oidc_fix.yml) | forces `aud: agentstack-server` (Agent Stack specific) |
 | Credential source | OpenBao `secret/beeai/credentials` → VSO → k8s secret `beeai-credentials` | admin pw, pg passwords |
-| k3s API-server OIDC | [`k3s/defaults/main.yml:77`](../ansible/roles/k3s/defaults/main.yml), [`k3s/tasks/oidc.yml`](../ansible/roles/k3s/tasks/oidc.yml) | issuer `…/realms/agentstack`, client `headlamp`; restarts k3s |
-| Headlamp OIDC | [`headlamp/tasks/oidc_client.yml`](../ansible/roles/headlamp/tasks/oidc_client.yml), [`headlamp/defaults/main.yml:27`](../ansible/roles/headlamp/defaults/main.yml) | creates `headlamp` client in realm `agentstack`; reads `keycloak-secret` admin pw |
-| Readiness | [`readiness_check/tasks/check_beeai.yml`](../ansible/roles/readiness_check/tasks/check_beeai.yml) | Agent Stack pod/HTTPS checks |
+| k3s API-server OIDC | [`k3s/defaults/main.yml:77`](../../ansible/roles/k3s/defaults/main.yml), [`k3s/tasks/oidc.yml`](../../ansible/roles/k3s/tasks/oidc.yml) | issuer `…/realms/agentstack`, client `headlamp`; restarts k3s |
+| Headlamp OIDC | [`headlamp/tasks/oidc_client.yml`](../../ansible/roles/headlamp/tasks/oidc_client.yml), [`headlamp/defaults/main.yml:27`](../../ansible/roles/headlamp/defaults/main.yml) | creates `headlamp` client in realm `agentstack`; reads `keycloak-secret` admin pw |
+| Readiness | [`readiness_check/tasks/check_beeai.yml`](../../ansible/roles/readiness_check/tasks/check_beeai.yml) | Agent Stack pod/HTTPS checks |
 
 ## 3. Target architecture (armory side only)
 
@@ -97,26 +100,26 @@ stays Agent-Stack-ignorant.
 - Seed admin user + role assignment (replaces the chart's `seedAgentstackUsers`).
 
 ### 4.3 Repoint k3s OIDC
-- `k3s_oidc_issuer_url` → `…/realms/armory` ([`k3s/defaults/main.yml:77`](../ansible/roles/k3s/defaults/main.yml)).
+- `k3s_oidc_issuer_url` → `…/realms/armory` ([`k3s/defaults/main.yml:77`](../../ansible/roles/k3s/defaults/main.yml)).
 - Confirm `k3s_oidc_client_id` / claims still valid against the `armory` realm.
-- OIDC-CA sync flow ([`k3s/tasks/oidc.yml`](../ansible/roles/k3s/tasks/oidc.yml))
+- OIDC-CA sync flow ([`k3s/tasks/oidc.yml`](../../ansible/roles/k3s/tasks/oidc.yml))
   is unchanged in shape — only the CA source secret/namespace may move.
 
 ### 4.4 Repoint Headlamp
-- `headlamp_keycloak_realm` → `armory` ([`headlamp/defaults/main.yml:27`](../ansible/roles/headlamp/defaults/main.yml)).
+- `headlamp_keycloak_realm` → `armory` ([`headlamp/defaults/main.yml:27`](../../ansible/roles/headlamp/defaults/main.yml)).
 - Replace the `beeai_*`-derived defaults Headlamp borrows
   (`beeai_keycloak_service_name`, `beeai_keycloak_service_port`,
   `beeai_tofu_namespace`) with `keycloak`-role-owned vars
-  ([`headlamp/defaults/main.yml:29`](../ansible/roles/headlamp/defaults/main.yml)).
+  ([`headlamp/defaults/main.yml:29`](../../ansible/roles/headlamp/defaults/main.yml)).
 - The REST client-provisioning logic in
-  [`oidc_client.yml`](../ansible/roles/headlamp/tasks/oidc_client.yml) is reusable
+  [`oidc_client.yml`](../../ansible/roles/headlamp/tasks/oidc_client.yml) is reusable
   as-is against the new realm.
 
 ### 4.5 Readiness + cleanup
 - Remove the Agent Stack block from readiness
-  ([`check_beeai.yml`](../ansible/roles/readiness_check/tasks/check_beeai.yml));
+  ([`check_beeai.yml`](../../ansible/roles/readiness_check/tasks/check_beeai.yml));
   add a Keycloak health/realm check.
-- Remove `beeai_agentstack_tofu` from [`site.yml`](../ansible/playbooks/site.yml)
+- Remove `beeai_agentstack_tofu` from [`site.yml`](../../ansible/playbooks/site.yml)
   and delete the role (work is preserved in git history and migrates to garrison).
 - Decide VSO ownership: VSO is currently set up inside `beeai_agentstack_tofu`.
   If Keycloak needs VSO-synced credentials, VSO setup must move into the
@@ -134,7 +137,7 @@ role rather than discarding with the Agent Stack role:
   target host; default probe kills Keycloak before first ready).
 - `/realms/...` ingress + TLS via `armory-tls`.
 
-The **audience-mapper fix** ([`keycloak_oidc_fix.yml`](../ansible/roles/beeai_agentstack_tofu/tasks/keycloak_oidc_fix.yml))
+The **audience-mapper fix** ([`keycloak_oidc_fix.yml`](../../ansible/roles/beeai_agentstack_tofu/tasks/keycloak_oidc_fix.yml))
 is Agent-Stack-specific (`aud: agentstack-server`) and does **not** belong in
 armory's `keycloak` role. It is documented for garrison in the companion doc.
 
@@ -161,4 +164,4 @@ armory's `keycloak` role. It is documented for garrison in the companion doc.
 Everything project-garrison must do to deploy Agent Stack against this Keycloak
 (external-OIDC contract, realm/client/audience/role bootstrap, in-cluster issuer
 and TLS-trust concerns) lives in
-[`agentstack-keycloak-reqs-for-garrison.md`](agentstack-keycloak-reqs-for-garrison.md).
+[`agentstack-keycloak-reqs-for-garrison.md`](../agentstack-keycloak-reqs-for-garrison.md).

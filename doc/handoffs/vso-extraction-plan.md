@@ -1,5 +1,8 @@
 # VSO Extraction Plan — Standalone `vso` Role
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: proposed (evaluation stage — no changes applied)
 Scope: extract the **Vault Secrets Operator (VSO) install** out of
 `beeai_agentstack_tofu` into a standalone `vso` role, so VSO is a shared
@@ -11,13 +14,13 @@ Companion: [`keycloak-operator-implementation-plan.md`](keycloak-operator-implem
 ## 1. Why
 
 VSO is a **shared** cluster dependency: `keycloak`, `headlamp`
-([`headlamp/tasks/deploy.yml`](../ansible/roles/headlamp/tasks/deploy.yml)), and
+([`headlamp/tasks/deploy.yml`](../../ansible/roles/headlamp/tasks/deploy.yml)), and
 `beeai_agentstack_tofu` all create VSO custom resources
 (VaultConnection / VaultAuth / VaultStaticSecret) to sync OpenBao secrets.
 
 But the **operator itself** is installed only inside the beeai role, and those
 install tasks share one `block` with the entire agentstack chart deploy
-([`beeai_agentstack_tofu/tasks/main.yml:7`](../ansible/roles/beeai_agentstack_tofu/tasks/main.yml),
+([`beeai_agentstack_tofu/tasks/main.yml:7`](../../ansible/roles/beeai_agentstack_tofu/tasks/main.yml),
 tag `beeai_vso` but not separable from the chart apply). Consequences:
 
 - You cannot install VSO without deploying Agent Stack.
@@ -38,7 +41,7 @@ Extracting VSO into its own role fixes both and makes the dependency explicit.
 - cert-manager `Certificate` for the kube-rbac-proxy TLS + waits for cert/secret.
 - `helm upgrade --install` of the hardened VSO chart.
 
-(Source: [`beeai_agentstack_tofu/tasks/main.yml:9-203`](../ansible/roles/beeai_agentstack_tofu/tasks/main.yml).)
+(Source: [`beeai_agentstack_tofu/tasks/main.yml:9-203`](../../ansible/roles/beeai_agentstack_tofu/tasks/main.yml).)
 
 **Stays in each consumer role (per-namespace, per-consumer):**
 - ServiceAccount + VaultConnection + VaultAuth + VaultStaticSecret.
@@ -100,7 +103,7 @@ Tag the role `vso` (and `vso_install`). Consumers gain a clean prerequisite:
 ## 5. beeai transition
 
 - Delete the VSO install sub-block from
-  [`beeai_agentstack_tofu/tasks/main.yml`](../ansible/roles/beeai_agentstack_tofu/tasks/main.yml)
+  [`beeai_agentstack_tofu/tasks/main.yml`](../../ansible/roles/beeai_agentstack_tofu/tasks/main.yml)
   (lines ~9-203) and its `templates/vso_kube_rbac_proxy_certificate.yaml.j2`.
 - beeai keeps its credential generation, VaultConnection/Auth/StaticSecret, and
   chart apply — it now **consumes** the VSO that the `vso` role installed.

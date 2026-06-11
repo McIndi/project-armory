@@ -52,7 +52,7 @@ standard. **Cost:** one extra small controller. **Risk:** low, isolated.
 **Now:** 31 `kubectl apply -f -`, 54 stdout-grep `changed_when`, 9 `helm` shell
 calls, 3 namespace dry-run two-steps. All a consequence of the deliberate
 dependency-free choice in
-[`migration_opentofu_to_helm.md` §2](migration_opentofu_to_helm.md)
+[`migration_opentofu_to_helm.md` §2](handoffs/migration_opentofu_to_helm.md)
 (*"revisit … once the tofu removal is proven"* — it is now proven).
 **Better:** `kubernetes.core.k8s` (apply manifests/dicts, real idempotency + diff,
 `state: present` for namespaces) and `kubernetes.core.helm` (values as dicts, no

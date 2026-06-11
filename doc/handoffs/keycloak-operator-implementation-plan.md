@@ -1,13 +1,16 @@
 # Keycloak Operator + Postgres StatefulSet — Implementation Plan
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: proposed (evaluation stage — no changes applied)
 Scope: rebuild the work-in-progress `keycloak` role to deploy Keycloak via the
 **official Keycloak Operator** backed by a **plain PostgreSQL StatefulSet**, and
 fix the blockers found in the first (Bitnami-Helm) pass. project-armory side only.
 Supersedes: the Bitnami-chart approach currently in
-[`ansible/roles/keycloak`](../ansible/roles/keycloak).
+[`ansible/roles/keycloak`](../../ansible/roles/keycloak).
 Companions: [`keycloak-extraction-plan.md`](keycloak-extraction-plan.md) (why/architecture),
-[`agentstack-keycloak-reqs-for-garrison.md`](agentstack-keycloak-reqs-for-garrison.md) (garrison side).
+[`agentstack-keycloak-reqs-for-garrison.md`](../agentstack-keycloak-reqs-for-garrison.md) (garrison side).
 
 ## 1. Decisions locked
 
@@ -33,7 +36,7 @@ operator path replaces the deployment mechanism wholesale.
 | OpenBao cred-gen, policy, k8s auth role, CA secret, VaultConnection/Auth | **keep** | unchanged — these are correct |
 | `keycloak_*_tofu_*` var names | **rename** | drop "tofu" (repo already de-OpenTofu'd) |
 
-The OpenBao/VSO plumbing in [`tasks/main.yml:33-201`](../ansible/roles/keycloak/tasks/main.yml) is sound and stays. Everything from the realm-import payload and Helm apply onward gets rebuilt.
+The OpenBao/VSO plumbing in [`tasks/main.yml:33-201`](../../ansible/roles/keycloak/tasks/main.yml) is sound and stays. Everything from the realm-import payload and Helm apply onward gets rebuilt.
 
 ## 3. Target component layout
 
@@ -84,14 +87,14 @@ used to seed. Minimum viable:
 - **Realm** `armory`, `enabled: true`, `sslRequired: external`.
 - **Realm roles** the consumers need (e.g. an admin/cluster-admin role for k3s RBAC).
 - **Groups protocol mapper** — k3s expects `oidc-groups-claim: groups`
-  ([k3s/defaults](../ansible/roles/k3s/defaults/main.yml)); Keycloak emits no
+  ([k3s/defaults](../../ansible/roles/k3s/defaults/main.yml)); Keycloak emits no
   `groups` claim without a `group-membership` mapper. Add one + the group(s) that
   map to the k3s admin role.
 - **Seed admin user** + role/group assignment — otherwise nobody can log into
   Headlamp.
 - **Do NOT** put the `headlamp` client here. The Headlamp role already creates and
   reconciles its own client via REST
-  ([headlamp/tasks/oidc_client.yml](../ansible/roles/headlamp/tasks/oidc_client.yml)),
+  ([headlamp/tasks/oidc_client.yml](../../ansible/roles/headlamp/tasks/oidc_client.yml)),
   and that code works. Duplicating it in realm-import causes drift. Realm-import
   owns realm + roles + groups + users; Headlamp owns its client.
 
@@ -133,21 +136,21 @@ Keycloak Service exposes **8080 (http)** / **8443 (https)** with name
 Copilot already added keycloak-owned vars with `beeai_*` fallbacks. Re-point them
 at the operator reality:
 
-- **Headlamp** ([defaults](../ansible/roles/headlamp/defaults/main.yml),
-  [oidc_client.yml](../ansible/roles/headlamp/tasks/oidc_client.yml)):
+- **Headlamp** ([defaults](../../ansible/roles/headlamp/defaults/main.yml),
+  [oidc_client.yml](../../ansible/roles/headlamp/tasks/oidc_client.yml)):
   - `headlamp_keycloak_service_name` → `<cr-name>-service`, port `8080`.
   - `headlamp_keycloak_namespace` → `keycloak`.
   - admin lookup → operator secret `<cr-name>-initial-admin`, keys `username`/`password`
     (note: keys are `username`/`password`, **not** `admin-password` — update the jsonpath).
   - realm → `armory`.
-- **k3s** ([defaults](../ansible/roles/k3s/defaults/main.yml)):
+- **k3s** ([defaults](../../ansible/roles/k3s/defaults/main.yml)):
   - issuer → `…/realms/armory` (already parametrized on `keycloak_realm`). ✔
   - confirm `oidc-client-id: headlamp` still matches the REST-created client's audience.
 - **Group/role claim**: confirm tokens carry `groups` (from §5 mapper) so k3s RBAC binds.
 
 ## 9. Readiness
 
-[`check_keycloak.yml`](../ansible/roles/readiness_check/tasks/check_keycloak.yml)
+[`check_keycloak.yml`](../../ansible/roles/readiness_check/tasks/check_keycloak.yml)
 is largely fine. Adjust:
 - service name → `<cr-name>-service`; default namespace → `keycloak` (not `agentstack`).
 - admin-secret check → `<cr-name>-initial-admin` (and `keycloak-db-secret` for DB).
@@ -167,7 +170,7 @@ or flip defaults before all gates pass.
 5. Ingress serves `…/realms/armory/.well-known/openid-configuration` over `armory-tls`.
 6. Headlamp role creates its client (REST) in realm `armory`; Headlamp login works end-to-end.
 7. k3s issuer discovery + `groups` claim → RBAC binds; `kubectl` as seeded admin works.
-8. **Only then:** remove `beeai_agentstack_tofu` from [site.yml](../ansible/playbooks/site.yml), flip `keycloak_enabled` default, prune `BEEAI_*` from `.env.example`/`README.md`, retire `check_beeai.yml`.
+8. **Only then:** remove `beeai_agentstack_tofu` from [site.yml](../../ansible/playbooks/site.yml), flip `keycloak_enabled` default, prune `BEEAI_*` from `.env.example`/`README.md`, retire `check_beeai.yml`.
 
 > Interim foot-gun: with `keycloak_enabled=true` while beeai is still on-path, two
 > Keycloaks deploy (beeai bundles its own). Run validation with beeai tags skipped,

@@ -1,5 +1,8 @@
 # Handoff — Enable OpenBao Audit Device
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: ready for implementation (handoff to Copilot)
 Scope: enable a `file` audit device in OpenBao, backed by a dedicated PVC, with
 host-driven log rotation and a readiness assertion. No other roles change.

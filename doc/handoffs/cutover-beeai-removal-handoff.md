@@ -1,5 +1,8 @@
 # Cutover Handoff — Keycloak Teardown + Final BeeAI Removal
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: ready for implementation (handoff to Copilot)
 Scope: (A) add a teardown path to the `keycloak` role; (B) remove the
 `beeai_agentstack_tofu` role and all armory-side BeeAI/Agent Stack coupling now
@@ -10,7 +13,7 @@ Preconditions: the standalone `vso` + `keycloak` roles exist and are wired into
 already set to `keycloak` (the `armory-tls` cert lands in the Keycloak namespace).
 Companions: [`keycloak-operator-implementation-plan.md`](keycloak-operator-implementation-plan.md),
 [`vso-extraction-plan.md`](vso-extraction-plan.md),
-[`agentstack-keycloak-reqs-for-garrison.md`](agentstack-keycloak-reqs-for-garrison.md).
+[`agentstack-keycloak-reqs-for-garrison.md`](../agentstack-keycloak-reqs-for-garrison.md).
 
 ## How to use this doc (Copilot)
 Execute the tasks in order. Each task lists exact files and the change. After
@@ -24,8 +27,8 @@ needed — `ansible-playbook playbooks/site.yml` resolves all ordering/deps.
 
 ### A1. Create `ansible/roles/keycloak/tasks/teardown.yml`
 Mirror the convention in
-[`beeai_agentstack_tofu/tasks/teardown.yml`](../ansible/roles/beeai_agentstack_tofu/tasks/teardown.yml)
-and [`vso/tasks/teardown.yml`](../ansible/roles/vso/tasks/teardown.yml): register
+[`beeai_agentstack_tofu/tasks/teardown.yml`](../../ansible/roles/beeai_agentstack_tofu/tasks/teardown.yml)
+and [`vso/tasks/teardown.yml`](../../ansible/roles/vso/tasks/teardown.yml): register
 the namespace for the framework's namespace sweep, then delete custom resources
 and the operator. Delete CRs **before** the namespace so operator finalizers
 clear. Suggested contents:
@@ -96,7 +99,7 @@ Place it directly after the BeeAI teardown include (which will be removed in §B
   removes `keycloak_oidc_fix.yml` (the Agent-Stack audience fix), the agentstack
   ingress/VSO templates, and `teardown.yml`. (That audience-fix logic is already
   captured for garrison in
-  [`agentstack-keycloak-reqs-for-garrison.md`](agentstack-keycloak-reqs-for-garrison.md).)
+  [`agentstack-keycloak-reqs-for-garrison.md`](../agentstack-keycloak-reqs-for-garrison.md).)
 - **`ansible/playbooks/site.yml`** — remove the `beeai_agentstack_tofu` role block
   (the `- role: beeai_agentstack_tofu` entry and its `tags`).
 - **`ansible/playbooks/teardown_k3s_workloads.yml`** — remove the
@@ -191,7 +194,7 @@ curl -sk https://armory.local/realms/armory/.well-known/openid-configuration | h
 ```
 End-to-end: Headlamp login as realm `admin` (password from OpenBao
 `secret/keycloak/realm-admin`) → OIDC round-trip → `kubectl get nodes` works
-(RBAC bound by `<issuer>#admin`, [headlamp/rbac.yml](../ansible/roles/headlamp/tasks/rbac.yml)).
+(RBAC bound by `<issuer>#admin`, [headlamp/rbac.yml](../../ansible/roles/headlamp/tasks/rbac.yml)).
 
 Teardown check:
 ```bash
