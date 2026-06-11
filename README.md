@@ -179,6 +179,34 @@ OpenBao audit logging is enabled with a file audit device by default.
 
 Warning: OpenBao blocks requests when no enabled audit device is writable. Keep the audit PVC healthy and sized for retained logs.
 
+The device is declared in the OpenBao server config (`roles/openbao/templates/values.yaml.j2`), not via the `sys/audit` API — OpenBao v2.4+ rejects API-driven audit device creation as unsafe.
+
+#### Viewing the audit log
+
+Entries are one JSON object per line, in `request`/`response` pairs matched by `request.id`. Secret values and tokens are HMAC-SHA256 hashed — the log shows who did what to which path, never the credential itself. Key fields: `auth.display_name` (who), `auth.policies` (with what rights), `request.operation` + `request.path` (did what), `request.remote_address` (from where).
+
+All commands run inside the VM (`vagrant ssh`). Rotated files sit next to the live log as `audit.log.<timestamp>`.
+
+```bash
+# Follow live
+sudo k3s kubectl exec -n openbao openbao-0 -- tail -f /openbao/audit/audit.log
+
+# Pull a copy for offline analysis (jq: sudo dnf install -y jq)
+sudo k3s kubectl cp openbao/openbao-0:/openbao/audit/audit.log /tmp/audit.log
+
+# Who is talking to OpenBao, and how much
+jq -r 'select(.type=="request") | .auth.display_name' /tmp/audit.log | sort | uniq -c | sort -rn
+
+# Every access to a given secret path
+jq -r 'select(.request.path=="secret/data/keycloak/db") | [.time, .auth.display_name, .request.operation] | @tsv' /tmp/audit.log
+
+# All writes (anything mutating)
+jq -r 'select(.type=="request" and (.request.operation|IN("create","update","delete"))) | [.time, .auth.display_name, .request.path] | @tsv' /tmp/audit.log
+
+# Denied requests
+jq -r 'select(.auth.policy_results.allowed==false) | [.time, .auth.display_name, .request.path] | @tsv' /tmp/audit.log
+```
+
 ## Retrieve Generated Credentials
 
 The deployment uses Keycloak plus OpenBao/VSO. Re-runs reuse existing values unless secrets are intentionally rotated.
