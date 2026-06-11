@@ -18,3 +18,29 @@
   register: _openbao_helm_uninstall
   changed_when: (_openbao_helm_uninstall.rc | default(1)) == 0
   failed_when: false
+
+- name: Stop and disable OpenBao audit rotation timer
+  ansible.builtin.systemd_service:
+    name: openbao-audit-rotate.timer
+    state: stopped
+    enabled: false
+    daemon_reload: true
+  failed_when: false
+
+- name: Remove OpenBao audit rotation service unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/openbao-audit-rotate.service
+    state: absent
+  failed_when: false
+
+- name: Remove OpenBao audit rotation timer unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/openbao-audit-rotate.timer
+    state: absent
+  failed_when: false
+
+- name: Remove OpenBao audit rotation script
+  ansible.builtin.file:
+    path: "{{ openbao_work_dir }}/openbao-audit-rotate.sh"
+    state: absent
+  failed_when: false

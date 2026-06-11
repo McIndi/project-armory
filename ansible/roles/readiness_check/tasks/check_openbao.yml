@@ -115,3 +115,58 @@
         'error': ''
       }] }}
   changed_when: false
+
+- name: Ensure OpenBao root token is available for audit check
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: load_openbao_root_token.yml
+  when: openbao_audit_enabled | default(true) | bool
+
+- name: Check OpenBao audit devices
+  ansible.builtin.uri:
+    url: "{{ _rc_openbao_addr }}/v1/sys/audit"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: 200
+  register: _rc_openbao_audit_devices
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: openbao_audit_enabled | default(true) | bool
+
+- name: Add OpenBao audit enabled check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'Audit device enabled',
+        'status': (
+          'pass'
+          if (((openbao_audit_device_name | default('file')) + '/') in (_rc_openbao_audit_devices.json | default({})))
+          else 'fail'
+        ),
+        'detail': (
+          ((openbao_audit_device_name | default('file')) + ' present')
+          if (((openbao_audit_device_name | default('file')) + '/') in (_rc_openbao_audit_devices.json | default({})))
+          else ((openbao_audit_device_name | default('file')) + ' not found')
+        ),
+        'error': _rc_openbao_audit_devices.msg | default('')
+      }] }}
+  changed_when: false
+  when: openbao_audit_enabled | default(true) | bool
+
+- name: Add OpenBao audit disabled warning to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'Audit device enabled',
+        'status': 'warn',
+        'detail': 'audit disabled by config',
+        'error': ''
+      }] }}
+  changed_when: false
+  when: not (openbao_audit_enabled | default(true) | bool)

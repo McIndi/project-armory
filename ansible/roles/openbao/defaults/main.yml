@@ -143,6 +143,19 @@ openbao_firewall_manage: true
 # firewalld zone used when firewall management is enabled.
 openbao_firewall_zone: public
 
+# Audit device settings. When enabled, a `file` audit device is mounted on a
+# dedicated PVC. WARNING: OpenBao blocks all requests if no enabled audit
+# device is writable.
+openbao_audit_enabled: true
+openbao_audit_device_name: file
+openbao_audit_mount_path: /openbao/audit
+openbao_audit_log_path: "{{ openbao_audit_mount_path }}/audit.log"
+openbao_audit_storage_size: 2Gi
+# Host-side rotation (systemd timer; exec + SIGHUP into the pod).
+openbao_audit_rotate_enabled: true
+openbao_audit_rotate_on_calendar: daily
+openbao_audit_rotate_keep: 7
+
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: Enabling this will print secrets/tokens into logs and output.

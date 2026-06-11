@@ -39,3 +39,7 @@
     - name: OpenBao configuration
       ansible.builtin.import_tasks: configure.yml
       tags: [openbao, openbao_configure]
+
+    - name: OpenBao audit rotation
+      ansible.builtin.import_tasks: audit_rotate.yml
+      tags: [openbao, openbao_audit_rotate]

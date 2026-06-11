@@ -21,6 +21,15 @@ server:
       storage "file" {
         path = "/openbao/data"
       }
+{% if openbao_audit_enabled | bool %}
+
+      audit "file" "{{ openbao_audit_device_name }}" {
+        options {
+          file_path = "{{ openbao_audit_log_path }}"
+          mode = "0600"
+        }
+      }
+{% endif %}
 
   service:
     enabled: true
@@ -32,6 +41,13 @@ server:
   dataStorage:
     enabled: true
     size: 1Gi
+
+{% if openbao_audit_enabled | bool %}
+  auditStorage:
+    enabled: true
+    size: {{ openbao_audit_storage_size }}
+    mountPath: {{ openbao_audit_mount_path }}
+{% endif %}
 
   readinessProbe:
     enabled: true

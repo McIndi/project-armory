@@ -1,0 +1,56 @@
+---
+- name: Configure OpenBao audit log rotation timer
+  when:
+    - openbao_audit_enabled | bool
+    - openbao_audit_rotate_enabled | bool
+  block:
+    - name: Install OpenBao audit rotation script
+      ansible.builtin.template:
+        src: openbao-audit-rotate.sh.j2
+        dest: "{{ openbao_work_dir }}/openbao-audit-rotate.sh"
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Install OpenBao audit rotation service unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/openbao-audit-rotate.service
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Rotate OpenBao audit log
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart={{ openbao_work_dir }}/openbao-audit-rotate.sh
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Install OpenBao audit rotation timer unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/openbao-audit-rotate.timer
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Schedule OpenBao audit log rotation
+
+          [Timer]
+          OnCalendar={{ openbao_audit_rotate_on_calendar }}
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start OpenBao audit rotation timer
+      ansible.builtin.systemd_service:
+        name: openbao-audit-rotate.timer
+        daemon_reload: true
+        enabled: true
+        state: started

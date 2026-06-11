@@ -169,6 +169,16 @@ export ARMORY_LOG_NOLOG=true
 
 Only set `ARMORY_LOG_NOLOG=true` in tightly controlled environments and rotate exposed credentials after use.
 
+### Audit Logging
+
+OpenBao audit logging is enabled with a file audit device by default.
+
+- Audit log path in the OpenBao pod: `/openbao/audit/audit.log`
+- Backing storage: dedicated OpenBao audit PVC (separate from data storage)
+- Host rotation timer: `openbao-audit-rotate.timer`
+
+Warning: OpenBao blocks requests when no enabled audit device is writable. Keep the audit PVC healthy and sized for retained logs.
+
 ## Retrieve Generated Credentials
 
 The deployment uses Keycloak plus OpenBao/VSO. Re-runs reuse existing values unless secrets are intentionally rotated.

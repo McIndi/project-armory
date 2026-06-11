@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Managed by Ansible - do not edit manually
+set -euo pipefail
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+ts=$(date +%Y%m%d%H%M%S)
+k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
+  sh -c "mv {{ openbao_audit_log_path }} {{ openbao_audit_log_path }}.${ts} && kill -HUP 1"
+# Prune: keep newest {{ openbao_audit_rotate_keep }} rotated files.
+k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
+  sh -c "ls -1t {{ openbao_audit_log_path }}.* 2>/dev/null | tail -n +{{ openbao_audit_rotate_keep | int + 1 }} | xargs -r rm --"
