@@ -1,287 +1,108 @@
 # Project Armory
 
-Project Armory is an open-source reference architecture for running AI agents safely inside regulated enterprises. It wires together the controls a Fortune 100 security team will actually ask about: identity (Keycloak OIDC, all the way down to the k3s API server), secrets and PKI (OpenBao + Vault Secrets Operator + cert-manager), RBAC, TLS-everywhere ingress, and an audit-ready agent runtime (BeeAI Agent Stack, a Linux Foundation project). Armory uses only open-source components, provisioned end-to-end with Ansible and OpenTofu. Clone it, stand it up in a VM, and use it as the foundation for your own secure agent platform.
+An Ansible-based reference architecture for a hardened, audit-ready platform
+on a single Fedora VM: k3s with OIDC authentication, OpenBao for secrets and
+PKI, Vault Secrets Operator, cert-manager and trust-manager for certificate
+issuance and CA distribution, ingress-nginx, Keycloak as the identity
+provider, and Headlamp as the cluster UI. All components are open source.
+It is built as a demonstration: one VM, one command, every credential
+generated and stored centrally, TLS on every path, and an audit trail for
+secret access.
 
-## Structure
+A companion project (project-garrison) deploys an AI agent runtime against
+this platform's Keycloak; armory itself is the identity and secrets
+foundation.
 
-- `inventories/development/hosts.yml`: local inventory targeting `localhost`
-- `playbooks/site.yml`: top-level playbook
-- `roles/env_guard`: preflight role that verifies required env vars are loaded
-- `roles/system_update`: role that runs `dnf` update
-- `roles/helm`: role that installs Helm
-- `roles/k3s`: role that installs and configures `k3s` with Keycloak OIDC authentication for the Kubernetes API server
-- `roles/openbao`: role that installs and configures OpenBao for secret management and PKI
-- `roles/cert_manager`: role that installs cert-manager and OpenBao-backed ClusterIssuers
-- `roles/trust_manager`: role that installs trust-manager and declarative CA bundle distribution
-- `roles/nginx_ingress`: role that installs and configures ingress-nginx and cert-manager TLS
-- `roles/vso`: role that installs Vault Secrets Operator
-- `roles/keycloak`: role that deploys standalone Keycloak (operator + realm import + DB secret sync)
-- `roles/headlamp`: role that deploys Headlamp with Keycloak OIDC and Kubernetes RBAC
-- `roles/readiness_check`: post-deployment validation role that checks all components are ready
+## Documentation
 
-## Run
+| Document | Contents |
+|---|---|
+| [doc/architecture.md](doc/architecture.md) | Component map, role order, secrets flow, PKI/trust chain, OIDC topology |
+| [doc/operations.md](doc/operations.md) | Runbook: deploy, readiness, credentials, audit log, rotation, break-glass, teardown, troubleshooting |
+| [doc/security.md](doc/security.md) | Credential model, TLS matrix, audit logging, demo-vs-production gaps |
+| [doc/configuration.md](doc/configuration.md) | `.env`, group_vars toggles, role-default override points |
+| [doc/decisions/](doc/decisions/) | Decision records (why things are the way they are) |
+| [AGENTS.md](AGENTS.md) | Conventions for agents/contributors working in the repo |
+
+## Quickstart
+
+Host prerequisites: Vagrant with a provider, this repo cloned.
+
+```bash
+vagrant up
+vagrant ssh
+```
+
+Inside the VM:
 
 ```bash
 cd /vagrant
-# cp .env.example .env  # first time only
+cp .env.example .env            # first time only; defaults work for the demo
 set -a; source .env; set +a
-test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"
-
-echo "Return code: $?"
 cd "${ARMORY_ANSIBLE_ROOT}"
-ansible-playbook playbooks/site.yml
+
+ansible-playbook playbooks/site.yml             # full deploy (~10–15 min)
+ansible-playbook playbooks/readiness_check.yml  # validate
 ```
 
-## Syntax Check
+To use the web UIs, add hosts-file entries on your workstation for
+`armory.local` and `headlamp.armory.local` pointing at the VM IP, and trust
+the Armory Root CA. Then:
+
+- Keycloak: `https://armory.local/realms/armory/.well-known/openid-configuration`
+- Headlamp: `https://headlamp.armory.local` (login `admin`; password below)
+
+## Retrieve generated credentials
+
+All credentials are generated during deployment and stored in OpenBao —
+nothing is printed to the console (`no_log`) and nothing is committed to the
+repo. Retrieving them is part of setup, not an optional step. VSO mirrors
+each value into a Kubernetes Secret, which is the easiest place to read it
+(run from the workstation):
 
 ```bash
-cd /vagrant
-set -a; source .env; set +a
-test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"
+# Realm admin — the Headlamp login (username: admin)
+vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
-cd "${ARMORY_ANSIBLE_ROOT}"
-ansible-playbook --syntax-check playbooks/site.yml
-```
-
-## Linting
-
-Linting configuration files are kept in `ansible/.ansible-lint` and `ansible/.yamllint`.
-
-### Install Lint Tools
-
-```bash
-cd /vagrant
-python3 -m pip install --user ansible-lint yamllint
-```
-
-### Run ansible-lint
-
-```bash
-cd /vagrant/ansible
-ansible-lint -c .ansible-lint playbooks/site.yml roles/
-```
-
-### Run yamllint
-
-```bash
-cd /vagrant/ansible
-yamllint -c .yamllint .
-```
-
-### Run Both (quick workflow)
-
-```bash
-cd /vagrant/ansible
-ansible-lint -c .ansible-lint playbooks/site.yml roles/
-yamllint -c .yamllint .
-```
-
-## Run Readiness Check (Post-Deployment)
-
-After the full deployment completes, verify all components are ready:
-
-```bash
-cd /vagrant
-set -a; source .env; set +a
-test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"
-
-cd "${ARMORY_ANSIBLE_ROOT}"
-ansible-playbook playbooks/readiness_check.yml
-```
-
-## Run Only Specific Tasks
-
-```bash
-# Only run k3s setup tasks
-ansible-playbook playbooks/site.yml --tags k3s
-
-# Only run OpenBao tasks
-ansible-playbook playbooks/site.yml --tags openbao
-
-# Only run VSO install tasks
-ansible-playbook playbooks/site.yml --tags vso_install
-
-# Only run Keycloak install tasks
-ansible-playbook playbooks/site.yml --tags keycloak_install
-
-# Only run trust-manager install and Bundle sync tasks
-ansible-playbook playbooks/site.yml --tags trust_manager
-
-# Only run Headlamp deploy tasks
-ansible-playbook playbooks/site.yml --tags headlamp_install
-
-# Only apply/update Headlamp RBAC ClusterRoleBinding
-ansible-playbook playbooks/site.yml --tags headlamp_rbac
-
-# Only re-configure k3s OIDC settings (re-writes CA file and restarts k3s)
-ansible-playbook playbooks/site.yml --tags k3s_oidc
-
-# Only run readiness checks
-ansible-playbook playbooks/readiness_check.yml
-```
-
-## Notes
-
-- The configuration uses local connection mode (`ansible_connection: local`).
-- Privilege escalation and runtime defaults are set through `.env` using `ANSIBLE_*` variables.
-- The `env_guard` role fails fast if `ARMORY_ENV_SOURCED` is missing or invalid.
-- `/vagrant` is world-writable on most Vagrant guests, so using environment-driven config avoids relying on local `ansible.cfg` discovery.
-- The VSO deployment path requires a hardened VSO Helm chart with explicit kube-rbac-proxy TLS cert/key support. Configure `VSO_CHART_PATH` or the `VSO_CHART_REPO`/`VSO_CHART_NAME`/`VSO_CHART_VERSION` tuple in `.env`.
-
-## TLS Standards
-
-- Internal service callers must use service FQDN endpoints (`<service>.<namespace>.svc.cluster.local`) rather than short names or raw IPs.
-- Ingress backend protocol and service port must match service TLS mode (for Keycloak ingress, HTTPS upstream on port `8443`).
-- Internal HTTPS callers must use explicit CA bundles that include the OpenBao root CA and the relevant issuer CA.
-- `roles/common/tasks/prepare_internal_https_caller.yml` is the shared helper for internal caller DNS override and trust-bundle bootstrap.
-- `roles/readiness_check` now includes strict TLS trust validation checks (explicit CA path + certificate verification) for Keycloak internal OIDC and Headlamp ingress endpoints.
-
-## TLS Rollout Toggles
-
-Use the following toggles for staged rollout and fast rollback:
-
-- `use_declarative_ca_distribution`: when `true`, downstream consumer roles (vso, keycloak, headlamp, readiness_check) use trust-manager-managed CA target Secrets instead of per-role secret copy tasks. Exception: `cert_manager` always self-bootstraps from the direct `openbao-ca` copy because it runs before `trust_manager` and anchors the trust chain.
-- `keycloak_pg_tls_enabled`: when `true`, Keycloak uses verify-full TLS for PostgreSQL (`sslmode=verify-full`) and Postgres serves TLS.
-- `ingress_http_policy`: `redirect-only` (default compatibility) or `disabled` (close `80/tcp` in firewalld). Note: with a hostNetwork ingress controller the HTTP listener itself stays bound; `disabled` blocks external HTTP exposure at the firewall, which is what readiness verifies.
-
-Recommended enablement sequence:
-
-1. Enable `trust_manager_enabled: true` while keeping `use_declarative_ca_distribution: false`.
-2. Validate Bundle target Secrets, then set `use_declarative_ca_distribution: true`.
-3. Enable `keycloak_pg_tls_enabled: true` in non-prod first.
-4. Set `ingress_http_policy: disabled` only after readiness checks pass for that profile.
-
-## Sensitive Output
-
-By default, sensitive task output remains redacted (`no_log`).
-
-- Keep redaction enabled (default):
-
-```bash
-export ARMORY_LOG_NOLOG=false
-```
-
-- Disable redaction for deep troubleshooting (prints sensitive values):
-
-```bash
-export ARMORY_LOG_NOLOG=true
-```
-
-Only set `ARMORY_LOG_NOLOG=true` in tightly controlled environments and rotate exposed credentials after use.
-
-### Audit Logging
-
-OpenBao audit logging is enabled with a file audit device by default.
-
-- Audit log path in the OpenBao pod: `/openbao/audit/audit.log`
-- Backing storage: dedicated OpenBao audit PVC (separate from data storage)
-- Host rotation timer: `openbao-audit-rotate.timer`
-
-Warning: OpenBao blocks requests when no enabled audit device is writable. Keep the audit PVC healthy and sized for retained logs.
-
-The device is declared in the OpenBao server config (`roles/openbao/templates/values.yaml.j2`), not via the `sys/audit` API — OpenBao v2.4+ rejects API-driven audit device creation as unsafe.
-
-#### Viewing the audit log
-
-Entries are one JSON object per line, in `request`/`response` pairs matched by `request.id`. Secret values and tokens are HMAC-SHA256 hashed — the log shows who did what to which path, never the credential itself. Key fields: `auth.display_name` (who), `auth.policies` (with what rights), `request.operation` + `request.path` (did what), `request.remote_address` (from where).
-
-All commands run inside the VM (`vagrant ssh`). Rotated files sit next to the live log as `audit.log.<timestamp>`.
-
-```bash
-# Follow live
-sudo k3s kubectl exec -n openbao openbao-0 -- tail -f /openbao/audit/audit.log
-
-# Pull a copy for offline analysis (jq: sudo dnf install -y jq)
-sudo k3s kubectl cp openbao/openbao-0:/openbao/audit/audit.log /tmp/audit.log
-
-# Who is talking to OpenBao, and how much
-jq -r 'select(.type=="request") | .auth.display_name' /tmp/audit.log | sort | uniq -c | sort -rn
-
-# Every access to a given secret path
-jq -r 'select(.request.path=="secret/data/keycloak/db") | [.time, .auth.display_name, .request.operation] | @tsv' /tmp/audit.log
-
-# All writes (anything mutating)
-jq -r 'select(.type=="request" and (.request.operation|IN("create","update","delete"))) | [.time, .auth.display_name, .request.path] | @tsv' /tmp/audit.log
-
-# Denied requests
-jq -r 'select(.auth.policy_results.allowed==false) | [.time, .auth.display_name, .request.path] | @tsv' /tmp/audit.log
-```
-
-## Retrieve Generated Credentials
-
-The deployment uses Keycloak plus OpenBao/VSO. Re-runs reuse existing values unless secrets are intentionally rotated.
-
-```bash
-# Keycloak master admin (OpenBao-generated bootstrap account)
-# Source of truth is OpenBao at secret/keycloak/bootstrap-admin; the Secret below
-# is materialized from it and consumed by spec.bootstrapAdmin at CR creation.
+# Keycloak master bootstrap admin — Keycloak admin console (/admin) only
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
-# Realm armory admin (username: admin) — THIS is the Headlamp login.
-# Source of truth is OpenBao secret/keycloak/realm-admin; VSO mirrors it into the
-# keycloak-realm-admin Secret (refreshAfter 60s), so just read the Secret:
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.username}' | base64 -d; echo"
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
-
-# Fallback (read OpenBao directly, e.g. before VSO has synced):
-vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/init-keys.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"root_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-admin | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'"
-
-# Keycloak DB credentials synced by VSO
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o jsonpath='{.data.username}' | base64 -d; echo"
+# Keycloak database credentials
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
 ```
 
-## Credential Map
+| Purpose | OpenBao path (source of truth) | k8s Secret (ns `keycloak`) |
+|---|---|---|
+| Realm `armory` admin — Headlamp login | `secret/keycloak/realm-admin` | `keycloak-realm-admin` |
+| Keycloak master admin (console only) | `secret/keycloak/bootstrap-admin` | `keycloak-bootstrap-admin` |
+| Keycloak DB | `secret/keycloak/db` | `keycloak-db-secret` |
 
-| Purpose | Where |
-|---|---|
-| Keycloak master admin (console `/admin` only) | OpenBao `secret/keycloak/bootstrap-admin` -> secret `keycloak-bootstrap-admin` (ns `keycloak`), keys `username` and `password` |
-| Realm `armory` admin — **Headlamp login** (username `admin`) | OpenBao `secret/keycloak/realm-admin` -> VSO -> secret `keycloak-realm-admin` (ns `keycloak`), key `password` |
-| Keycloak DB | OpenBao `secret/keycloak/db` -> VSO -> secret `keycloak-db-secret` |
+Note: the realm admin password rotates automatically (~monthly), so re-read
+it if a login fails. Reading OpenBao directly (e.g. before VSO has synced)
+and rotation details: [doc/operations.md](doc/operations.md#retrieve-generated-credentials).
 
-## Access Keycloak and Headlamp
+## Repository layout
 
-### Prerequisites
-
-1. Add entries to your hosts file:
-   - `<vagrant_vm_ip> <ARMORY_PUBLIC_DOMAIN>`
-   - `<vagrant_vm_ip> <ARMORY_HEADLAMP_HOST>`
-2. Trust the private Armory Root CA on your host.
-
-### URLs
-
-- Keycloak realm discovery: `https://armory.local/realms/armory/.well-known/openid-configuration`
-- Headlamp: `https://headlamp.armory.local`
-
-### Headlamp login
-
-- Username: `admin`
-- Password: OpenBao `secret/keycloak/realm-admin`, mirrored by VSO into the `keycloak-realm-admin` Secret (ns `keycloak`). See "Retrieve Generated Credentials" above.
-
-#### Automatic password rotation
-
-The realm `admin` password is rotated hands-off by the `keycloak-realm-admin-rotate`
-CronJob (ns `keycloak`, ~monthly, `keycloak_realm_admin_rotation_schedule`). It
-authenticates to Keycloak with a dedicated service-account client
-(`realm-admin-rotator`, realm-management `manage-users` — not the master admin),
-resets the user, and writes the new value to OpenBao; VSO propagates it to the
-`keycloak-realm-admin` Secret within ~60s. Existing Headlamp sessions keep working
-(tokens live to expiry); only your next login needs the refreshed password.
-
-Trigger an immediate rotation:
-
-```bash
-vagrant ssh -c "sudo k3s kubectl create job -n keycloak rotate-now-\$RANDOM --from=cronjob/keycloak-realm-admin-rotate"
+```
+ansible/
+  playbooks/        site.yml (deploy), readiness_check.yml, teardown_k3s_workloads.yml
+  roles/            one role per component; execution order in doc/architecture.md
+  inventories/      development inventory (localhost) + group_vars toggles
+charts/
+  vso-hardened/     locally maintained VSO chart with kube-rbac-proxy TLS
+doc/                architecture, operations, security, configuration, decisions, archived handoffs
 ```
 
-Disable rotation by setting `keycloak_realm_admin_rotation_enabled: false`.
+## Common commands
 
-## Teardown
+All inside the VM with `.env` sourced, from `${ARMORY_ANSIBLE_ROOT}`:
 
 ```bash
-cd /vagrant/project-armory/ansible
-ansible-playbook playbooks/teardown_k3s_workloads.yml -e teardown_confirm=true
+ansible-playbook playbooks/site.yml --tags openbao      # targeted re-run (all roles are tagged)
+ansible-playbook --syntax-check playbooks/site.yml
+ansible-lint -c .ansible-lint playbooks/site.yml roles/
+ansible-playbook playbooks/teardown_k3s_workloads.yml -e teardown_confirm=true   # destructive
 ```
 
-This teardown removes Keycloak workload resources first, then VSO, ingress, and OpenBao workload state.
+Full command reference and troubleshooting: [doc/operations.md](doc/operations.md).

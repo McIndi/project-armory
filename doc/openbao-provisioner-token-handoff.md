@@ -6,7 +6,7 @@ credential. Mint a scoped, periodic `ansible-provisioner` token during the
 openbao role run; switch the keycloak, headlamp, and readiness_check roles to
 it; reserve the root token for bootstrap (openbao role only) and break-glass.
 Preconditions: `site.yml` deploys and `readiness_check.yml` passes on main
-(including the audit-device work from `openbao-audit-device-handoff.md`).
+(including the audit-device work from `handoffs/openbao-audit-device-handoff.md`).
 Deployment model: **fresh rebuild only.** Validation is a clean
 `vagrant destroy -f && vagrant up` + full `site.yml`. No migration path for
 existing deployments is needed or provided.

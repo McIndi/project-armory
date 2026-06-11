@@ -3,7 +3,7 @@
 Status: reference (evaluation stage — captures what is known, not a build plan)
 Audience: whoever builds project-garrison to deploy the BeeAI/Agent Stack Helm
 chart against an **external** Keycloak provided by project-armory.
-Companion: [`keycloak-extraction-plan.md`](keycloak-extraction-plan.md) (armory side).
+Companion: [`keycloak-extraction-plan.md`](handoffs/keycloak-extraction-plan.md) (armory side).
 
 ## 1. Context
 
@@ -108,7 +108,7 @@ server to make in-cluster OIDC work. With Keycloak now in a *different project*
 may grow. Garrison should expect to reproduce equivalents of
 ([`beeai_agentstack_tofu/tasks/main.yml:742`](../ansible/roles/beeai_agentstack_tofu/tasks/main.yml) onward).
 
-> **armory-side facts now locked (per [`keycloak-operator-implementation-plan.md`](keycloak-operator-implementation-plan.md)):**
+> **armory-side facts now locked (per [`keycloak-operator-implementation-plan.md`](handoffs/keycloak-operator-implementation-plan.md)):**
 > armory deploys Keycloak via the **Keycloak Operator** with **edge TLS**
 > (`spec.http.httpEnabled: true`, TLS terminated at nginx, `spec.proxy.headers: xforwarded`).
 > - In-cluster service: **`<cr-name>-service.keycloak.svc:8080`** (plain HTTP). The

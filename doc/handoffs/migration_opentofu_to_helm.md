@@ -1,5 +1,8 @@
 # Migration Plan — Remove OpenTofu, Deploy Helm Releases Natively
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: proposed
 Scope: replace OpenTofu as the Helm-release driver across all 4 roles that use it.
 Goal: one source of release truth (Helm), drop tofu install + state files + state-drift cleanup.
