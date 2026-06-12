@@ -40,6 +40,14 @@
       ansible.builtin.import_tasks: configure.yml
       tags: [openbao, openbao_configure]
 
+    - name: OpenBao consumer wiring
+      ansible.builtin.import_tasks: consumer_wiring.yml
+      tags: [openbao, openbao_consumer_wiring]
+
+    - name: OpenBao provisioner token
+      ansible.builtin.import_tasks: provisioner_token.yml
+      tags: [openbao, openbao_provisioner]
+
     - name: OpenBao audit rotation
       ansible.builtin.import_tasks: audit_rotate.yml
       tags: [openbao, openbao_audit_rotate]

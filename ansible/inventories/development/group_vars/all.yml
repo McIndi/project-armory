@@ -25,5 +25,27 @@ trust_manager_internal_ca_target_namespaces:
 # Keycloak -> Postgres TLS rollout toggle (staged off by default for compatibility).
 keycloak_pg_tls_enabled: true
 
+# OpenBao consumer wiring - shared between the openbao role (which writes the
+# consumer ACL policies and k8s auth roles at bootstrap, with root) and the
+# keycloak/headlamp roles (which write KV secrets with the provisioner token).
+# Must live here, NOT in role defaults, because role defaults are invisible
+# across roles. Single source of truth: the role-default copies of these names
+# have been removed.
+keycloak_namespace: keycloak
+keycloak_vso_sa_name: keycloak-vso
+keycloak_openbao_policy_name: keycloak-vso
+keycloak_openbao_k8s_role: keycloak-vso
+keycloak_openbao_db_path: keycloak/db
+keycloak_openbao_realm_admin_path: keycloak/realm-admin
+keycloak_openbao_rotator_path: keycloak/rotator
+keycloak_rotator_sa_name: keycloak-realm-admin-rotator
+keycloak_rotator_openbao_policy_name: keycloak-realm-admin-rotator
+keycloak_rotator_openbao_k8s_role: keycloak-realm-admin-rotator
+headlamp_namespace: headlamp
+headlamp_vso_sa_name: headlamp-vso
+headlamp_openbao_policy_name: headlamp-vso
+headlamp_openbao_k8s_role: headlamp-vso
+headlamp_openbao_oidc_path: headlamp/oidc
+
 # Ingress HTTP behavior policy.
 ingress_http_policy: disabled

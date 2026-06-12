@@ -31,17 +31,17 @@
       when: not ansible_check_mode
 
     # ── OpenBao: generate + persist credentials ─────────────────────────────────
-    - name: Ensure OpenBao root token is available
+    - name: Ensure OpenBao provisioner token is available
       ansible.builtin.include_role:
         name: common
-        tasks_from: load_openbao_root_token.yml
+        tasks_from: load_openbao_provisioner_token.yml
 
     - name: Read current Keycloak DB credentials from OpenBao
       ansible.builtin.uri:
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _keycloak_db_creds_current
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
@@ -69,7 +69,7 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
         body_format: json
         body:
           data: "{{ _keycloak_db_creds }}"
@@ -82,7 +82,7 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _keycloak_realm_admin_current
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
@@ -105,7 +105,7 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
         body_format: json
         body:
           data:
@@ -121,7 +121,7 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_bootstrap_admin_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _keycloak_bootstrap_admin_current
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
@@ -144,7 +144,7 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_bootstrap_admin_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
         body_format: json
         body:
           data:
@@ -182,53 +182,6 @@
       changed_when: >-
         'configured' in (_keycloak_bootstrap_admin_secret_apply.stdout | default('')) or
         'created' in (_keycloak_bootstrap_admin_secret_apply.stdout | default(''))
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
-
-    - name: Write OpenBao ACL policy for Keycloak DB credentials (VSO read)
-      ansible.builtin.uri:
-        url: "{{ keycloak_openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_openbao_policy_name }}"
-        method: POST
-        headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
-        body_format: json
-        body:
-          policy: |
-            path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}" {
-              capabilities = ["read"]
-            }
-
-            path "{{ keycloak_openbao_kv_mount }}/metadata/{{ keycloak_openbao_db_path }}" {
-              capabilities = ["read"]
-            }
-
-            path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}" {
-              capabilities = ["read"]
-            }
-
-            path "{{ keycloak_openbao_kv_mount }}/metadata/{{ keycloak_openbao_realm_admin_path }}" {
-              capabilities = ["read"]
-            }
-        status_code: [200, 204]
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
-
-    - name: Configure OpenBao Kubernetes auth role for Keycloak VSO sync
-      ansible.builtin.uri:
-        url: "{{ keycloak_openbao_api_addr }}/v1/auth/kubernetes/role/{{ keycloak_openbao_k8s_role }}"
-        method: POST
-        headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
-        body_format: json
-        body:
-          bound_service_account_names:
-            - "{{ keycloak_vso_sa_name }}"
-          bound_service_account_namespaces:
-            - "{{ keycloak_namespace }}"
-          policies:
-            - "{{ keycloak_openbao_policy_name }}"
-          ttl: 24h
-        status_code: [200, 204]
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 

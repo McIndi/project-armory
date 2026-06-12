@@ -4,7 +4,6 @@ headlamp_tofu_work_dir: /opt/headlamp-tofu
 headlamp_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 
 # Headlamp Helm release settings
-headlamp_namespace: headlamp
 headlamp_release_name: headlamp
 headlamp_chart_repo: https://kubernetes-sigs.github.io/headlamp
 headlamp_chart_name: headlamp
@@ -63,7 +62,6 @@ headlamp_oidc_resolver_service_name: ingress-nginx-controller
 # OpenBao KV destination for Headlamp OIDC credentials
 headlamp_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
 headlamp_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
-headlamp_openbao_oidc_path: headlamp/oidc
 
 # VSO sync settings for Headlamp namespace
 headlamp_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
@@ -74,9 +72,6 @@ headlamp_openbao_ca_secret_name: >-
     if (use_declarative_ca_distribution | default(false) | bool)
     else (openbao_tls_ca_secret_name | default('openbao-ca'))
   }}
-headlamp_openbao_k8s_role: headlamp-vso
-headlamp_openbao_policy_name: headlamp-vso
-headlamp_vso_sa_name: headlamp-vso
 headlamp_vault_connection_name: default
 headlamp_vault_auth_name: headlamp-vaultauth
 headlamp_oidc_secret_name: headlamp-oidc

@@ -136,6 +136,21 @@ openbao_certmanager_namespace: cert-manager
 openbao_certmanager_sa_name: cert-manager
 openbao_certmanager_k8s_role: cert-manager
 
+# Ansible provisioner token: scoped credential minted by this role and used
+# by downstream roles (keycloak, headlamp, readiness_check) instead of the
+# root token. Root remains bootstrap/break-glass only. Consumer ACL policies
+# and k8s auth roles are written by this role at bootstrap (consumer_wiring)
+# so the provisioner needs no sys/policies or auth/role capabilities.
+openbao_provisioner_policy_name: ansible-provisioner
+openbao_provisioner_token_file: "{{ openbao_work_dir }}/provisioner-token.yml"
+openbao_provisioner_token_period: 768h
+openbao_provisioner_token_display_name: ansible-provisioner
+# KV path prefixes (under openbao_kv_mount) the provisioner may write. Keep
+# in sync with the keycloak/headlamp *_path values in group_vars/all.yml.
+openbao_provisioner_kv_prefixes:
+  - keycloak
+  - headlamp
+
 # Whether this role manages firewalld rules for OpenBao access.
 # Disable if firewall is managed externally.
 openbao_firewall_manage: true

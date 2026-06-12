@@ -3,7 +3,6 @@
 keycloak_enabled: false
 
 # ── General ───────────────────────────────────────────────────────────────────
-keycloak_namespace: keycloak
 keycloak_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 keycloak_work_dir: /opt/keycloak
 
@@ -89,15 +88,10 @@ keycloak_openbao_ca_secret_name: >-
   }}
 keycloak_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
 
-# KV paths: DB creds are VSO-synced; the realm-admin password is read by Ansible
-# only (injected into the realm import), never synced to a k8s Secret.
-keycloak_openbao_db_path: keycloak/db
-keycloak_openbao_realm_admin_path: keycloak/realm-admin
-keycloak_openbao_policy_name: keycloak-vso
-keycloak_openbao_k8s_role: keycloak-vso
+# KV path: bootstrap-admin is read by Ansible only (injected into the bootstrap
+# secret), never synced to a k8s Secret.
 
 # VSO resources in the keycloak namespace.
-keycloak_vso_sa_name: keycloak-vso
 keycloak_vault_connection_name: default
 keycloak_vault_auth_name: keycloak-vaultauth
 keycloak_db_secret_name: keycloak-db-secret
@@ -121,11 +115,7 @@ keycloak_realm_admin_rotation_schedule: "0 3 1 * *"
 keycloak_realm_admin_rotation_password_length: 24
 keycloak_rotator_image: "python:3.12-slim"
 keycloak_rotator_cron_name: keycloak-realm-admin-rotate
-keycloak_rotator_sa_name: keycloak-realm-admin-rotator
 keycloak_rotator_client_id: realm-admin-rotator
-keycloak_openbao_rotator_path: keycloak/rotator
-keycloak_rotator_openbao_policy_name: keycloak-realm-admin-rotator
-keycloak_rotator_openbao_k8s_role: keycloak-realm-admin-rotator
 
 # Internal TLS for in-cluster service-to-service Keycloak API traffic.
 keycloak_internal_tls_secret_name: keycloak-internal-tls

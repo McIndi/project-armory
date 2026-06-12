@@ -1,0 +1,174 @@
+---
+# provisioner_token.yml - Manage the scoped ansible provisioner token used by
+# downstream roles. Root token is used only here for policy/token bootstrap.
+
+- name: Write OpenBao provisioner policy
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ openbao_provisioner_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        # KV v2 application secrets owned by consumer roles
+        {% for prefix in openbao_provisioner_kv_prefixes %}
+        path "{{ openbao_kv_mount }}/data/{{ prefix }}/*" {
+          capabilities = ["create", "read", "update"]
+        }
+        {% endfor %}
+        # Root CA PEM read for Headlamp OIDC trust (headlamp/tasks/oidc_client.yml)
+        path "{{ openbao_pki_external_mount }}/ca/pem" {
+          capabilities = ["read"]
+        }
+        # Readiness: list audit devices (sudo gates the path, read gates the method)
+        path "sys/audit" {
+          capabilities = ["read", "sudo"]
+        }
+        # Token self-maintenance
+        path "auth/token/lookup-self" {
+          capabilities = ["read"]
+        }
+        path "auth/token/renew-self" {
+          capabilities = ["update"]
+        }
+    status_code: [200, 204]
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Check for existing provisioner token file
+  ansible.builtin.stat:
+    path: "{{ openbao_provisioner_token_file }}"
+  register: _openbao_provisioner_token_file_stat
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Decrypt stored provisioner token
+  ansible.builtin.command:
+    cmd: >-
+      ansible-vault decrypt
+      --vault-password-file {{ openbao_vault_pass_file }}
+      --output -
+      {{ openbao_provisioner_token_file }}
+  register: _openbao_provisioner_token_decrypt
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - _openbao_provisioner_token_file_stat.stat.exists | default(false)
+
+- name: Parse stored provisioner token
+  ansible.builtin.set_fact:
+    _openbao_provisioner_token_from_file: >-
+      {{ (_openbao_provisioner_token_decrypt.stdout | from_yaml).provisioner_token | default('') }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - (_openbao_provisioner_token_decrypt.rc | default(1)) == 0
+    - (_openbao_provisioner_token_decrypt.stdout | default('') | trim | length) > 0
+
+- name: Validate stored provisioner token with lookup-self
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/token/lookup-self"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ _openbao_provisioner_token_from_file }}"
+    status_code: [200, 403]
+  register: _openbao_provisioner_lookup_self
+  failed_when: false
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - (_openbao_provisioner_token_from_file | default('') | length) > 0
+
+- name: Set provisioner token validity fact
+  ansible.builtin.set_fact:
+    _openbao_provisioner_token_valid: >-
+      {{
+        ((_openbao_provisioner_token_decrypt.rc | default(1)) == 0)
+        and ((_openbao_provisioner_lookup_self.status | default(0)) == 200)
+        and (
+          openbao_provisioner_policy_name in (
+            _openbao_provisioner_lookup_self.json.data.policies
+            if (
+              _openbao_provisioner_lookup_self is defined
+              and _openbao_provisioner_lookup_self.json is defined
+              and _openbao_provisioner_lookup_self.json.data is defined
+              and _openbao_provisioner_lookup_self.json.data.policies is defined
+            )
+            else []
+          )
+        )
+      }}
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Mint provisioner token when missing or invalid
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/token/create"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policies:
+        - "{{ openbao_provisioner_policy_name }}"
+      period: "{{ openbao_provisioner_token_period }}"
+      no_parent: true
+      display_name: "{{ openbao_provisioner_token_display_name }}"
+    status_code: 200
+  register: _openbao_mint_provisioner_token
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - not (_openbao_provisioner_token_valid | default(false))
+
+- name: Write plaintext provisioner token to temp file
+  ansible.builtin.copy:
+    dest: "{{ openbao_provisioner_token_file }}.plain"
+    content: |
+      ---
+      provisioner_token: {{ _openbao_mint_provisioner_token.json.auth.client_token }}
+    mode: "0400"
+    owner: root
+    group: root
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - not (_openbao_provisioner_token_valid | default(false))
+
+- name: Encrypt provisioner token file with Ansible Vault
+  ansible.builtin.command:
+    cmd: >-
+      ansible-vault encrypt
+      --vault-password-file {{ openbao_vault_pass_file }}
+      --output {{ openbao_provisioner_token_file }}
+      {{ openbao_provisioner_token_file }}.plain
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - not (_openbao_provisioner_token_valid | default(false))
+
+- name: Remove plaintext provisioner token temp file
+  ansible.builtin.file:
+    path: "{{ openbao_provisioner_token_file }}.plain"
+    state: absent
+  when:
+    - not ansible_check_mode
+    - not (_openbao_provisioner_token_valid | default(false))
+
+- name: Renew stored provisioner token
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/token/renew-self"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ _openbao_provisioner_token_from_file }}"
+    status_code: 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - _openbao_provisioner_token_valid | default(false)
