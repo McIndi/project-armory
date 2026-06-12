@@ -21,11 +21,17 @@ Today there is exactly **one human identity** (`admin`) and **one group**
    `ansible/roles/headlamp/tasks/oidc_client.yml:252`) but **nothing consumes
    it**. `doc/security.md:90` ("admin group maps to cluster-admin via
    ClusterRoleBinding") is therefore inaccurate.
-4. OpenBao has **no human auth method** — only `kubernetes` auth for workload
-   service accounts (`ansible/roles/openbao/tasks/consumer_wiring.yml`) and
-   token auth (root/provisioner). Human operators must use the root token.
+No viewer/operator tiers, no per-role users.
 
-No viewer/operator tiers, no per-role users, no OpenBao operator login.
+**Out of scope: OpenBao human access.** OpenBao has no human auth method
+(only `kubernetes` auth for workloads plus root/provisioner tokens), but its
+UI is not exposed either, so there is nothing for a human user to log into.
+Per-role OpenBao access belongs to the existing backlog item "Expose OpenBao
+web ui and tie into keycloak OIDC" and should reuse the Keycloak
+client-provisioning and group-mapping patterns this plan establishes. Do not
+add OpenBao auth methods, ACL policies for humans, or identity groups here.
+(OpenBao KV as *credential storage* for generated passwords stays — that is
+existing plumbing, not human auth.)
 
 ## What already exists (inventory — do not rebuild)
 
@@ -43,10 +49,10 @@ no `groups` claim, and touches neither k3s RBAC nor OpenBao. Leave it alone.
 **Reusable patterns** for the pieces below:
 - Generate-once-persist credential flow (read KV → keep existing or generate →
   write KV, all `no_log`): `keycloak/tasks/main.yml:118-155` — template for
-  Piece 3 user passwords and the Piece 4 client secret.
+  Piece 3 user passwords.
 - Idempotent Keycloak admin REST provisioning (token → lookup → create/update):
-  `headlamp/tasks/oidc_client.yml` — template for Piece 2 groups, Piece 3
-  users, Piece 4 client.
+  `headlamp/tasks/oidc_client.yml` — template for Piece 2 groups and Piece 3
+  users.
 - Least-privilege Keycloak service client (realm-management `manage-users`
   only): `keycloak/tasks/rotator.yml` — proof the realm-management role-scoping
   approach works.
@@ -68,9 +74,6 @@ existing miniature of this. File as its own ticket if wanted.
   (pattern to copy for any new client).
 - Realm import is bootstrap-only; per-client config is done via REST
   post-import (see comment at top of `realmimport.yaml.j2`).
-- Site ordering (`ansible/playbooks/site.yml`): `openbao` runs **before**
-  `keycloak`. Anything wiring OpenBao→Keycloak OIDC must run after Keycloak is
-  ready (i.e., live in/after the `keycloak` role, not in `openbao`).
 - Secrets convention: generated credentials are written to OpenBao KV v2 at
   `secret/<app>/...` via the provisioner token
   (`common/tasks/load_openbao_provisioner_token.yml`), optionally mirrored to
@@ -79,7 +82,7 @@ existing miniature of this. File as its own ticket if wanted.
 - Lint: `ansible-lint -c .ansible-lint` (production profile),
   `yamllint -c .yamllint .` (document-start always, 160-col max).
 
-## Plan — 5 independent pieces, in order
+## Plan — 4 independent pieces, in order
 
 ### Piece 1 — Make the existing admin grant a real group mapping (small)
 
@@ -148,34 +151,11 @@ keycloak role alongside the import.
 4. Readiness check: each configured user exists in the realm and has the
    expected group memberships.
 
-### Piece 4 — OpenBao human login via Keycloak OIDC (medium/large)
-
-Gives "vault/openbao" per-role access from the backlog item.
-
-1. New Keycloak confidential client `openbao` + groups protocol mapper —
-   copy the REST pattern from `headlamp/tasks/oidc_client.yml`. Persist the
-   client secret to OpenBao KV (`secret/openbao/oidc-client`).
-2. Enable OpenBao `oidc` auth method (`POST /v1/sys/auth/oidc`), configure
-   `oidc_discovery_url` = Keycloak realm issuer, `oidc_client_id/secret`,
-   discovery CA = internal CA bundle. Create OIDC role `default` with
-   `groups_claim: groups`, redirect URIs for CLI (`http://localhost:8250/...`)
-   and UI callback.
-3. Write ACL policies: `armory-admin` (full `secret/*` + sys read),
-   `armory-operator` (CRUD on `secret/*` data), `armory-viewer` (read/list
-   only). Map via identity groups: external group per Keycloak group
-   (`/v1/identity/group` type=external + group-alias on the OIDC accessor)
-   → attach the policy.
-4. **Ordering**: implement as `ansible/roles/keycloak/tasks/openbao_oidc_auth.yml`
-   (or a new role after `keycloak` in site.yml) — Keycloak must be up.
-   Tag it (e.g. `openbao_oidc`).
-5. Readiness check: auth method enabled, role present, `vault login -method=oidc`
-   documented in `doc/operations.md` (manual verification — browser flow).
-
-### Piece 5 — Docs + validation sweep (small)
+### Piece 4 — Docs + validation sweep (small)
 
 - Update `doc/security.md` access-control table (remove the "Coarse RBAC —
   Backlog" row), `doc/configuration.md` (new vars), `doc/operations.md`
-  (how to log in as each role to Headlamp/kubectl/OpenBao).
+  (how to log in as each role to Headlamp/kubectl).
 - Full run: `ansible-playbook playbooks/site.yml` then
   `playbooks/readiness_check.yml` green in the Vagrant VM.
 
@@ -191,5 +171,4 @@ ansible-playbook playbooks/readiness_check.yml
 ```
 
 Manual: log in to Headlamp as `viewer` → confirm read-only; as `operator`
-→ confirm edit but no RBAC changes; `vault login -method=oidc` as each user
-→ confirm policy attachment (`bao token lookup`).
+→ confirm edit but no RBAC changes; as `admin` → confirm cluster-admin.
