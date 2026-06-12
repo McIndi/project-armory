@@ -83,9 +83,10 @@ OpenBao authentication for in-cluster consumers is the Kubernetes auth
 method: pods present their ServiceAccount token, OpenBao validates it against
 the API server, and grants the policy bound to that role.
 
-Ansible itself currently authenticates with the root token (decrypted from
-`/opt/openbao/init-keys.yml`). Replacing this with a scoped provisioner token
-is planned: [openbao-provisioner-token-handoff.md](openbao-provisioner-token-handoff.md).
+Ansible itself authenticates with a scoped periodic `ansible-provisioner`
+token (encrypted at `/opt/openbao/provisioner-token.yml`, minted and renewed
+by the openbao role). The root token is reserved for bootstrap and
+break-glass: [decisions/0007](decisions/0007-scoped-provisioner-token.md).
 
 ## PKI and trust distribution
 

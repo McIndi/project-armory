@@ -13,7 +13,7 @@ hand-set or committed to the repo.
 |---|---|---|
 | In-cluster consumers (VSO sync, rotator) | Kubernetes auth: ServiceAccount token → OpenBao role | Per-consumer ACL policy (`keycloak-vso`, `headlamp-vso`, `keycloak-realm-admin-rotator`), each limited to its own KV paths |
 | cert-manager | Kubernetes auth → `cert-manager` role | `cert-manager` policy: sign certificates on the PKI mounts only |
-| Ansible automation | OpenBao **root token**, decrypted from `/opt/openbao/init-keys.yml` | Unrestricted — known gap, replacement planned ([openbao-provisioner-token-handoff.md](openbao-provisioner-token-handoff.md)) |
+| Ansible automation | Scoped periodic `ansible-provisioner` token, encrypted at `/opt/openbao/provisioner-token.yml` | KV write on `keycloak/*`/`headlamp/*` only, external-CA PEM read, `sys/audit` read; cannot author policies or bind auth roles ([decisions/0007](decisions/0007-scoped-provisioner-token.md)) |
 | Human break-glass | Root token via Ansible Vault file or KV `secret/openbao/init` | See [operations.md](operations.md#break-glass-openbao-root-token) |
 | Keycloak realm admin (`admin`) | Generated password, rotated ~monthly by CronJob | Realm `armory`; this is the Headlamp login |
 | Keycloak master bootstrap admin | Generated password | Master realm console only |
@@ -98,7 +98,6 @@ are listed here so the posture is honest; several are tracked in the backlog.
 
 | Gap | Detail | Status |
 |---|---|---|
-| Root token as automation credential | Every Ansible OpenBao call uses root | Plan ready: [openbao-provisioner-token-handoff.md](openbao-provisioner-token-handoff.md) |
 | Vault password co-location | `/opt/openbao/.vault-pass` sits beside the files it encrypts; encryption at rest protects against off-host copy, not host compromise | Accepted for demo |
 | Manual unseal keys on disk | Auto-unseal (KMS/HSM) not configured; unseal shards live in the encrypted init-keys file | Accepted for demo |
 | No backup/restore | OpenBao `file` storage and Postgres PVC have no snapshot story; losing the disk loses all secrets and the root CA | Backlog |

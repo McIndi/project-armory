@@ -1,7 +1,7 @@
 # 0007 — Scoped provisioner token replaces root token for automation
 
-Status: accepted, not yet implemented (plan ready 2026-06-11)
-Source: [../openbao-provisioner-token-handoff.md](../openbao-provisioner-token-handoff.md)
+Status: accepted, implemented (plan ready 2026-06-11; executed 2026-06-12)
+Source: [../handoffs/openbao-provisioner-token-handoff.md](../handoffs/openbao-provisioner-token-handoff.md)
 
 ## Context
 
