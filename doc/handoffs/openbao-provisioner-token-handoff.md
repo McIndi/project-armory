@@ -1,5 +1,8 @@
 # Handoff — Replace Root Token with Scoped Provisioner Token
 
+> **ARCHIVED — executed. Kept for history; do not follow as current
+> instructions.** Durable rationale lives in [../decisions/](../decisions/).
+
 Status: ready for implementation (handoff to Copilot)
 Scope: stop using the OpenBao root token as the everyday Ansible automation
 credential. Move consumer ACL-policy and k8s-auth-role authorship into the
