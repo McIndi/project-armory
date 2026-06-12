@@ -19,6 +19,51 @@
   changed_when: (_openbao_helm_uninstall.rc | default(1)) == 0
   failed_when: false
 
+- name: Check for provisioner token file before revoke
+  ansible.builtin.stat:
+    path: "{{ openbao_provisioner_token_file }}"
+  register: _openbao_teardown_provisioner_token_file
+  failed_when: false
+
+- name: Decrypt provisioner token for best-effort revoke
+  ansible.builtin.command:
+    cmd: >-
+      ansible-vault decrypt
+      --vault-password-file {{ openbao_vault_pass_file }}
+      --output -
+      {{ openbao_provisioner_token_file }}
+  register: _openbao_teardown_provisioner_token_decrypt
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: _openbao_teardown_provisioner_token_file.stat.exists | default(false)
+
+- name: Parse provisioner token for best-effort revoke
+  ansible.builtin.set_fact:
+    _openbao_teardown_provisioner_token: >-
+      {{ (_openbao_teardown_provisioner_token_decrypt.stdout | from_yaml).provisioner_token | default('') }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - (_openbao_teardown_provisioner_token_decrypt.rc | default(1)) == 0
+    - (_openbao_teardown_provisioner_token_decrypt.stdout | default('') | trim | length) > 0
+
+- name: Best-effort revoke provisioner token
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/token/revoke-self"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ _openbao_teardown_provisioner_token }}"
+    status_code: [200, 204, 400, 403, 404]
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: (_openbao_teardown_provisioner_token | default('') | length) > 0
+
+- name: Remove provisioner token file
+  ansible.builtin.file:
+    path: "{{ openbao_provisioner_token_file }}"
+    state: absent
+  failed_when: false
+
 - name: Stop and disable OpenBao audit rotation timer
   ansible.builtin.systemd_service:
     name: openbao-audit-rotate.timer

@@ -1,0 +1,33 @@
+---
+- name: Decrypt OpenBao provisioner token when undefined
+  ansible.builtin.command:
+    cmd: >-
+      ansible-vault decrypt
+      --vault-password-file {{ openbao_vault_pass_file | default(common_openbao_vault_pass_file) }}
+      --output -
+      {{ openbao_provisioner_token_file | default(common_openbao_provisioner_token_file) }}
+  register: _common_openbao_provisioner_token_decrypted
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - openbao_provisioner_token is not defined
+
+- name: Set OpenBao provisioner token fact from decrypted token file
+  ansible.builtin.set_fact:
+    openbao_provisioner_token: "{{ (_common_openbao_provisioner_token_decrypted.stdout | from_yaml).provisioner_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - openbao_provisioner_token is not defined
+
+- name: Validate OpenBao provisioner token availability
+  ansible.builtin.assert:
+    that:
+      - openbao_provisioner_token is defined
+      - (openbao_provisioner_token | string | length) > 0
+    fail_msg: >-
+      OpenBao provisioner token is not available. Run 'ansible-playbook
+      playbooks/site.yml --tags openbao' to mint it.
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode

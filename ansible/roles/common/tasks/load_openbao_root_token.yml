@@ -1,4 +1,6 @@
 ---
+# BREAK-GLASS ONLY. Day-to-day automation must use
+# load_openbao_provisioner_token.yml. Do not add new consumers.
 - name: Decrypt OpenBao init keys when root token is undefined
   ansible.builtin.command:
     cmd: >-

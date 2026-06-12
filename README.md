@@ -37,12 +37,11 @@ Inside the VM:
 
 ```bash
 cd /vagrant
-cp .env.example .env            # first time only; defaults work for the demo
+# cp .env.example .env            # first time only; defaults work for the demo
 set -a; source .env; set +a
 cd "${ARMORY_ANSIBLE_ROOT}"
 
 ansible-playbook playbooks/site.yml             # full deploy (~10–15 min)
-ansible-playbook playbooks/readiness_check.yml  # validate
 ```
 
 To use the web UIs, add hosts-file entries on your workstation for
@@ -81,6 +80,41 @@ vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o js
 Note: the realm admin password rotates automatically (~monthly), so re-read
 it if a login fails. Reading OpenBao directly (e.g. before VSO has synced)
 and rotation details: [doc/operations.md](doc/operations.md#retrieve-generated-credentials).
+
+## Automation credentials
+
+Day-to-day Ansible automation uses a scoped periodic OpenBao token named
+`ansible-provisioner`, minted by the openbao role and stored at
+`/opt/openbao/provisioner-token.yml` (Ansible-vault encrypted with
+`/opt/openbao/.vault-pass`).
+
+Scope is defined in `ansible/roles/openbao/tasks/provisioner_token.yml`:
+
+- create/read/update on `secret/data/keycloak/*` and `secret/data/headlamp/*`
+- read on `pki-ext/ca/pem`
+- read+sudo on `sys/audit` (read-only listing; cannot enable/disable devices)
+- lookup-self/renew-self only for token maintenance
+
+Consumer ACL policies and Kubernetes auth roles are written at bootstrap by
+the openbao role with the root token (`consumer_wiring.yml`). The provisioner
+token has no `sys/policies/acl/*` or `auth/kubernetes/role/*` capabilities,
+so it cannot author policy or bind identities.
+
+Residual blast radius: the provisioner token can read and overwrite the app
+secrets it provisions, including `secret/data/keycloak/bootstrap-admin`.
+This is expected for its provisioning role.
+
+OpenBao root token usage is reserved for bootstrap and break-glass only.
+Break-glass access paths:
+
+- decrypt `/opt/openbao/init-keys.yml` on the VM
+- read `secret/openbao/init` from OpenBao KV
+
+If the provisioner token is missing or invalid, re-mint with:
+
+```bash
+ansible-playbook playbooks/site.yml --tags openbao
+```
 
 ## Repository layout
 

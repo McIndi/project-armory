@@ -7,10 +7,10 @@
 #   - the SA/ConfigMap/CronJob manifests.
 # Idempotent; safe to re-run.
 
-- name: Ensure OpenBao root token is available
+- name: Ensure OpenBao provisioner token is available
   ansible.builtin.include_role:
     name: common
-    tasks_from: load_openbao_root_token.yml
+    tasks_from: load_openbao_provisioner_token.yml
 
 - name: Set Keycloak internal base URL fact for rotator setup
   ansible.builtin.set_fact:
@@ -198,49 +198,12 @@
     url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_rotator_path }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
     body_format: json
     body:
       data:
         client_id: "{{ keycloak_rotator_client_id }}"
         client_secret: "{{ _kc_rotator_client_secret.json.value }}"
-    status_code: [200, 204]
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-
-- name: Write OpenBao ACL policy for the rotator (read rotator, write realm-admin)
-  ansible.builtin.uri:
-    url: "{{ keycloak_openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_rotator_openbao_policy_name }}"
-    method: POST
-    headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
-    body_format: json
-    body:
-      policy: |
-        path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_rotator_path }}" {
-          capabilities = ["read"]
-        }
-
-        path "{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}" {
-          capabilities = ["create", "update", "read"]
-        }
-    status_code: [200, 204]
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-
-- name: Configure OpenBao Kubernetes auth role for the rotator
-  ansible.builtin.uri:
-    url: "{{ keycloak_openbao_api_addr }}/v1/auth/kubernetes/role/{{ keycloak_rotator_openbao_k8s_role }}"
-    method: POST
-    headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
-    body_format: json
-    body:
-      bound_service_account_names:
-        - "{{ keycloak_rotator_sa_name }}"
-      bound_service_account_namespaces:
-        - "{{ keycloak_namespace }}"
-      policies:
-        - "{{ keycloak_rotator_openbao_policy_name }}"
-      ttl: 10m
     status_code: [200, 204]
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 

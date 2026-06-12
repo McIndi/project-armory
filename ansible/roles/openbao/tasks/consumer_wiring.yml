@@ -1,0 +1,129 @@
+---
+# consumer_wiring.yml - Bootstrap consumer ACL policies and Kubernetes auth
+# roles with the root token. These are static wiring tasks owned by the
+# openbao role.
+
+- name: Write OpenBao ACL policy for Keycloak DB credentials (VSO read)
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_openbao_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        path "{{ openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/metadata/{{ keycloak_openbao_db_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/metadata/{{ keycloak_openbao_realm_admin_path }}" {
+          capabilities = ["read"]
+        }
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Configure OpenBao Kubernetes auth role for Keycloak VSO sync
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ keycloak_openbao_k8s_role }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      bound_service_account_names:
+        - "{{ keycloak_vso_sa_name }}"
+      bound_service_account_namespaces:
+        - "{{ keycloak_namespace }}"
+      policies:
+        - "{{ keycloak_openbao_policy_name }}"
+      ttl: 24h
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Write OpenBao ACL policy for the rotator (read rotator, write realm-admin)
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ keycloak_rotator_openbao_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        path "{{ openbao_kv_mount }}/data/{{ keycloak_openbao_rotator_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}" {
+          capabilities = ["create", "update", "read"]
+        }
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Configure OpenBao Kubernetes auth role for the rotator
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ keycloak_rotator_openbao_k8s_role }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      bound_service_account_names:
+        - "{{ keycloak_rotator_sa_name }}"
+      bound_service_account_namespaces:
+        - "{{ keycloak_namespace }}"
+      policies:
+        - "{{ keycloak_rotator_openbao_policy_name }}"
+      ttl: 10m
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Write OpenBao ACL policy for Headlamp OIDC secret
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ headlamp_openbao_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        path "{{ openbao_kv_mount }}/data/{{ headlamp_openbao_oidc_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/metadata/{{ headlamp_openbao_oidc_path }}" {
+          capabilities = ["read"]
+        }
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Configure OpenBao Kubernetes auth role for Headlamp VSO sync
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ headlamp_openbao_k8s_role }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      bound_service_account_names:
+        - "{{ headlamp_vso_sa_name }}"
+      bound_service_account_namespaces:
+        - "{{ headlamp_namespace }}"
+      policies:
+        - "{{ headlamp_openbao_policy_name }}"
+      ttl: 24h
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode

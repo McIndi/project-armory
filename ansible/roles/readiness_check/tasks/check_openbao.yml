@@ -116,18 +116,79 @@
       }] }}
   changed_when: false
 
-- name: Ensure OpenBao root token is available for audit check
+- name: Ensure OpenBao provisioner token is available for OpenBao API checks
   ansible.builtin.include_role:
     name: common
-    tasks_from: load_openbao_root_token.yml
-  when: openbao_audit_enabled | default(true) | bool
+    tasks_from: load_openbao_provisioner_token.yml
+
+- name: Check OpenBao provisioner token validity
+  ansible.builtin.uri:
+    url: "{{ _rc_openbao_addr }}/v1/auth/token/lookup-self"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 403]
+  register: _rc_openbao_provisioner_lookup
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Add OpenBao provisioner token check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'Provisioner token valid',
+        'status': (
+          'pass'
+          if (
+            (_rc_openbao_provisioner_lookup.status | default(0)) == 200
+            and (
+              (openbao_provisioner_policy_name | default('ansible-provisioner'))
+              in (
+                _rc_openbao_provisioner_lookup.json.data.policies
+                if (
+                  _rc_openbao_provisioner_lookup.json is defined
+                  and _rc_openbao_provisioner_lookup.json.data is defined
+                  and _rc_openbao_provisioner_lookup.json.data.policies is defined
+                )
+                else []
+              )
+            )
+          )
+          else 'fail'
+        ),
+        'detail': (
+          'lookup-self succeeded and policy attached'
+          if (
+            (_rc_openbao_provisioner_lookup.status | default(0)) == 200
+            and (
+              (openbao_provisioner_policy_name | default('ansible-provisioner'))
+              in (
+                _rc_openbao_provisioner_lookup.json.data.policies
+                if (
+                  _rc_openbao_provisioner_lookup.json is defined
+                  and _rc_openbao_provisioner_lookup.json.data is defined
+                  and _rc_openbao_provisioner_lookup.json.data.policies is defined
+                )
+                else []
+              )
+            )
+          )
+          else 'lookup-self failed or policy missing'
+        ),
+        'error': _rc_openbao_provisioner_lookup.msg | default('')
+      }] }}
+  changed_when: false
 
 - name: Check OpenBao audit devices
   ansible.builtin.uri:
     url: "{{ _rc_openbao_addr }}/v1/sys/audit"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
     validate_certs: "{{ readiness_check_openbao_validate_tls }}"
     timeout: "{{ readiness_check_openbao_api_timeout }}"
     status_code: 200

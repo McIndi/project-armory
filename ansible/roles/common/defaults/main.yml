@@ -5,6 +5,10 @@ common_openbao_init_keys_file: /opt/openbao/init-keys.yml
 # Fallback path to vault password file used to decrypt init keys.
 common_openbao_vault_pass_file: /opt/openbao/.vault-pass
 
+# Fallback path for the provisioner token file when the openbao role's
+# defaults are not in scope (consumer roles including this loader).
+common_openbao_provisioner_token_file: /opt/openbao/provisioner-token.yml
+
 armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
 
 # Shared kubeconfig path for common kubectl-based helper tasks.

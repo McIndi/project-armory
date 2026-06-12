@@ -315,17 +315,17 @@
   when: _headlamp_client_internal_id | length > 0
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
-- name: Load OpenBao root token
+- name: Load OpenBao provisioner token
   ansible.builtin.import_role:
     name: common
-    tasks_from: load_openbao_root_token.yml
+    tasks_from: load_openbao_provisioner_token.yml
 
 - name: Read OpenBao root CA PEM for Headlamp OIDC trust
   ansible.builtin.uri:
     url: "{{ headlamp_oidc_ca_pem_url }}"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
     status_code: 200
     return_content: true
   register: _headlamp_openbao_ca_pem_result
@@ -343,7 +343,7 @@
     url: "{{ headlamp_openbao_api_addr }}/v1/{{ headlamp_openbao_kv_mount }}/data/{{ headlamp_openbao_oidc_path }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
     body_format: json
     body:
       data:
