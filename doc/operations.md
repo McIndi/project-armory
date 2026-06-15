@@ -71,8 +71,8 @@ On the workstation (not the VM):
 URLs:
 
 - Keycloak realm discovery: `https://armory.local/realms/armory/.well-known/openid-configuration`
-- Headlamp: `https://headlamp.armory.local` — username `admin`, password from
-  the `keycloak-realm-admin` Secret (below).
+- Headlamp: `https://headlamp.armory.local` with realm users:
+  `admin` (cluster-admin), `operator` (edit), `viewer` (view).
 
 ## Retrieve generated credentials
 
@@ -83,11 +83,17 @@ the VM. Source of truth is always OpenBao; VSO mirrors into k8s Secrets.
 |---|---|---|
 | Keycloak master admin (console `/admin` only) | `secret/keycloak/bootstrap-admin` | `keycloak-bootstrap-admin` |
 | Realm `armory` admin — Headlamp login | `secret/keycloak/realm-admin` | `keycloak-realm-admin` |
+| Realm `armory` operator — Headlamp login | `secret/keycloak/realm-users/operator` | — |
+| Realm `armory` viewer — Headlamp login | `secret/keycloak/realm-users/viewer` | — |
 | Keycloak DB | `secret/keycloak/db` | `keycloak-db-secret` |
 
 ```bash
 # Realm admin (Headlamp login)
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+
+# Realm operator / viewer (Headlamp logins) via OpenBao KV — uses the scoped
+# ansible-provisioner token (root is break-glass only)
+vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/provisioner-token.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"provisioner_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); for U in operator viewer; do echo \"==> \$U\"; sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-users/\$U | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'; done"
 
 # Master bootstrap admin
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
@@ -96,10 +102,11 @@ vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
 ```
 
-Fallback — read OpenBao directly (e.g. before VSO has synced):
+Fallback — read OpenBao directly (e.g. before VSO has synced); also uses the
+scoped provisioner token:
 
 ```bash
-vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/init-keys.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"root_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-admin | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'"
+vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/provisioner-token.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"provisioner_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-admin | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'"
 ```
 
 ## Password rotation
@@ -111,6 +118,14 @@ service-account client (`realm-admin-rotator`, realm-management
 `manage-users` — not the master admin), resets the user, and writes the new
 value to OpenBao; VSO propagates it to the Secret within ~60s. Existing
 sessions keep working; the next login needs the new password.
+
+Seeded `operator`/`viewer` passwords are **not** rotated and are only set in
+Keycloak at user creation. If the OpenBao entry under
+`secret/keycloak/realm-users/<user>` is deleted or regenerated, Keycloak
+keeps the old password and the two drift apart. Remediation: delete the user
+in the Keycloak admin console (or reset its password there to the OpenBao
+value), then rerun `ansible-playbook playbooks/site.yml --tags
+keycloak_install` to reconcile.
 
 ```bash
 # Rotate now

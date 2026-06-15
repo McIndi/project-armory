@@ -63,6 +63,32 @@ keycloak_realm_admin_email: "{{ lookup('ansible.builtin.env', 'ARMORY_ADMIN_EMAI
 keycloak_realm_admin_first_name: Admin
 keycloak_realm_admin_last_name: User
 keycloak_admin_group: armory-admins
+keycloak_realm_groups:
+  - "{{ keycloak_admin_group }}"
+  - armory-operators
+  - armory-viewers
+keycloak_realm_users:
+  - username: "{{ keycloak_realm_admin_username }}"
+    email: "{{ keycloak_realm_admin_email }}"
+    first_name: "{{ keycloak_realm_admin_first_name }}"
+    last_name: "{{ keycloak_realm_admin_last_name }}"
+    groups:
+      - "{{ keycloak_admin_group }}"
+    openbao_path: "{{ keycloak_openbao_realm_admin_path }}"
+  - username: operator
+    email: "{{ lookup('ansible.builtin.env', 'ARMORY_OPERATOR_EMAIL') | default('operator@armory.dev', true) }}"
+    first_name: Operator
+    last_name: User
+    groups:
+      - armory-operators
+    openbao_path: keycloak/realm-users/operator
+  - username: viewer
+    email: "{{ lookup('ansible.builtin.env', 'ARMORY_VIEWER_EMAIL') | default('viewer@armory.dev', true) }}"
+    first_name: Viewer
+    last_name: User
+    groups:
+      - armory-viewers
+    openbao_path: keycloak/realm-users/viewer
 
 # ── PostgreSQL StatefulSet (single-node backing store) ───────────────────────────
 keycloak_postgresql_enabled: true

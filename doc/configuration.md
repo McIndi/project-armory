@@ -60,9 +60,13 @@ Authoritative list: each role's `defaults/main.yml`. Frequently relevant:
 | `openbao_audit_storage_size` (openbao) | `2Gi` | Audit PVC size |
 | `openbao_audit_rotate_on_calendar` / `..._rotate_keep` (openbao) | `daily` / 7 | Host-side rotation cadence and retention |
 | `keycloak_operator_version` (keycloak) | pinned (e.g. `26.5.2`) | Operator manifest version |
+| `keycloak_realm_groups` (keycloak) | admin/operator/viewer groups | Top-level groups ensured in realm import + admin REST reconciliation |
+| `keycloak_realm_users` (keycloak) | admin/operator/viewer users | Seeded realm users with OpenBao-backed passwords and expected group memberships |
 | `keycloak_realm_admin_rotation_enabled` / `..._schedule` (keycloak) | `true` / ~monthly | Realm-admin password rotation CronJob |
 | `headlamp_chart_version` (headlamp) | pinned | Headlamp Helm chart |
+| `headlamp_oidc_group_bindings` (headlamp) | admins→cluster-admin, operators→edit, viewers→view | ClusterRoleBindings rendered per OIDC group |
 | `k3s_version` (k3s) | `""` (latest) | k3s release channel default |
+| `k3s_oidc_username_prefix` / `k3s_oidc_groups_prefix` (k3s) | `oidc:` / `oidc:` | Prefixes for OIDC usernames/groups to prevent RBAC identity collisions |
 | `readiness_check_fail_on_issues` (readiness_check) | see defaults | Whether readiness failures fail the play |
 
 Note: `openbao_audit_enabled` is also read by `readiness_check` (with a

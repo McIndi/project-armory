@@ -86,10 +86,13 @@ sessions and rotate anything exposed.
 
 ## Kubernetes RBAC
 
-- k3s API server validates OIDC tokens from the `armory` realm; the Keycloak
-  `admin` group maps to `cluster-admin` via ClusterRoleBinding.
-- Finer-grained per-role users (view-only, namespace-scoped) are not yet
-  implemented — tracked in the backlog.
+- k3s API server validates OIDC tokens from the `armory` realm with explicit
+  username/group prefixes (`oidc:`) to avoid collisions with built-in
+  Kubernetes identities.
+- Headlamp RBAC is group-driven via ClusterRoleBindings:
+  `oidc:armory-admins` -> `cluster-admin`,
+  `oidc:armory-operators` -> `edit`,
+  `oidc:armory-viewers` -> `view`.
 
 ## Demo-grade vs production: accepted gaps
 
@@ -104,4 +107,3 @@ are listed here so the posture is honest; several are tracked in the backlog.
 | Single node, single replica | No HA for OpenBao, Keycloak, or ingress | By design (demo) |
 | Unpinned component versions | Tracks latest upstream during development, by policy ([decisions/0005](decisions/0005-track-latest-upstream.md)); pinning is an end-of-project step | By design |
 | No runtime security / network policies | No NetworkPolicies, no admission control, no falco-class monitoring | Out of scope |
-| Coarse RBAC | Single admin group → cluster-admin | Backlog |

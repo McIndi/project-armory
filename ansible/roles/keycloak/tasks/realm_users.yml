@@ -1,0 +1,106 @@
+---
+# Reconcile seeded realm users from configuration using OpenBao-backed
+# passwords and Keycloak admin REST APIs.
+
+- name: Ensure OpenBao provisioner token is available
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: load_openbao_provisioner_token.yml
+
+- name: Set Keycloak internal base URL fact for realm user provisioning
+  ansible.builtin.set_fact:
+    _kc_realm_users_base_url: "{{ keycloak_internal_api_url }}"
+
+- name: Prepare internal HTTPS trust bundle for realm user provisioning
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: prepare_internal_https_caller.yml
+  vars:
+    common_internal_https_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+    common_internal_https_service_name: "{{ keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ keycloak_internal_service_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ keycloak_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ keycloak_namespace }}"
+    common_internal_https_bundle_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+
+- name: Read bootstrap-admin credentials for realm user provisioning
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ keycloak_bootstrap_admin_secret_name }}
+      -n {{ keycloak_namespace }} -o jsonpath={.data.{{ item }}}
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  loop: [username, password]
+  register: _kc_realm_users_admin_creds_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Obtain Keycloak admin token for realm user provisioning
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ _kc_realm_users_admin_creds_b64.results[0].stdout | b64decode }}"
+      password: "{{ _kc_realm_users_admin_creds_b64.results[1].stdout | b64decode }}"
+      grant_type: password
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_users_token
+  retries: 5
+  delay: 10
+  until: _kc_realm_users_token.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set admin token fact for realm user provisioning
+  ansible.builtin.set_fact:
+    _kc_realm_users_admin_token: "{{ _kc_realm_users_token.json.access_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: List Keycloak realm groups for membership mapping
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/groups?briefRepresentation=true&max=1000"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_users_groups_lookup
+  changed_when: false
+
+- name: Build Keycloak realm group id lookup map
+  ansible.builtin.set_fact:
+    _kc_realm_group_id_map: >-
+      {{
+        dict(
+          (_kc_realm_users_groups_lookup.json | default([]) | map(attribute='name') | list)
+          | zip(_kc_realm_users_groups_lookup.json | default([]) | map(attribute='id') | list)
+        )
+      }}
+
+- name: Reconcile configured Keycloak realm users
+  ansible.builtin.include_tasks: realm_user_item.yml
+  loop: "{{ keycloak_realm_users }}"
+  loop_control:
+    loop_var: keycloak_realm_user
+    label: "{{ keycloak_realm_user.username }}"
+
+- name: Remove temporary Keycloak CA file for realm user provisioning
+  ansible.builtin.file:
+    path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    state: absent
+  changed_when: false
+
+- name: Remove temporary Keycloak internal FQDN hosts override for realm user provisioning
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ keycloak_service_name }}\.{{ keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
+    state: absent
+  become: true

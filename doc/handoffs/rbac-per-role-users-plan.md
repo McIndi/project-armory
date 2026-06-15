@@ -1,6 +1,19 @@
 # Handoff: Per-Role Users & Group-Based RBAC
 
-Status: planned · Owner: Copilot · Validated: 2026-06-12
+Status: in progress · Owner: Copilot · Validated: 2026-06-12
+
+## Execution status (2026-06-12)
+
+- Piece 1: implemented
+- Piece 2: implemented
+- Piece 3: implemented (rotation scope unchanged; follow-up still applies)
+- Piece 4: implemented
+- Review fixes (2026-06-12): credential-retrieval docs switched from root to
+  provisioner token; readiness realm-user checks given a hardcoded fallback so
+  they run from the standalone readiness playbook; dead
+  `headlamp_oidc_admin_group` / `headlamp_cluster_role_name` vars removed;
+  operator/viewer password-drift edge documented in operations.md.
+  Pending: full rebuild + readiness validation.
 
 ## Problem (validated)
 

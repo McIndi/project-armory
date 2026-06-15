@@ -90,6 +90,47 @@
       }] }}
   changed_when: false
 
+# Fetch full JSON and evaluate in Jinja: a jsonpath filter expression like
+# [?(@.kind=="Group")] cannot survive the command module's argument parsing
+# (quote removal strips the inner quotes and kubectl rejects the template).
+- name: Check Headlamp OIDC group ClusterRoleBindings
+  ansible.builtin.command: >-
+    k3s kubectl get clusterrolebinding headlamp-oidc-{{ item.group | regex_replace('[^a-z0-9.-]', '-') }}
+    -o json
+  environment:
+    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  loop: "{{ readiness_check_headlamp_oidc_group_bindings }}"
+  loop_control:
+    label: "{{ item.group }} -> {{ item.cluster_role }}"
+  register: _rc_headlamp_oidc_group_bindings
+  changed_when: false
+  failed_when: false
+
+- name: Add Headlamp OIDC group ClusterRoleBinding checks to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'Headlamp',
+        'check_name': 'OIDC ClusterRoleBinding ' + item.item.group,
+        'status': 'pass'
+          if (item.rc == 0
+              and ((item.stdout | from_json).roleRef.name == item.item.cluster_role)
+              and (((k3s_oidc_groups_prefix | default('oidc:')) + item.item.group)
+                   in ((item.stdout | from_json).subjects | default([])
+                       | selectattr('kind', 'eq', 'Group') | map(attribute='name') | list)))
+          else 'fail',
+        'detail': ((item.stdout | from_json).roleRef.name + ':'
+                   + ((item.stdout | from_json).subjects | default([])
+                      | selectattr('kind', 'eq', 'Group') | map(attribute='name') | list | join(',')))
+          if (item.rc == 0)
+          else ('headlamp-oidc-' + (item.item.group | regex_replace('[^a-z0-9.-]', '-'))),
+        'error': (item.stderr | default(''))
+      }] }}
+  loop: "{{ _rc_headlamp_oidc_group_bindings.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.group }}"
+  changed_when: false
+
 - name: Check Headlamp HTTPS connectivity
   ansible.builtin.uri:
     url: "{{ readiness_check_headlamp_url }}"

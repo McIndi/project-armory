@@ -1,23 +1,26 @@
 ---
-# Apply Kubernetes RBAC to grant admin user access to Headlamp
+# Apply Kubernetes RBAC bindings for OIDC groups
 
-- name: Apply ClusterRoleBinding for Headlamp admin user
+- name: Apply ClusterRoleBindings for Headlamp OIDC groups
   ansible.builtin.command:
     cmd: k3s kubectl apply -f -
     stdin: |
       apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRoleBinding
       metadata:
-        name: headlamp-admin
+        name: headlamp-oidc-{{ item.group | regex_replace('[^a-z0-9.-]', '-') }}
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: ClusterRole
-        name: cluster-admin
+        name: "{{ item.cluster_role }}"
       subjects:
-        - kind: User
-          name: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true) }}/realms/{{ headlamp_keycloak_realm }}#{{ headlamp_keycloak_admin_username }}"
+        - kind: Group
+          name: "{{ (k3s_oidc_groups_prefix | default('oidc:')) + item.group }}"
           apiGroup: rbac.authorization.k8s.io
   environment:
     KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+  loop: "{{ headlamp_oidc_group_bindings }}"
+  loop_control:
+    label: "{{ item.group }} -> {{ item.cluster_role }}"
   register: _headlamp_rbac_apply
   changed_when: "'configured' in (_headlamp_rbac_apply.stdout | default('')) or 'created' in (_headlamp_rbac_apply.stdout | default(''))"
