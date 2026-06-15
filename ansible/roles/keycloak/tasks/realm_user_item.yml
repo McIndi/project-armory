@@ -1,0 +1,152 @@
+---
+- name: Assert configured groups exist for realm user
+  ansible.builtin.assert:
+    that:
+      - (keycloak_realm_user.groups | default([]) | length) > 0
+      - (_kc_realm_group_id_map[group_name] | default('') | length) > 0
+    fail_msg: "Realm user {{ keycloak_realm_user.username }} references missing Keycloak group '{{ group_name }}'"
+  loop: "{{ keycloak_realm_user.groups | default([]) }}"
+  loop_control:
+    loop_var: group_name
+
+- name: Read current realm user credentials from OpenBao
+  ansible.builtin.uri:
+    url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_realm_user.openbao_path }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    status_code: [200, 404]
+  register: _kc_realm_user_creds_current
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Build realm user password (generated once, persisted)
+  ansible.builtin.set_fact:
+    _kc_realm_user_password: >-
+      {{
+        (_kc_realm_user_creds_current.json.data.data.password)
+        if ((_kc_realm_user_creds_current.status | default(404)) == 200
+            and (_kc_realm_user_creds_current.json.data.data.password | default('') | length) > 0)
+        else lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits')
+      }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Store realm user credentials in OpenBao
+  ansible.builtin.uri:
+    url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_realm_user.openbao_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    body_format: json
+    body:
+      data:
+        username: "{{ keycloak_realm_user.username }}"
+        password: "{{ _kc_realm_user_password }}"
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Look up realm user in Keycloak
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users?username={{ keycloak_realm_user.username }}&exact=true"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_user_lookup
+  changed_when: false
+
+- name: Create missing realm user in Keycloak
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      username: "{{ keycloak_realm_user.username }}"
+      enabled: true
+      emailVerified: true
+      email: "{{ keycloak_realm_user.email | default('') }}"
+      firstName: "{{ keycloak_realm_user.first_name | default('') }}"
+      lastName: "{{ keycloak_realm_user.last_name | default('') }}"
+      credentials:
+        - type: password
+          value: "{{ _kc_realm_user_password }}"
+          temporary: false
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 201
+  when: (_kc_realm_user_lookup.json | default([]) | length) == 0
+  register: _kc_realm_user_create
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Re-read realm user after ensure
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users?username={{ keycloak_realm_user.username }}&exact=true"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_user_final_lookup
+  changed_when: false
+
+- name: Assert realm user exists after ensure
+  ansible.builtin.assert:
+    that:
+      - (_kc_realm_user_final_lookup.json | default([]) | length) > 0
+    fail_msg: "Realm user {{ keycloak_realm_user.username }} was not found after provisioning"
+
+- name: Set realm user id fact
+  ansible.builtin.set_fact:
+    _kc_realm_user_id: "{{ (_kc_realm_user_final_lookup.json | first).id }}"
+
+- name: Read current realm user representation
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users/{{ _kc_realm_user_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_user_details
+  changed_when: false
+
+- name: Update realm user profile (idempotent)
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users/{{ _kc_realm_user_id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body: >-
+      {{
+        _kc_realm_user_details.json | combine({
+          'enabled': true,
+          'emailVerified': true,
+          'email': (keycloak_realm_user.email | default('')),
+          'firstName': (keycloak_realm_user.first_name | default('')),
+          'lastName': (keycloak_realm_user.last_name | default(''))
+        }, recursive=True)
+      }}
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 204
+
+- name: Ensure realm user group memberships
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users/{{ _kc_realm_user_id }}/groups/{{ _kc_realm_group_id_map[group_name] }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ _kc_realm_users_admin_token }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 204
+  loop: "{{ keycloak_realm_user.groups | default([]) }}"
+  loop_control:
+    loop_var: group_name

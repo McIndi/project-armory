@@ -571,6 +571,14 @@
       changed_when: false
       when: not ansible_check_mode
 
+    - name: Ensure configured Keycloak realm groups exist via admin REST
+      ansible.builtin.include_tasks: realm_groups.yml
+      when: not ansible_check_mode
+
+    - name: Reconcile configured Keycloak realm users via admin REST
+      ansible.builtin.include_tasks: realm_users.yml
+      when: not ansible_check_mode
+
     # ── Ingress (edge TLS at nginx) ─────────────────────────────────────────────
     - name: Apply Keycloak Ingress
       ansible.builtin.command:

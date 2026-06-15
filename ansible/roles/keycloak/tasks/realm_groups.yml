@@ -1,0 +1,89 @@
+---
+# Ensure configured realm groups exist even when the realm already existed
+# before the current run (realm import bootstrap only handles initial creation).
+
+- name: Set Keycloak internal base URL fact for realm groups
+  ansible.builtin.set_fact:
+    _kc_realm_groups_base_url: "{{ keycloak_internal_api_url }}"
+
+- name: Prepare internal HTTPS trust bundle for realm groups
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: prepare_internal_https_caller.yml
+  vars:
+    common_internal_https_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
+    common_internal_https_service_name: "{{ keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ keycloak_internal_service_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ keycloak_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ keycloak_namespace }}"
+    common_internal_https_bundle_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-groups-ca.crt
+    common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+
+- name: Read bootstrap-admin credentials for realm group provisioning
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ keycloak_bootstrap_admin_secret_name }}
+      -n {{ keycloak_namespace }} -o jsonpath={.data.{{ item }}}
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  loop: [username, password]
+  register: _kc_realm_groups_admin_creds_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Obtain Keycloak admin token for realm group provisioning
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_groups_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ _kc_realm_groups_admin_creds_b64.results[0].stdout | b64decode }}"
+      password: "{{ _kc_realm_groups_admin_creds_b64.results[1].stdout | b64decode }}"
+      grant_type: password
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-groups-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_groups_token
+  retries: 5
+  delay: 10
+  until: _kc_realm_groups_token.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set admin token fact for realm group provisioning
+  ansible.builtin.set_fact:
+    _kc_realm_groups_admin_token: "{{ _kc_realm_groups_token.json.access_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Ensure configured Keycloak realm groups exist
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_groups_base_url }}/admin/realms/{{ keycloak_realm }}/groups"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _kc_realm_groups_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: "{{ item }}"
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-groups-ca.crt
+    validate_certs: true
+    status_code: [201, 409]
+  loop: "{{ keycloak_realm_groups }}"
+  register: _kc_realm_groups_ensure
+  changed_when: _kc_realm_groups_ensure.status == 201
+
+- name: Remove temporary Keycloak CA file for realm group provisioning
+  ansible.builtin.file:
+    path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-groups-ca.crt
+    state: absent
+  changed_when: false
+
+- name: Remove temporary Keycloak internal FQDN hosts override for realm group provisioning
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ keycloak_service_name }}\.{{ keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
+    state: absent
+  become: true

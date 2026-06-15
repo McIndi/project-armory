@@ -77,7 +77,13 @@ headlamp_vault_auth_name: headlamp-vaultauth
 headlamp_oidc_secret_name: headlamp-oidc
 
 # Headlamp RBAC and plugin manager settings
-headlamp_cluster_role_name: cluster-admin
+headlamp_oidc_group_bindings:
+  - group: "{{ keycloak_admin_group | default('armory-admins') }}"
+    cluster_role: cluster-admin
+  - group: armory-operators
+    cluster_role: edit
+  - group: armory-viewers
+    cluster_role: view
 headlamp_plugins_manager_enabled: true
 headlamp_plugins:
   - name: cert-manager

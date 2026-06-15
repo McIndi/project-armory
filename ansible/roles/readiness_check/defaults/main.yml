@@ -103,6 +103,19 @@ readiness_check_keycloak_url: "{{ readiness_check_public_base_url }}/realms/{{ r
 readiness_check_keycloak_readiness_timeout: 30
 readiness_check_keycloak_host_header: "{{ readiness_check_public_domain }}"
 readiness_check_keycloak_admin_secret_name: keycloak-bootstrap-admin
+# Fallback list mirrors the keycloak role's seeded defaults so these checks
+# still run from the standalone readiness_check.yml playbook, where keycloak
+# role defaults are not in scope (same reason the headlamp group-binding
+# checks below carry a hardcoded fallback). Only username/groups are needed.
+readiness_check_keycloak_realm_users: >-
+  {{
+    keycloak_realm_users | default([
+      {'username': (keycloak_realm_admin_username | default('admin')),
+       'groups': [(keycloak_admin_group | default('armory-admins'))]},
+      {'username': 'operator', 'groups': ['armory-operators']},
+      {'username': 'viewer', 'groups': ['armory-viewers']}
+    ])
+  }}
 readiness_check_keycloak_pg_tls_enabled: "{{ keycloak_pg_tls_enabled | default(false) | bool }}"
 readiness_check_keycloak_pg_service_fqdn: "{{ (keycloak_pg_service | default('postgres')) + '.' + readiness_check_keycloak_namespace + '.svc.cluster.local' }}"
 readiness_check_keycloak_pg_verify_mode: "{{ keycloak_pg_tls_verify_mode | default('verify-full') }}"
@@ -117,6 +130,14 @@ readiness_check_headlamp_url: "https://{{ readiness_check_headlamp_host }}"
 readiness_check_headlamp_host_header: "{{ readiness_check_headlamp_host }}"
 readiness_check_headlamp_tls_secret: headlamp-tls
 readiness_check_headlamp_oidc_secret: headlamp-oidc
+readiness_check_headlamp_oidc_group_bindings: >-
+  {{
+    headlamp_oidc_group_bindings | default([
+      {'group': (keycloak_admin_group | default('armory-admins')), 'cluster_role': 'cluster-admin'},
+      {'group': 'armory-operators', 'cluster_role': 'edit'},
+      {'group': 'armory-viewers', 'cluster_role': 'view'}
+    ])
+  }}
 
 # Credential validation: attempt to use credentials to verify they work
 # Set to false to skip credential tests (only check file/secret existence)
