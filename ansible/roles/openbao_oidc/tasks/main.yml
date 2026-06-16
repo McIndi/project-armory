@@ -1,0 +1,12 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Configure OpenBao OIDC integration with Keycloak
+  ansible.builtin.import_tasks: oidc_config.yml
+  when:
+    - not ansible_check_mode
+    - openbao_oidc_role_enabled | bool
+    - keycloak_enabled | default(false) | bool

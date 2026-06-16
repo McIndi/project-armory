@@ -45,11 +45,13 @@ ansible-playbook playbooks/site.yml             # full deploy (~10–15 min)
 ```
 
 To use the web UIs, add hosts-file entries on your workstation for
-`armory.local` and `headlamp.armory.local` pointing at the VM IP, and trust
-the Armory Root CA. Then:
+`armory.local`, `headlamp.armory.local`, and `openbao.armory.local` pointing
+at the VM IP, and trust the Armory Root CA. Then:
 
 - Keycloak: `https://armory.local/realms/armory/.well-known/openid-configuration`
 - Headlamp: `https://headlamp.armory.local` (login `admin`; password below)
+- OpenBao UI: `https://openbao.armory.local` (login with realm users `admin`,
+  `operator`, or `viewer`; passwords below)
 
 ## Retrieve generated credentials
 
@@ -63,6 +65,10 @@ each value into a Kubernetes Secret, which is the easiest place to read it
 # Realm admin — the Headlamp login (username: admin)
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
+# Realm operator / viewer — also valid for OpenBao UI login
+# (username is printed with each password)
+vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/provisioner-token.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"provisioner_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); for U in operator viewer; do echo \"==> \$U\"; sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-users/\$U | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'; done"
+
 # Keycloak master bootstrap admin — Keycloak admin console (/admin) only
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
 vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
@@ -73,7 +79,9 @@ vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o js
 
 | Purpose | OpenBao path (source of truth) | k8s Secret (ns `keycloak`) |
 |---|---|---|
-| Realm `armory` admin — Headlamp login | `secret/keycloak/realm-admin` | `keycloak-realm-admin` |
+| Realm `armory` admin — Headlamp and OpenBao UI login | `secret/keycloak/realm-admin` | `keycloak-realm-admin` |
+| Realm `armory` operator — OpenBao UI login | `secret/keycloak/realm-users/operator` | — |
+| Realm `armory` viewer — OpenBao UI login | `secret/keycloak/realm-users/viewer` | — |
 | Keycloak master admin (console only) | `secret/keycloak/bootstrap-admin` | `keycloak-bootstrap-admin` |
 | Keycloak DB | `secret/keycloak/db` | `keycloak-db-secret` |
 

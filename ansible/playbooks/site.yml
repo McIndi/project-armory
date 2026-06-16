@@ -43,6 +43,12 @@
         - keycloak
         - keycloak_install
       when: keycloak_enabled | default(false) | bool
+    - role: openbao_oidc
+      tags:
+        - openbao_oidc
+        - openbao
+        - keycloak
+      when: keycloak_enabled | default(false) | bool
     - role: headlamp
       tags:
         - headlamp

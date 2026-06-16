@@ -38,30 +38,8 @@
   changed_when: false
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
-- name: Obtain Keycloak admin token for realm user provisioning
-  ansible.builtin.uri:
-    url: "{{ _kc_realm_users_base_url }}/realms/master/protocol/openid-connect/token"
-    method: POST
-    body_format: form-urlencoded
-    body:
-      client_id: admin-cli
-      username: "{{ _kc_realm_users_admin_creds_b64.results[0].stdout | b64decode }}"
-      password: "{{ _kc_realm_users_admin_creds_b64.results[1].stdout | b64decode }}"
-      grant_type: password
-    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
-    validate_certs: true
-    status_code: 200
-  register: _kc_realm_users_token
-  retries: 5
-  delay: 10
-  until: _kc_realm_users_token.status == 200
-  changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-
-- name: Set admin token fact for realm user provisioning
-  ansible.builtin.set_fact:
-    _kc_realm_users_admin_token: "{{ _kc_realm_users_token.json.access_token }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+- name: Obtain initial Keycloak admin token for realm group lookup
+  ansible.builtin.include_tasks: obtain_realm_admin_token.yml
 
 - name: List Keycloak realm groups for membership mapping
   ansible.builtin.uri:

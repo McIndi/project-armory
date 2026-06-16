@@ -73,6 +73,18 @@ URLs:
 - Keycloak realm discovery: `https://armory.local/realms/armory/.well-known/openid-configuration`
 - Headlamp: `https://headlamp.armory.local` with realm users:
   `admin` (cluster-admin), `operator` (edit), `viewer` (view).
+- OpenBao UI: `https://openbao.armory.local` with realm users:
+  `admin` (broad UI policy), `operator` (secret value read/list),
+  `viewer` (metadata/list only).
+
+OpenBao UI login notes:
+
+1. The OpenBao login page should show OIDC login (issuer backed by Keycloak
+  realm `armory`).
+2. Group-to-policy mapping is via OpenBao external identity groups and aliases
+  (`armory-admins`, `armory-operators`, `armory-viewers`).
+3. Users outside those groups authenticate but only receive baseline policy
+  scope (`default`).
 
 ## Retrieve generated credentials
 

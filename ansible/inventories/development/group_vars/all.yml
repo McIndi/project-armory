@@ -49,3 +49,6 @@ headlamp_openbao_oidc_path: headlamp/oidc
 
 # Ingress HTTP behavior policy.
 ingress_http_policy: disabled
+
+# Demo capability: expose OpenBao UI through ingress for OIDC login flows.
+openbao_ui_enabled: true

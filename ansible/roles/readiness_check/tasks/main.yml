@@ -29,6 +29,12 @@
       ansible.builtin.include_tasks: check_openbao.yml
       when: readiness_check_openbao_enabled | default(true) | bool
 
+    - name: Check OpenBao UI readiness
+      ansible.builtin.include_tasks: check_openbao_ui.yml
+      when:
+        - readiness_check_openbao_enabled | default(true) | bool
+        - readiness_check_openbao_ui_enabled | default(false) | bool
+
     - name: Check VSO readiness
       ansible.builtin.include_tasks: check_vso.yml
       when: readiness_check_vso_enabled | default(true) | bool

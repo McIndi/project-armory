@@ -1,0 +1,235 @@
+---
+# readiness_check/tasks/check_openbao_ui.yml
+# Validate OpenBao UI ingress and OIDC wiring.
+
+- name: Check OpenBao UI HTTPS connectivity
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_ui_url }}"
+    method: GET
+    validate_certs: "{{ readiness_check_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 301, 302, 307, 401, 403]
+  register: _rc_openbao_ui_https
+  changed_when: false
+  failed_when: false
+
+- name: Check OpenBao UI HTTPS connectivity via ingress endpoint fallback when DNS fails
+  ansible.builtin.uri:
+    url: "{{ readiness_check_ingress_probe_url }}"
+    method: GET
+    headers:
+      Host: "{{ readiness_check_openbao_ui_host }}"
+    validate_certs: false
+    follow_redirects: none
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 301, 302, 307, 401, 403]
+  register: _rc_openbao_ui_https_fallback
+  changed_when: false
+  failed_when: false
+  when: "'name resolution' in ((_rc_openbao_ui_https.msg | default('')) | lower)"
+
+- name: Add OpenBao UI HTTPS connectivity check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'UI HTTPS connectivity to ' + readiness_check_openbao_ui_url,
+        'status': 'pass'
+          if (_rc_openbao_ui_https.status | default(-1)) in [200, 301, 302, 307, 401, 403]
+          else 'pass'
+          if (_rc_openbao_ui_https_fallback is defined and (_rc_openbao_ui_https_fallback.status | default(-1)) in [200, 301, 302, 307, 401, 403])
+          else 'warn'
+          if ('name resolution' in ((_rc_openbao_ui_https.msg | default('')) | lower))
+          else 'fail',
+        'detail': 'HTTP ' + ((_rc_openbao_ui_https_fallback.status | default(-1)) | string) + ' via ingress fallback'
+          if ('name resolution' in ((_rc_openbao_ui_https.msg | default('')) | lower)) and (_rc_openbao_ui_https_fallback is defined)
+          else 'HTTP ' + ((_rc_openbao_ui_https.status | default(-1)) | string),
+        'error': (_rc_openbao_ui_https.msg | default(''))
+          if ((_rc_openbao_ui_https.status | default(-1)) not in [200, 301, 302, 307, 401, 403])
+          else ''
+      }] }}
+  changed_when: false
+
+- name: Ensure OpenBao root token is available for OpenBao UI auth checks
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: load_openbao_root_token.yml
+
+- name: Read OpenBao auth methods for UI OIDC check
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_addr }}/v1/sys/auth"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: 200
+  register: _rc_openbao_ui_auth_mounts
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Add OpenBao OIDC auth mount check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'OIDC auth mount enabled',
+        'status': 'pass'
+          if ((readiness_check_openbao_ui_oidc_auth_mount + '/') in (_rc_openbao_ui_auth_mounts.json | default({})))
+          else 'fail',
+        'detail': readiness_check_openbao_ui_oidc_auth_mount,
+        'error': _rc_openbao_ui_auth_mounts.msg | default('')
+      }] }}
+  changed_when: false
+
+- name: Read OpenBao OIDC auth config
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_addr }}/v1/auth/{{ readiness_check_openbao_ui_oidc_auth_mount }}/config"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 404]
+  register: _rc_openbao_ui_oidc_config
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Add OpenBao OIDC config check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'OIDC client configured',
+        'status': 'pass'
+          if ((_rc_openbao_ui_oidc_config.status | default(404)) == 200
+              and ((_rc_openbao_ui_oidc_config.json.data.oidc_client_id | default('') | length) > 0))
+          else 'fail',
+        'detail': (_rc_openbao_ui_oidc_config.json.data.oidc_client_id | default('missing')),
+        'error': _rc_openbao_ui_oidc_config.msg | default('')
+      }] }}
+  changed_when: false
+
+- name: Check OpenBao UI ACL policies
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_addr }}/v1/sys/policies/acl/{{ item }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 404]
+  loop: "{{ readiness_check_openbao_ui_expected_policies }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _rc_openbao_ui_policies
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Add OpenBao UI ACL policy checks to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'UI ACL policy ' + item.item,
+        'status': 'pass' if (item.status | default(404)) == 200 else 'fail',
+        'detail': item.item,
+        'error': item.msg | default('')
+      }] }}
+  loop: "{{ _rc_openbao_ui_policies.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: false
+
+- name: Check OpenBao UI identity groups
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_addr }}/v1/identity/group/name/{{ item }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 404]
+  loop: "{{ readiness_check_openbao_ui_expected_groups }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _rc_openbao_ui_groups
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Add OpenBao UI identity group checks to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'UI identity group ' + item.item,
+        'status': 'pass' if (item.status | default(404)) == 200 else 'fail',
+        'detail': item.item,
+        'error': item.msg | default('')
+      }] }}
+  loop: "{{ _rc_openbao_ui_groups.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: false
+
+- name: List OpenBao identity group aliases
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_addr }}/v1/identity/group-alias/id?list=true"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: [200, 404]
+  register: _rc_openbao_ui_alias_ids
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Read OpenBao identity group aliases
+  ansible.builtin.uri:
+    url: "{{ readiness_check_openbao_addr }}/v1/identity/group-alias/id/{{ item }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    validate_certs: "{{ readiness_check_openbao_validate_tls }}"
+    timeout: "{{ readiness_check_openbao_api_timeout }}"
+    status_code: 200
+  loop: "{{ _rc_openbao_ui_alias_ids.json.data['keys'] | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _rc_openbao_ui_alias_details
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: (_rc_openbao_ui_alias_ids.status | default(404)) == 200
+
+- name: Build OpenBao OIDC alias names set
+  ansible.builtin.set_fact:
+    _rc_openbao_ui_alias_names: >-
+      {{
+        (_rc_openbao_ui_alias_details.results | default([]))
+        | selectattr('json.data.name', 'defined')
+        | map(attribute='json.data.name')
+        | list
+      }}
+  changed_when: false
+
+- name: Add OpenBao UI identity group alias checks to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'OpenBao',
+        'check_name': 'UI identity group alias ' + item,
+        'status': 'pass' if (item in (_rc_openbao_ui_alias_names | default([]))) else 'fail',
+        'detail': item,
+        'error': ''
+      }] }}
+  loop: "{{ readiness_check_openbao_ui_expected_groups }}"
+  loop_control:
+    label: "{{ item }}"
+  changed_when: false

@@ -25,6 +25,7 @@ not in a role's defaults — role defaults are invisible to other roles.
 | `ARMORY_PUBLIC_DOMAIN` | `armory.local` | External domain; drives ingress hosts, PKI allowed domains, cert role names |
 | `ARMORY_PUBLIC_BASE_URL` | `https://armory.local` | Base URL consumed by OIDC redirect configuration |
 | `ARMORY_HEADLAMP_HOST` | `headlamp.armory.local` | Headlamp ingress hostname |
+| `ARMORY_OPENBAO_HOST` | `openbao.armory.local` | OpenBao UI ingress hostname |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
 | `VSO_CHART_PATH` | `/vagrant/project-armory/charts/vso-hardened` | Local hardened VSO chart (preferred for the demo) |
 | `VSO_CHART_REPO` / `VSO_CHART_NAME` / `VSO_CHART_VERSION` | empty | Alternative: published hardened chart coordinates |
@@ -41,6 +42,7 @@ not in a role's defaults — role defaults are invisible to other roles.
 | `trust_manager_internal_ca_target_namespaces` | cert-manager, vso, keycloak, headlamp | Namespaces receiving the CA Secret |
 | `keycloak_pg_tls_enabled` | `true` | Keycloak↔Postgres TLS with `sslmode=verify-full` |
 | `ingress_http_policy` | `disabled` | `redirect-only` (HTTP→HTTPS redirect) or `disabled` (close 80/tcp in firewalld) |
+| `openbao_ui_enabled` | `true` (development inventory) | Enables OpenBao UI ingress exposure and OIDC follow-on wiring |
 
 These were staged-rollout toggles during the TLS build-out; all are now
 enabled. They remain toggles so a regression can be bisected by flipping one
@@ -59,6 +61,11 @@ Authoritative list: each role's `defaults/main.yml`. Frequently relevant:
 | `openbao_audit_enabled` (openbao) | `true` | File audit device on dedicated PVC |
 | `openbao_audit_storage_size` (openbao) | `2Gi` | Audit PVC size |
 | `openbao_audit_rotate_on_calendar` / `..._rotate_keep` (openbao) | `daily` / 7 | Host-side rotation cadence and retention |
+| `openbao_ui_enabled` / `openbao_ingress_enabled` (openbao) | `false` / `{{ openbao_ui_enabled }}` | Feature flag and ingress toggle for OpenBao UI exposure |
+| `openbao_ingress_host` / `openbao_ingress_tls_secret_name` (openbao) | `openbao.<domain>` / `openbao-ui-tls` | OpenBao UI ingress host and cert secret |
+| `openbao_ingress_tls_issuer_name` (openbao) | `openbao-pki-external` | cert-manager ClusterIssuer used by ingress-shim |
+| `openbao_oidc_client_id` / `openbao_oidc_secret_path` (openbao_oidc) | `openbao` / `openbao/ui-oidc` | Keycloak client id and OpenBao KV path for persisted client secret |
+| `openbao_oidc_redirect_uris` (openbao_oidc) | UI callback pair | Required redirect URI list for OpenBao UI OIDC login |
 | `keycloak_operator_version` (keycloak) | pinned (e.g. `26.5.2`) | Operator manifest version |
 | `keycloak_realm_groups` (keycloak) | admin/operator/viewer groups | Top-level groups ensured in realm import + admin REST reconciliation |
 | `keycloak_realm_users` (keycloak) | admin/operator/viewer users | Seeded realm users with OpenBao-backed passwords and expected group memberships |

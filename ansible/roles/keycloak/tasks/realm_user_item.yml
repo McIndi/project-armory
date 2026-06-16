@@ -1,4 +1,7 @@
 ---
+- name: Refresh Keycloak admin token for this realm user
+  ansible.builtin.include_tasks: obtain_realm_admin_token.yml
+
 - name: Assert configured groups exist for realm user
   ansible.builtin.assert:
     that:

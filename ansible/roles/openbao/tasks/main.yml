@@ -44,6 +44,10 @@
       ansible.builtin.import_tasks: consumer_wiring.yml
       tags: [openbao, openbao_consumer_wiring]
 
+    - name: OpenBao OIDC scaffold
+      ansible.builtin.import_tasks: oidc_scaffold.yml
+      tags: [openbao, openbao_oidc_scaffold]
+
     - name: OpenBao provisioner token
       ansible.builtin.import_tasks: provisioner_token.yml
       tags: [openbao, openbao_provisioner]

@@ -15,6 +15,7 @@ hand-set or committed to the repo.
 | cert-manager | Kubernetes auth → `cert-manager` role | `cert-manager` policy: sign certificates on the PKI mounts only |
 | Ansible automation | Scoped periodic `ansible-provisioner` token, encrypted at `/opt/openbao/provisioner-token.yml` | KV write on `keycloak/*`/`headlamp/*` only, external-CA PEM read, `sys/audit` read; cannot author policies or bind auth roles ([decisions/0007](decisions/0007-scoped-provisioner-token.md)) |
 | Human break-glass | Root token via Ansible Vault file or KV `secret/openbao/init` | See [operations.md](operations.md#break-glass-openbao-root-token) |
+| Human OpenBao UI access | Keycloak OIDC (`openbao` client) | Group-derived OpenBao ACL tiers via external identity groups + aliases (`armory-ui-admin`, `armory-ui-operator`, `armory-ui-viewer`) |
 | Keycloak realm admin (`admin`) | Generated password, rotated ~monthly by CronJob | Realm `armory`; this is the Headlamp login |
 | Keycloak master bootstrap admin | Generated password | Master realm console only |
 | Rotator service account | Dedicated Keycloak client `realm-admin-rotator` | realm-management `manage-users` only — cannot administer the realm |
@@ -107,3 +108,4 @@ are listed here so the posture is honest; several are tracked in the backlog.
 | Single node, single replica | No HA for OpenBao, Keycloak, or ingress | By design (demo) |
 | Unpinned component versions | Tracks latest upstream during development, by policy ([decisions/0005](decisions/0005-track-latest-upstream.md)); pinning is an end-of-project step | By design |
 | No runtime security / network policies | No NetworkPolicies, no admission control, no falco-class monitoring | Out of scope |
+| OpenBao UI exposed on ingress | Demo convenience for end-to-end SSO and role walkthroughs; increases external attack surface versus API-only exposure | Enabled only via `openbao_ui_enabled` toggle |

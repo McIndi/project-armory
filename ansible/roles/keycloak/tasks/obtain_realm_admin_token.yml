@@ -1,0 +1,33 @@
+---
+# Mint a fresh Keycloak admin access token for realm user provisioning.
+#
+# Keycloak's master-realm admin-cli access token is short-lived (60s by
+# default). A single token cannot cover a long-running reconcile loop, so
+# this is included at the start of each per-user iteration to re-mint just
+# before the API calls that need it. Relies on _kc_realm_users_admin_creds_b64
+# and _kc_realm_users_base_url being set earlier in realm_users.yml.
+
+- name: Obtain Keycloak admin token for realm user provisioning
+  ansible.builtin.uri:
+    url: "{{ _kc_realm_users_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ _kc_realm_users_admin_creds_b64.results[0].stdout | b64decode }}"
+      password: "{{ _kc_realm_users_admin_creds_b64.results[1].stdout | b64decode }}"
+      grant_type: password
+    ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _kc_realm_users_token
+  retries: 5
+  delay: 10
+  until: _kc_realm_users_token.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set admin token fact for realm user provisioning
+  ansible.builtin.set_fact:
+    _kc_realm_users_admin_token: "{{ _kc_realm_users_token.json.access_token }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"

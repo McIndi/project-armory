@@ -33,6 +33,17 @@ openbao_startup_wait_timeout: 300s
 # Timeout for readiness checks before init/unseal/configure steps.
 openbao_ready_wait_timeout: 600s
 
+# OpenBao UI and ingress defaults.
+# Keep disabled by default; development inventory opts in.
+openbao_ui_enabled: false
+openbao_ingress_enabled: "{{ openbao_ui_enabled }}"
+openbao_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
+openbao_ingress_class: nginx
+openbao_ingress_tls_secret_name: openbao-ui-tls
+openbao_ingress_tls_issuer_name: "{{ certmanager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
+openbao_cert_duration: "8760h"
+openbao_cert_renew_before: "720h"
+
 # Readiness probe tuning to avoid tight retry loops on slow VMs.
 openbao_readiness_period_seconds: 10
 openbao_readiness_timeout_seconds: 10
@@ -88,6 +99,56 @@ openbao_key_threshold: 3
 
 # Mount path for KV secrets engine (used for application credentials).
 openbao_kv_mount: secret
+
+# OIDC auth mount path used for OpenBao UI SSO.
+openbao_oidc_auth_mount: oidc
+
+# Demo-tier OpenBao ACL policies for UI identities.
+openbao_ui_acl_policies:
+  - name: armory-ui-admin
+    policy: |
+      path "{{ openbao_kv_mount }}/*" {
+        capabilities = ["read", "list"]
+      }
+
+      path "sys/mounts" {
+        capabilities = ["read"]
+      }
+
+      path "sys/health" {
+        capabilities = ["read"]
+      }
+
+      path "sys/policies/acl" {
+        capabilities = ["read", "list"]
+      }
+
+      path "sys/policies/acl/*" {
+        capabilities = ["read", "list"]
+      }
+  - name: armory-ui-operator
+    policy: |
+      path "{{ openbao_kv_mount }}/data/*" {
+        capabilities = ["read", "list"]
+      }
+
+      path "{{ openbao_kv_mount }}/metadata/*" {
+        capabilities = ["read", "list"]
+      }
+  - name: armory-ui-viewer
+    policy: |
+      path "{{ openbao_kv_mount }}/metadata/*" {
+        capabilities = ["read", "list"]
+      }
+
+# Keycloak group -> OpenBao policy mappings for external identity groups.
+openbao_ui_group_bindings:
+  - keycloak_group: armory-admins
+    openbao_policy: armory-ui-admin
+  - keycloak_group: armory-operators
+    openbao_policy: armory-ui-operator
+  - keycloak_group: armory-viewers
+    openbao_policy: armory-ui-viewer
 
 # PKI hierarchy mounts.
 # Root is dedicated to signing intermediates; leaf certs are issued from
@@ -150,6 +211,7 @@ openbao_provisioner_token_display_name: ansible-provisioner
 openbao_provisioner_kv_prefixes:
   - keycloak
   - headlamp
+  - openbao
 
 # Whether this role manages firewalld rules for OpenBao access.
 # Disable if firewall is managed externally.

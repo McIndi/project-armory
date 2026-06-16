@@ -54,6 +54,18 @@ readiness_check_openbao_addr: https://openbao.openbao.svc.cluster.local:8200
 readiness_check_openbao_health_endpoint: /v1/sys/health
 readiness_check_openbao_api_timeout: 10
 readiness_check_openbao_validate_tls: true
+readiness_check_openbao_ui_enabled: "{{ openbao_ui_enabled | default(false) | bool }}"
+readiness_check_openbao_ui_host: "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + readiness_check_public_domain, true) }}"
+readiness_check_openbao_ui_url: "https://{{ readiness_check_openbao_ui_host }}"
+readiness_check_openbao_ui_oidc_auth_mount: "{{ openbao_oidc_auth_mount | default('oidc') }}"
+readiness_check_openbao_ui_expected_policies:
+  - armory-ui-admin
+  - armory-ui-operator
+  - armory-ui-viewer
+readiness_check_openbao_ui_expected_groups:
+  - armory-admins
+  - armory-operators
+  - armory-viewers
 
 # VSO / Vault Secrets Operator settings
 readiness_check_vso_namespace: vault-secrets-operator-system

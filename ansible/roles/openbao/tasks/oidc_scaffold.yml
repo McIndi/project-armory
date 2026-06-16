@@ -1,0 +1,165 @@
+---
+# oidc_scaffold.yml - Bootstrap OpenBao OIDC auth scaffolding, coarse demo
+# ACL tiers, and external identity-group aliases.
+
+- name: Get current auth methods for OIDC scaffolding
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/auth"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    status_code: 200
+  register: _openbao_oidc_auth_mounts
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Enable OpenBao OIDC auth method
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/auth/{{ openbao_oidc_auth_mount }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      type: oidc
+    status_code: [200, 204]
+  register: _openbao_enable_oidc_auth_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - "(openbao_oidc_auth_mount + '/') not in (_openbao_oidc_auth_mounts.json | default({}))"
+
+- name: Write OpenBao UI ACL tier policies
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ item.name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: "{{ item.policy }}"
+    status_code: [200, 204]
+  loop: "{{ openbao_ui_acl_policies }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Upsert OpenBao external identity groups for UI policy tiers
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/identity/group"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      name: "{{ item.keycloak_group }}"
+      type: external
+      policies:
+        - "{{ item.openbao_policy }}"
+    status_code: [200, 204]
+  loop: "{{ openbao_ui_group_bindings }}"
+  loop_control:
+    label: "{{ item.keycloak_group }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Refresh OpenBao auth methods after OIDC enablement
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/auth"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    status_code: 200
+  register: _openbao_oidc_auth_mounts_effective
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Capture OIDC auth mount accessor
+  ansible.builtin.set_fact:
+    _openbao_oidc_mount_accessor: "{{ (_openbao_oidc_auth_mounts_effective.json[(openbao_oidc_auth_mount + '/')].accessor | default('')) }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate OpenBao OIDC auth accessor is present
+  ansible.builtin.assert:
+    that:
+      - (_openbao_oidc_mount_accessor | default('') | length) > 0
+    fail_msg: >-
+      OIDC auth mount accessor is unavailable at {{ openbao_oidc_auth_mount }}/.
+      Ensure the auth method is enabled before identity group alias wiring.
+  when: not ansible_check_mode
+
+- name: Read OpenBao identity groups by configured Keycloak group names
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/identity/group/name/{{ item.keycloak_group }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    status_code: 200
+  loop: "{{ openbao_ui_group_bindings }}"
+  loop_control:
+    label: "{{ item.keycloak_group }}"
+  register: _openbao_ui_group_details
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: List existing OpenBao identity group aliases
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/identity/group-alias/id?list=true"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    status_code: [200, 404]
+  register: _openbao_group_alias_id_list
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Read existing OpenBao identity group aliases
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/identity/group-alias/id/{{ item }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    status_code: 200
+  loop: "{{ _openbao_group_alias_id_list.json.data['keys'] | default([]) }}"
+  register: _openbao_group_alias_details
+  loop_control:
+    label: "{{ item }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - (_openbao_group_alias_id_list.status | default(404)) == 200
+
+- name: Build set of existing OIDC group alias names
+  ansible.builtin.set_fact:
+    _openbao_existing_oidc_group_alias_names: >-
+      {{
+        (_openbao_group_alias_details.results | default([]))
+        | selectattr('json.data.mount_accessor', 'defined')
+        | selectattr('json.data.mount_accessor', 'equalto', _openbao_oidc_mount_accessor)
+        | map(attribute='json.data.name')
+        | list
+      }}
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Ensure OpenBao identity group aliases for OIDC groups
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/identity/group-alias"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      name: "{{ item.item.keycloak_group }}"
+      mount_accessor: "{{ _openbao_oidc_mount_accessor }}"
+      canonical_id: "{{ item.json.data.id }}"
+    status_code: [200, 204]
+  loop: "{{ _openbao_ui_group_details.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.keycloak_group }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - (item.item.keycloak_group | string) not in (_openbao_existing_oidc_group_alias_names | default([]))

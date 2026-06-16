@@ -6,7 +6,7 @@ server:
   standalone:
     enabled: true
     config: |
-      ui = false
+      ui = {{ openbao_ui_enabled | bool | lower }}
 
       listener "tcp" {
         tls_disable     = {{ 0 if (openbao_tls_enabled | bool) else 1 }}
@@ -71,8 +71,27 @@ server:
       readOnly: true
 {% endif %}
 
+{% if openbao_ingress_enabled | bool %}
+  ingress:
+    enabled: true
+    ingressClassName: {{ openbao_ingress_class }}
+    annotations:
+      cert-manager.io/cluster-issuer: {{ openbao_ingress_tls_issuer_name }}
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"
+    hosts:
+      - host: {{ openbao_ingress_host }}
+        paths:
+          - /
+    tls:
+      - secretName: {{ openbao_ingress_tls_secret_name }}
+        hosts:
+          - {{ openbao_ingress_host }}
+{% endif %}
+
 ui:
-  enabled: false
+  enabled: {{ openbao_ui_enabled | bool | lower }}
 
 injector:
   enabled: false

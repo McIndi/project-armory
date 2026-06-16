@@ -41,10 +41,12 @@ No viewer/operator tiers, no per-role users.
 UI is not exposed either, so there is nothing for a human user to log into.
 Per-role OpenBao access belongs to the existing backlog item "Expose OpenBao
 web ui and tie into keycloak OIDC" and should reuse the Keycloak
-client-provisioning and group-mapping patterns this plan establishes. Do not
-add OpenBao auth methods, ACL policies for humans, or identity groups here.
-(OpenBao KV as *credential storage* for generated passwords stays — that is
-existing plumbing, not human auth.)
+client-provisioning and group-mapping patterns this plan establishes. The
+implementation handoff is
+`doc/handoffs/openbao-ui-keycloak-oidc-plan.md`. Do not add OpenBao auth
+methods, ACL policies for humans, or identity groups here. (OpenBao KV as
+*credential storage* for generated passwords stays — that is existing plumbing,
+not human auth.)
 
 ## What already exists (inventory — do not rebuild)
 
