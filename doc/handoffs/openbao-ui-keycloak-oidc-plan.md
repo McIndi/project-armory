@@ -1,6 +1,8 @@
 # Handoff: Expose OpenBao Web UI + Keycloak OIDC Login
 
-Status: in progress · Owner: Copilot · Created: 2026-06-15
+> **ARCHIVED — executed. Kept for history; do not follow as current instructions.** Rationale and architectural notes live in this document; full implementation details in the role-based PRs/commits.
+
+Status: complete · Created: 2026-06-15 · Executed: 2026-06-16
 
 ## Goal
 
