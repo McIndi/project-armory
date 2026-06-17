@@ -25,8 +25,22 @@ Accept runtime dependencies required for the module path:
 
 Use an explicit module auth contract for all `kubernetes.core.k8s`,
 `kubernetes.core.k8s_info`, and `kubernetes.core.helm` tasks:
-- pass `kubeconfig: "{{ <role>_kubeconfig_path }}"` on each task
-- add `become: true` when the play context is not already privileged
+- pass `kubeconfig: "{{ <role>_kubeconfig_path }}"` on each task, pointing at a
+  kubeconfig **readable by the unprivileged runtime user** (`vagrant`)
+- the runtime kubeconfig is a copy of `/etc/rancher/k3s/k3s.yaml` placed at
+  `/home/vagrant/.kube/config` (owner `vagrant`, mode `0600`) by the `k3s` role
+
+**Why not `become: true` (corrected 2026-06-17):** the original contract said to
+add `become: true` when unprivileged. That does **not** work for these modules.
+`kubernetes.core` reads file arguments such as `kubeconfig` in a controller-side
+**action plugin** that runs as the unprivileged login user *before* privilege
+escalation — so a root-owned `0600` kubeconfig fails with `[Errno 13] Permission
+denied` even under global `ANSIBLE_BECOME=True` (proven in Stage 1: the legacy
+`helm` *command* task read the same path fine as root, but the migrated
+`kubernetes.core.helm` task did not). The fix is a runtime-user-readable
+kubeconfig, not escalation. (Alternative considered and rejected for the hardened
+posture: `--write-kubeconfig-mode 0644`, which exposes cluster-admin credentials
+to every local user.)
 
 Residual `command` use remains allowed where there is no clean module mapping:
 `rollout restart`, `rollout status`, `create token`, `cluster-info`, and

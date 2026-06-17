@@ -51,11 +51,22 @@ requires. Two non-idempotent areas remain after the OpenBao PKI/TLS fix:
 
 ## Global rules for every stage
 
-- Keep `ansible-lint -c .ansible-lint` and `ansible-playbook --syntax-check
-  playbooks/site.yml` green.
-- Verify idempotency with `ansible/scripts/capture_run_snapshot.sh`: capture a run,
-  do an immediate no-op rerun, capture again, diff. A stage is **done** only when
-  its targeted resources show no churn (stable revisions / pod UIDs) on the rerun.
+**Division of responsibility — agents do NOT run the playbook.** The implementing
+agent's job ends at *static* validation: code edits, `ansible-playbook
+--syntax-check`, and `ansible-lint -c .ansible-lint`. Agents must **not** run
+`ansible-playbook playbooks/site.yml` (or any role apply) against the VM, and must
+not run `capture_run_snapshot.sh` — full runs are slow and not a good use of agent
+tokens. The agent hands off "ready for verification"; the **maintainer** owns
+running the playbook and the two-run idempotency check.
+
+- Agents keep `ansible-lint -c .ansible-lint` and `ansible-playbook --syntax-check
+  playbooks/site.yml` green (both are static — no cluster contact).
+- **Maintainer-owned acceptance gate** (every "Verify" section below describes
+  this, not an agent task): run the stage, capture with
+  `ansible/scripts/capture_run_snapshot.sh`, do an immediate no-op rerun, capture
+  again, diff. A stage is **done** only when its targeted resources show no churn
+  (stable revisions / pod UIDs) on the second run. Agents surface what to look
+  for; they do not execute it.
 - The `kubernetes.core.helm` module needs the **`helm-diff`** plugin for accurate
   no-op detection; `kubernetes.core.k8s` needs the **`kubernetes` Python library**.
 
@@ -93,15 +104,21 @@ purely mechanical.
   `exec`→`k8s_exec` have no clean module mapping and stay `command`. End state is
   ~90% modules + this documented remainder, not 100%.
 
-**In scope — kubeconfig/auth contract for the `k8s` module (currently implicit):**
-- Today's `command` tasks set `KUBECONFIG=/etc/rancher/k3s/k3s.yaml` (root-owned
-  `0600`) with `ansible_connection: local` and **no `become`** — so the play is
-  already running privileged, and `--write-kubeconfig-mode` is **not** set in
-  `k3s/templates/config.yaml.j2`. Decide the module's explicit auth path and
-  document it in ADR 0008: pass `kubeconfig: "{{ <role>_kubeconfig_path }}"` on
-  every `k8s`/`k8s_info`/`helm` task, plus `become: true` if the play is not
-  already privileged. Validate this choice in the Stage 3 read-only pilot **before**
-  any apply path depends on it.
+**In scope — kubeconfig/auth contract for `kubernetes.core` tasks:**
+- `command` tasks today reach the cluster via global `ANSIBLE_BECOME=True`
+  (`.env`) escalating to root, which can read the root-owned `0600`
+  `/etc/rancher/k3s/k3s.yaml`. **`kubernetes.core` modules cannot rely on this:**
+  they read file args (`kubeconfig`) in a controller-side action plugin as the
+  unprivileged `vagrant` user *before* escalation, so the root-only kubeconfig
+  fails with `[Errno 13] Permission denied` even under global become. (Confirmed
+  in Stage 1 — see ADR 0008 "Why not `become: true`".)
+- **Resolution:** the `k3s` role provisions a runtime-user-readable kubeconfig —
+  copy `/etc/rancher/k3s/k3s.yaml` → `/home/vagrant/.kube/config` (owner
+  `vagrant`, mode `0600`, `become: true`, idempotent `copy` with `remote_src`).
+  Expose it as e.g. `k3s_user_kubeconfig_path`. **Every** `kubernetes.core.*` task
+  (helm in Stages 1–2, k8s/k8s_info in 3–7) sets `kubeconfig:` to this path — not
+  the root `/etc/rancher/k3s/k3s.yaml` and not `become: true`. Legacy `command`
+  tasks may keep using the root path via global become until migrated.
 
 **Do not touch:** any role's `command:` tasks.
 
@@ -125,16 +142,33 @@ Prove the `kubernetes.core.helm` pattern on the simplest role before fanning out
   `kubernetes.core.helm`: `release_name`, `chart_ref` + `chart_repo_url`,
   `release_namespace`, `create_namespace: true`,
   `values_files: [.../cert-manager-values.yaml]` (keep the rendered file),
-  `wait: true`, `kubeconfig`.
+  `wait: true`.
+- **`kubeconfig` (auth contract):** point at the runtime-user-readable kubeconfig
+  (`k3s_user_kubeconfig_path`, i.e. `/home/vagrant/.kube/config`), **not**
+  `/etc/rancher/k3s/k3s.yaml`. The root-owned path fails with `Permission denied`
+  because the module reads it unprivileged (see Stage 0 auth contract / ADR 0008).
+  Requires the `k3s`-role kubeconfig-copy task to exist first.
 - **Delete `changed_when: true`** — the module reports change natively.
+- **`chart_version` (gotcha):** `certmanager_chart_version` defaults to `""`
+  (no-pinning-during-dev). `default(omit)` does **not** omit an empty string — it
+  only omits an *undefined* var — so the module would pass `--version ''`. Use the
+  length guard instead, preserving the original behavior:
+  `chart_version: "{{ certmanager_chart_version if (certmanager_chart_version | length > 0) else omit }}"`.
 
 **Do not touch:** the values-render task, the webhook wait, any other role.
 
 **Output:** document the working pattern block + gotchas (chart repo/ref form,
-helm-diff dependency) inline for Stage 2.
+helm-diff dependency, the empty-string `chart_version` guard) inline for Stage 2.
 
-**Verify:** run the role twice → second run `changed=0` for the helm task **and**
-`helm list -n cert-manager` revision does not advance past first install.
+**Agent done-criteria:** edits applied, `chart_version` guard correct, syntax-check
++ ansible-lint green; then hand off "ready for verification." Do **not** run the
+playbook.
+
+**Maintainer acceptance gate (not an agent task):** `--syntax-check` alone does not
+sign off this stage. The maintainer runs the role twice and confirms the **second**
+run reports `changed=0` for the helm task **and** `helm list -n cert-manager`
+revision does not advance past first install. This two-run test is what proves the
+helm-diff no-op path works and catches gotchas like the `chart_version` one above.
 
 ---
 
@@ -149,14 +183,21 @@ each edit to that role's single helm task.
 - `ansible/roles/vso/tasks/main.yml:139` — preserve the local-chart-path branch
   (`vso_chart_path`); map it to the module's `chart_ref` (a local path is valid).
 - `ansible/roles/headlamp/tasks/deploy.yml:191`
-- `ansible/roles/trust_manager/tasks/main.yml:13` — preserve the conditional
-  `--version` via the module's `chart_version`.
+- `ansible/roles/trust_manager/tasks/main.yml:13`
+
+**`chart_version` handling (applies to all five):** 4 of these 5 roles default
+`chart_version` to `""` (`openbao`, `nginx_ingress`, `trust_manager`, and `vso`
+via an env lookup that defaults to `''`); only `headlamp` pins (`0.42.0`). Use the
+length-guard idiom from Stage 1 on **every** role —
+`chart_version: "{{ <role>_chart_version if (<role>_chart_version | length > 0) else omit }}"`
+— **not** `default(omit)`, which passes `--version ''` for the empty-string roles.
 
 **Do not touch:** post-helm `kubectl patch` tasks (openbao hosts mapping, headlamp
 probe-scheme patch) — those are Stage 7.
 
-**Verify:** full `playbooks/site.yml` rerun → all six Helm revisions stable; no pod
-UID changes from this track.
+**Verify (two-run gate):** full `playbooks/site.yml` rerun → on the **second** run
+all six Helm revisions are stable (no advance) and no pod UIDs change from this
+track. As in Stage 1, `--syntax-check` does not satisfy this.
 
 ---
 
