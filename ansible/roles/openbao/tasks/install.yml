@@ -54,6 +54,38 @@
       subjectAltName = {{ openbao_tls_sans | join(',') }}
   when: openbao_tls_enabled | bool
 
+- name: Stat existing OpenBao TLS artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ openbao_tls_ca_host_path }}"
+    - "{{ openbao_tls_ca_key_host_path }}"
+    - "{{ openbao_tls_cert_host_path }}"
+    - "{{ openbao_tls_key_host_path }}"
+  register: _openbao_tls_stat
+  when: openbao_tls_enabled | bool
+
+- name: Read OpenBao CA expiry status
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in {{ openbao_tls_ca_host_path }}
+      -noout
+      -checkend {{ (openbao_tls_renew_before_days | int) * 86400 }}
+  register: _openbao_ca_checkend
+  changed_when: false
+  failed_when: false
+  when:
+    - openbao_tls_enabled | bool
+    - (openbao_tls_ca_host_path in (_openbao_tls_stat.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list))
+
+- name: Decide whether OpenBao TLS artifacts must be regenerated
+  ansible.builtin.set_fact:
+    _openbao_tls_regenerate: >-
+      {{ (_openbao_tls_stat.results | selectattr('stat.exists', 'equalto', false) | list | length > 0)
+         or (_openbao_ca_checkend.rc | default(1) != 0) }}
+  when: openbao_tls_enabled | bool
+
 - name: Generate OpenBao TLS CA certificate and key
   ansible.builtin.command:
     cmd: >-
@@ -67,6 +99,7 @@
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
+    - _openbao_tls_regenerate | bool
 
 - name: Generate OpenBao TLS server key and CSR
   ansible.builtin.command:
@@ -78,6 +111,7 @@
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
+    - _openbao_tls_regenerate | bool
 
 - name: Sign OpenBao TLS server certificate with OpenBao CA
   ansible.builtin.command:
@@ -96,6 +130,7 @@
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
+    - _openbao_tls_regenerate | bool
 
 - name: Remove OpenBao TLS CSR file
   ansible.builtin.file:
@@ -104,6 +139,7 @@
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
+    - _openbao_tls_regenerate | bool
 
 - name: Install OpenBao CA into host trust store
   ansible.builtin.copy:
@@ -285,7 +321,10 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   changed_when: true
-  when: not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - openbao_tls_enabled | bool
+    - _openbao_tls_regenerate | default(false) | bool or _openbao_tls_secret_apply.changed | default(false)
 
 - name: Create ClusterRoleBinding for OpenBao SA (token review)
   ansible.builtin.command:

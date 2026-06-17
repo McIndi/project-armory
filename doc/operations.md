@@ -49,6 +49,19 @@ conformance, and OIDC endpoints. Failures print a per-check table; a `warn`
 is informational, a `fail` indicates the deployed state diverges from the
 configured policy.
 
+## Capture a run snapshot
+
+Use the helper to capture a broad, compare-friendly state snapshot before or
+after any deploy/readiness run (including failed runs):
+
+```bash
+bash /vagrant/ansible/scripts/capture_run_snapshot.sh
+```
+
+Output files are written under `/vagrant/log/run-snapshots/` with a unique
+timestamped filename (`run-snapshot-<UTC timestamp>.log`). If a file with the
+same timestamp already exists, the script appends an index suffix.
+
 ## Validation before commit
 
 ```bash

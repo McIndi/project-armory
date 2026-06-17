@@ -47,7 +47,7 @@
     validate_certs: true
     status_code: 200
   register: _kc_realm_groups_token
-  retries: 5
+  retries: 30
   delay: 10
   until: _kc_realm_groups_token.status == 200
   changed_when: false

@@ -61,6 +61,7 @@ openbao_tls_ca_secret_name: openbao-ca
 openbao_tls_cert_common_name: "OpenBao Server"
 openbao_tls_ca_common_name: OpenBao-Internal-CA
 openbao_tls_cert_validity_days: 3650
+openbao_tls_renew_before_days: 30
 openbao_tls_cert_mount_path: /openbao/tls
 openbao_tls_cert_file_path: "{{ openbao_tls_cert_mount_path }}/tls.crt"
 openbao_tls_key_file_path: "{{ openbao_tls_cert_mount_path }}/tls.key"
