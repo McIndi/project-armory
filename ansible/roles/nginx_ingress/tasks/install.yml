@@ -43,19 +43,19 @@
       register: _nginx_values_result
 
     - name: Deploy ingress-nginx via Helm
-      ansible.builtin.command:
-        cmd: >-
-          helm upgrade --install {{ nginx_ingress_release_name }} {{ nginx_ingress_chart_name }}
-          --namespace {{ nginx_ingress_namespace }}
-          --create-namespace
-          --repo {{ nginx_ingress_chart_repo }}
-          {% if nginx_ingress_chart_version | length > 0 %}--version {{ nginx_ingress_chart_version }}{% endif %}
-          -f {{ nginx_tofu_work_dir }}/ingress-nginx-values.yaml
-          --wait
-          --timeout {{ nginx_tofu_timeout_seconds }}s
-          --kubeconfig /etc/rancher/k3s/k3s.yaml
+      kubernetes.core.helm:
+        release_name: "{{ nginx_ingress_release_name }}"
+        chart_ref: "{{ nginx_ingress_chart_name }}"
+        chart_repo_url: "{{ nginx_ingress_chart_repo }}"
+        release_namespace: "{{ nginx_ingress_namespace }}"
+        create_namespace: true
+        values_files:
+          - "{{ nginx_tofu_work_dir }}/ingress-nginx-values.yaml"
+        chart_version: "{{ nginx_ingress_chart_version if (nginx_ingress_chart_version | length > 0) else omit }}"
+        wait: true
+        wait_timeout: "{{ (nginx_tofu_timeout_seconds | int) }}s"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: _nginx_helm_apply_result
-      changed_when: true
       when: not ansible_check_mode
 
     - name: Open HTTP firewall port (80/tcp)

@@ -8,20 +8,23 @@
   tags: [trust_manager, trust_manager_install]
   block:
     - name: Deploy trust-manager via Helm
-      ansible.builtin.command:
-        cmd: >-
-          helm upgrade --install {{ trust_manager_release_name }} {{ trust_manager_chart_ref }}
-          --namespace {{ trust_manager_namespace }}
-          --create-namespace
-          {% if trust_manager_chart_version | length > 0 %}--version {{ trust_manager_chart_version }}{% endif %}
-          --set app.trust.namespace={{ trust_manager_trust_namespace }}
-          --set secretTargets.enabled={{ (trust_manager_secret_targets_enabled | bool) | ternary('true', 'false') }}
-          --set secretTargets.authorizedSecretsAll={{ (trust_manager_secret_targets_authorized_all | bool) | ternary('true', 'false') }}
-          --wait
-          --timeout {{ trust_manager_helm_timeout_seconds }}s
-          --kubeconfig {{ trust_manager_kubeconfig_path }}
+      kubernetes.core.helm:
+        release_name: "{{ trust_manager_release_name }}"
+        chart_ref: "{{ trust_manager_chart_ref }}"
+        release_namespace: "{{ trust_manager_namespace }}"
+        create_namespace: true
+        chart_version: "{{ trust_manager_chart_version if (trust_manager_chart_version | length > 0) else omit }}"
+        release_values:
+          app:
+            trust:
+              namespace: "{{ trust_manager_trust_namespace }}"
+          secretTargets:
+            enabled: "{{ trust_manager_secret_targets_enabled | bool }}"
+            authorizedSecretsAll: "{{ trust_manager_secret_targets_authorized_all | bool }}"
+        wait: true
+        wait_timeout: "{{ (trust_manager_helm_timeout_seconds | int) }}s"
+        kubeconfig: "{{ trust_manager_kubeconfig_path }}"
       register: _trust_manager_helm_apply
-      changed_when: true
       when: not ansible_check_mode
 
     - name: Apply internal CA Bundle for declarative CA distribution

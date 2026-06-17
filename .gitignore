@@ -11,3 +11,4 @@ ansible.cfg
 backlog.md
 CLAUDE.md
 Vagrantfile
+ansible/.ansible/.lock
