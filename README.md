@@ -72,7 +72,7 @@ set -a; source .env; set +a
 cd "${ARMORY_ANSIBLE_ROOT}"
 
 ansible-playbook playbooks/site.yml             # full deploy (~10–15 min)
-bash scripts/capture_run_snapshot.sh            # Create a snapshot of the current state (audit, not a backup)
+bash scripts/capture_run_snapshot.sh            # Create a snapshot of the current state (for audit, not for backup)
 ```
 
 To use the web UIs, add hosts-file entries on your workstation for
