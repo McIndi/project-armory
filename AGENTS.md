@@ -42,18 +42,22 @@ fact-finding. Rules that hold:
 
 ## Code conventions
 
-Match these exactly; do not introduce new idioms (see
-[decisions/0006](doc/decisions/0006-defer-kubernetes-core.md) before
-suggesting `kubernetes.core`):
+Match these exactly; staged migration rules are in
+[decisions/0008](doc/decisions/0008-staged-kubernetes-core-migration.md):
 
 - **OpenBao API calls**: `ansible.builtin.uri` with
   `X-Vault-Token` header; idempotency via GET-then-conditional-write
   (model: the KV-mount enable in `roles/openbao/tasks/configure.yml`).
-- **Kubernetes objects**: render a Jinja2 template from the role's
-  `templates/`, pipe to `k3s kubectl apply -f -` with
-  `changed_when: "'created' in stdout or 'configured' in stdout"`.
-- **Helm**: `helm upgrade --install` via `command`, values rendered to the
-  role's work dir.
+- **Kubernetes objects (transitional mixed mode)**: new or migrated apply/read
+  tasks should use `kubernetes.core.k8s` / `kubernetes.core.k8s_info` with an
+  explicit `kubeconfig` argument. Legacy `kubectl apply -f -` command tasks are
+  expected in roles not yet migrated.
+- **Helm (transitional mixed mode)**: new or migrated release tasks should use
+  `kubernetes.core.helm` (requires `helm-diff` plugin); legacy
+  `helm upgrade --install` command tasks are expected in roles not yet migrated.
+- **Residual command allowlist**: keep `command` for `rollout restart`,
+  `rollout status`, `create token`, `cluster-info`, and `exec` (unless replaced
+  with `k8s_exec` in a targeted follow-up).
 - **Sensitive tasks**: always
   `no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"`.
 - **Check mode**: guard API/kubectl tasks with

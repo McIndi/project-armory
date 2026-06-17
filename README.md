@@ -24,9 +24,37 @@ foundation.
 | [doc/decisions/](doc/decisions/) | Decision records (why things are the way they are) |
 | [AGENTS.md](AGENTS.md) | Conventions for agents/contributors working in the repo |
 
+## Virtual machine requirements
+
+The platform is deployed by Ansible onto a single Fedora VM. How you create that
+VM is your choice; it must meet the following spec before you run
+`playbooks/site.yml`.
+
+**Resources** (single control-plane node):
+
+| Resource | Requirement |
+|---|---|
+| vCPUs | 8 |
+| Memory | 16 GB |
+| Disk | 60 GB |
+| OS | Fedora 44 (x86_64) |
+| Network | a routable IP reachable from your workstation (for the web UIs) |
+
+**Packages** that must be present on the VM: `ansible`, `ansible-lint`,
+`yamllint`, `python3-pip`, `git`, `curl`, `btrfs-progs`, `cloud-utils-growpart`.
+
+**Runtime prerequisites** required by the `kubernetes.core` Ansible modules:
+
+- `kubernetes.core` collection — `ansible-galaxy collection install -r ansible/requirements.yml`
+- Python `kubernetes` client — `pip install kubernetes` (needed by `kubernetes.core.k8s*`)
+- `helm-diff` plugin — installed idempotently by the `helm` role, required for
+  `kubernetes.core.helm` no-op detection
+
+Helm, k3s, and all platform components are installed by `ansible-playbook
+playbooks/site.yml`.
+
 ## Quickstart
 
-Host prerequisites: Vagrant with a provider, this repo cloned.
 
 ```bash
 vagrant up

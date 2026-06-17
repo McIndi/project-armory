@@ -1,6 +1,6 @@
 # 0006 — Keep command-module kubectl/helm; defer kubernetes.core
 
-Status: deferred decision (revisit after current security work lands)
+Status: superseded by [0008](0008-staged-kubernetes-core-migration.md)
 Source: [handoffs/migration_opentofu_to_helm.md](../handoffs/migration_opentofu_to_helm.md) §2,
 [../simplification-opportunities.md](../simplification-opportunities.md) #2
 
@@ -24,6 +24,6 @@ security items (provisioner token, etc.) rather than alongside them.
 
 ## Consequences
 
-Until migrated, new tasks follow the existing idiom (see AGENTS.md). The
-brittle stdout-based `changed_when` pattern remains a known cost. When the
-migration happens it should be wholesale, not mixed per-role.
+This record remains as historical context for why migration was deferred at the
+time. The migration approach and current conventions are now defined by
+[0008](0008-staged-kubernetes-core-migration.md).

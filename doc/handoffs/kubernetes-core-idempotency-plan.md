@@ -69,12 +69,14 @@ purely mechanical.
 
 **In scope — dependencies:**
 - New `ansible/requirements.yml` with `collections: [kubernetes.core]` (unpinned).
-- `Vagrantfile` provision shell (or new `ansible/scripts/bootstrap_collections.sh`):
-  `ansible-galaxy collection install -r ansible/requirements.yml` and
-  `pip install kubernetes` (the Python lib — required by the `k8s` module, **not**
-  the `helm` module).
+- `Vagrantfile` provision shell: `ansible-galaxy collection install -r
+  ansible/requirements.yml` and `pip install kubernetes` (the Python lib —
+  required by the `k8s` module, **not** the `helm` module). The `Vagrantfile` is
+  gitignored by repo convention; the VM's provisioning contract (resources +
+  installed prerequisites) is documented in the tracked `README.md` instead.
 - `ansible/roles/helm/tasks/main.yml`: after the binary install, install the
-  `helm-diff` plugin idempotently (`helm plugin list` → install when absent).
+  `helm-diff` plugin idempotently (`helm plugin list` → install when absent; use
+  `--verify=false` — the plugin source fails Helm's signature verification).
 
 **In scope — supersede ADR 0006 (the "wholesale" clause blocks this plan):**
 - `doc/decisions/0006-defer-kubernetes-core.md` ends with *"When the migration
@@ -107,8 +109,10 @@ purely mechanical.
 lib + the kubeconfig/auth decision unblock Stage 3+.
 
 **Verify:** `ansible-galaxy collection list | grep kubernetes.core`;
-`python3 -c "import kubernetes"`; `helm plugin list | grep diff`; ADR 0008 written
-and 0006 marked superseded; AGENTS.md residual-command allowlist present.
+`python3 -c "import kubernetes"` (as the `vagrant` runtime user, not just root);
+`helm plugin list | grep diff`; ADR 0008 written and 0006 marked superseded;
+AGENTS.md residual-command allowlist present; `README.md` documents the VM
+resource + prerequisite requirements provisioned by Vagrant.
 
 ---
 

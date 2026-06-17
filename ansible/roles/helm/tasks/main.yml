@@ -23,3 +23,23 @@
       register: helm_version_result
       changed_when: false
       when: not ansible_check_mode
+
+    - name: List Helm plugins
+      tags:
+        - helm
+        - helm_install
+      ansible.builtin.command: helm plugin list
+      register: helm_plugin_list_result
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Install Helm diff plugin
+      tags:
+        - helm
+        - helm_install
+      ansible.builtin.command:
+        cmd: helm plugin install https://github.com/databus23/helm-diff --verify=false
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - "'diff' not in helm_plugin_list_result.stdout"
