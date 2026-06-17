@@ -50,8 +50,7 @@ at the VM IP, and trust the Armory Root CA. Then:
 
 - Keycloak: `https://armory.local/realms/armory/.well-known/openid-configuration`
 - Headlamp: `https://headlamp.armory.local` (login `admin`; password below)
-- OpenBao UI: `https://openbao.armory.local` (login with realm users `admin`,
-  `operator`, or `viewer`; passwords below)
+- OpenBao UI: `https://openbao.armory.local` — see [OpenBao UI login](#openbao-ui-login) below
 
 ## Retrieve generated credentials
 
@@ -88,6 +87,28 @@ vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o js
 Note: the realm admin password rotates automatically (~monthly), so re-read
 it if a login fails. Reading OpenBao directly (e.g. before VSO has synced)
 and rotation details: [doc/operations.md](doc/operations.md#retrieve-generated-credentials).
+
+## OpenBao UI login
+
+To log in to the [OpenBao UI](https://openbao.armory.local):
+
+1. **Method**: Select **OIDC**. The OpenBao instance is configured with Keycloak
+   (realm `armory`) as the OIDC provider; you will be redirected to Keycloak
+   to authenticate.
+2. **Namespace**: Leave blank (uses root/default namespace; OpenBao here runs
+   open-source with no namespace isolation).
+3. **Role**: Leave blank to use the default OIDC role. Your effective
+   permissions are determined by your Keycloak group membership:
+
+| Keycloak group | OpenBao policy scope |
+|---|---|
+| `armory-admins` | admin (full access) |
+| `armory-operators` | operator (manage secrets/PKI) |
+| `armory-viewers` | viewer (metadata/list only) |
+| (none of the above) | `default` (baseline only) |
+
+4. **Credentials**: Log in with your realm `armory` user (`admin`, `operator`,
+   or `viewer`) and the password retrieved above.
 
 ## Automation credentials
 
