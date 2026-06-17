@@ -1,6 +1,6 @@
 # Handoff: `kubernetes.core` Migration + Idempotency Restoration
 
-Status: not started · Owner: Copilot · Drafted: 2026-06-17
+Status: Stages 0–2 complete (Helm track done, cause #1 closed) · Stage 3 next · Owner: Copilot · Drafted: 2026-06-17
 
 ## Goal
 
@@ -9,7 +9,8 @@ Restore run-to-run idempotency by migrating `ansible.builtin.command` (`helm` /
 requires. Two non-idempotent areas remain after the OpenBao PKI/TLS fix:
 
 1. **Helm release churn** — all six `helm upgrade --install` calls advance their
-   revision (1 → 2) and report `changed` on every run.
+   revision (1 → 2) and report `changed` on every run. **✅ Resolved (Stages 1–2):
+   all six now no-op via `kubernetes.core.helm` + helm-diff.**
 2. **Keycloak churn** — the operator Deployment ping-pongs (apply upstream →
    re-patch) and the `keycloak-0` StatefulSet pod restarts on reruns.
 
@@ -72,7 +73,7 @@ running the playbook and the two-run idempotency check.
 
 ---
 
-## Stage 0 — Bootstrap prerequisites + decisions (no behavior change)
+## Stage 0 — Bootstrap prerequisites + decisions (no behavior change) — ✅ complete
 
 Smallest possible diff; everything else depends on it. This stage also resolves
 the two policy/plumbing decisions the conversion hinges on, so later stages stay
@@ -105,20 +106,26 @@ purely mechanical.
   ~90% modules + this documented remainder, not 100%.
 
 **In scope — kubeconfig/auth contract for `kubernetes.core` tasks:**
-- `command` tasks today reach the cluster via global `ANSIBLE_BECOME=True`
-  (`.env`) escalating to root, which can read the root-owned `0600`
+- `command` tasks reach the cluster via global `ANSIBLE_BECOME=True` (`.env`)
+  escalating to root, which can read the root-owned `0600`
   `/etc/rancher/k3s/k3s.yaml`. **`kubernetes.core` modules cannot rely on this:**
   they read file args (`kubeconfig`) in a controller-side action plugin as the
-  unprivileged `vagrant` user *before* escalation, so the root-only kubeconfig
-  fails with `[Errno 13] Permission denied` even under global become. (Confirmed
-  in Stage 1 — see ADR 0008 "Why not `become: true`".)
-- **Resolution:** the `k3s` role provisions a runtime-user-readable kubeconfig —
-  copy `/etc/rancher/k3s/k3s.yaml` → `/home/vagrant/.kube/config` (owner
-  `vagrant`, mode `0600`, `become: true`, idempotent `copy` with `remote_src`).
-  Expose it as e.g. `k3s_user_kubeconfig_path`. **Every** `kubernetes.core.*` task
-  (helm in Stages 1–2, k8s/k8s_info in 3–7) sets `kubeconfig:` to this path — not
-  the root `/etc/rancher/k3s/k3s.yaml` and not `become: true`. Legacy `command`
-  tasks may keep using the root path via global become until migrated.
+  unprivileged `vagrant` user *before* escalation, so a root-only kubeconfig fails
+  with `[Errno 13] Permission denied` even under global become (confirmed in
+  Stage 1 — see ADR 0008 "Why not `become: true`").
+- **Resolution (implemented + validated):** make the canonical kubeconfig itself
+  group-readable by `vagrant` via the k3s installer env in
+  `roles/k3s/tasks/install.yml` — `K3S_KUBECONFIG_MODE: "0640"` and
+  `K3S_KUBECONFIG_GROUP: "vagrant"`, leaving `/etc/rancher/k3s/k3s.yaml` as
+  `root:vagrant 0640`. k3s re-applies these every time it (re)writes the file, so
+  it stays correct durably across restarts. Exposure is `{root, vagrant}` — no
+  broader than a private copy. Chosen over copying the file to
+  `~vagrant/.kube/config`: one versioned, authoritative source of truth with no
+  stale-copy footgun. **Every** `kubernetes.core.*` task sets `kubeconfig:` to
+  `/etc/rancher/k3s/k3s.yaml` (directly or via `k3s_kubeconfig_path`); **no
+  `become:`**. Legacy `command` tasks keep using the same path via global become
+  until migrated. NB: the installer env only lands on a **clean** k3s install, so
+  it applies via teardown/rebuild, not an in-place rerun.
 
 **Do not touch:** any role's `command:` tasks.
 
@@ -133,7 +140,7 @@ resource + prerequisite requirements provisioned by Vagrant.
 
 ---
 
-## Stage 1 — Helm module pilot on one leaf role (`cert_manager`)
+## Stage 1 — Helm module pilot on one leaf role (`cert_manager`) — ✅ complete
 
 Prove the `kubernetes.core.helm` pattern on the simplest role before fanning out.
 
@@ -143,11 +150,10 @@ Prove the `kubernetes.core.helm` pattern on the simplest role before fanning out
   `release_namespace`, `create_namespace: true`,
   `values_files: [.../cert-manager-values.yaml]` (keep the rendered file),
   `wait: true`.
-- **`kubeconfig` (auth contract):** point at the runtime-user-readable kubeconfig
-  (`k3s_user_kubeconfig_path`, i.e. `/home/vagrant/.kube/config`), **not**
-  `/etc/rancher/k3s/k3s.yaml`. The root-owned path fails with `Permission denied`
-  because the module reads it unprivileged (see Stage 0 auth contract / ADR 0008).
-  Requires the `k3s`-role kubeconfig-copy task to exist first.
+- **`kubeconfig` (auth contract):** `/etc/rancher/k3s/k3s.yaml` — made
+  group-readable by `vagrant` via the k3s `K3S_KUBECONFIG_MODE: "0640"` /
+  `K3S_KUBECONFIG_GROUP: "vagrant"` installer env (see Stage 0 contract / ADR 0008).
+  **No `become:`**.
 - **Delete `changed_when: true`** — the module reports change natively.
 - **`chart_version` (gotcha):** `certmanager_chart_version` defaults to `""`
   (no-pinning-during-dev). `default(omit)` does **not** omit an empty string — it
@@ -172,7 +178,7 @@ helm-diff no-op path works and catches gotchas like the `chart_version` one abov
 
 ---
 
-## Stage 2 — Roll the proven Helm pattern to the remaining 5 releases
+## Stage 2 — Roll the proven Helm pattern to the remaining 5 releases — ✅ complete
 
 Mechanical repeat of Stage 1; closes **cause #1**. Roles are independent — isolate
 each edit to that role's single helm task.
@@ -214,8 +220,8 @@ idempotency goal directly; it de-risks Stages 4–7 that do.
 **In scope — `ansible/roles/readiness_check/tasks/*` only:**
 - Convert `kubectl get … -o jsonpath=…` reads → `kubernetes.core.k8s_info`
   (structured dict results; drop the jsonpath string parsing).
-- Apply the Stage-0 kubeconfig/auth contract (`kubeconfig:` + `become:` as decided)
-  to every converted task — this is the real validation target.
+- Apply the Stage-0 kubeconfig contract (`kubeconfig: "{{ k3s_kubeconfig_path }}"`,
+  **no `become:`**) to every converted task — this is the real validation target.
 - Leave `kubectl wait` / `rollout status` and the `helm repo list` check as
   `command` (read-only, no module win).
 
