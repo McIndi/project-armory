@@ -66,17 +66,20 @@ Inside the VM:
 ```bash
 cd /vagrant
 # cp .env.example .env            # first time only; defaults work for the demo
+# Clean up log files (except .empty) from previous runs
+find ./log -type f ! -name ".empty" -delete
 set -a; source .env; set +a
 cd "${ARMORY_ANSIBLE_ROOT}"
 
 ansible-playbook playbooks/site.yml             # full deploy (~10–15 min)
+bash scripts/capture_run_snapshot.sh            # Create a snapshot of the current state (audit, not a backup)
 ```
 
 To use the web UIs, add hosts-file entries on your workstation for
 `armory.local`, `headlamp.armory.local`, and `openbao.armory.local` pointing
 at the VM IP, and trust the Armory Root CA. Then:
 
-- Keycloak: `https://armory.local/realms/armory/.well-known/openid-configuration`
+- Keycloak: `https://armory.local/`
 - Headlamp: `https://headlamp.armory.local` (login `admin`; password below)
 - OpenBao UI: `https://openbao.armory.local` — see [OpenBao UI login](#openbao-ui-login) below
 
