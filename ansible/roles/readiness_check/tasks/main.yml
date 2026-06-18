@@ -4,6 +4,11 @@
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
+- name: Resolve kubeconfig path for readiness checks
+  ansible.builtin.set_fact:
+    _readiness_kubeconfig_path: "{{ k3s_kubeconfig_path | default(readiness_check_k3s_kubeconfig) }}"
+  changed_when: false
+
 - name: Run readiness checks with diagnostics
   tags: [readiness, readiness_check, post_deploy]
   block:

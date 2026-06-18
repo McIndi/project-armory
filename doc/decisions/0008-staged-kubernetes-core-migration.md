@@ -20,7 +20,12 @@ progress.
 
 Accept runtime dependencies required for the module path:
 - `kubernetes.core` Ansible collection (unpinned during development)
-- Python `kubernetes` library for `kubernetes.core.k8s*`
+- Python `kubernetes` library for `kubernetes.core.k8s*`, installed
+  **system-wide / root-importable** (e.g. dnf `python3-kubernetes`). Because tasks
+  run under global `ANSIBLE_BECOME=True`, the module executes as **root**, so a
+  `pip install --user` under `vagrant` is invisible and fails with "Failed to
+  import the required Python library (kubernetes)" (caught in Stage 3 — the helm
+  module needed no Python lib, so it surfaced only at the first `k8s_info`).
 - Helm `diff` plugin for accurate `kubernetes.core.helm` no-op detection
 
 Use an explicit module auth contract for all `kubernetes.core.k8s`,

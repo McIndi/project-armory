@@ -82,10 +82,13 @@ purely mechanical.
 **In scope — dependencies:**
 - New `ansible/requirements.yml` with `collections: [kubernetes.core]` (unpinned).
 - `Vagrantfile` provision shell: `ansible-galaxy collection install -r
-  ansible/requirements.yml` and `pip install kubernetes` (the Python lib —
-  required by the `k8s` module, **not** the `helm` module). The `Vagrantfile` is
-  gitignored by repo convention; the VM's provisioning contract (resources +
-  installed prerequisites) is documented in the tracked `README.md` instead.
+  ansible/requirements.yml` and the Python `kubernetes` lib (required by the `k8s`
+  module, **not** the `helm` module). Install it **system-wide / root-importable**
+  (e.g. dnf `python3-kubernetes`), **not** `pip install --user` as `vagrant`: tasks
+  run under global `ANSIBLE_BECOME=True`, so the module's interpreter is root's
+  `/usr/bin/python3` and a per-user install is invisible (this bit Stage 3). The
+  `Vagrantfile` is gitignored by repo convention; the VM's provisioning contract
+  (resources + installed prerequisites) is documented in the tracked `README.md`.
 - `ansible/roles/helm/tasks/main.yml`: after the binary install, install the
   `helm-diff` plugin idempotently (`helm plugin list` → install when absent; use
   `--verify=false` — the plugin source fails Helm's signature verification).

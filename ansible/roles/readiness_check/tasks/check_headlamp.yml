@@ -3,11 +3,12 @@
 # Validate Headlamp deployment, secret sync, cert readiness, and HTTPS ingress.
 
 - name: Check Headlamp namespace exists
-  ansible.builtin.command: >-
-    k3s kubectl get namespace {{ readiness_check_headlamp_namespace }}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_headlamp_namespace
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ readiness_check_headlamp_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_headlamp_namespace_info
   changed_when: false
   failed_when: false
 
@@ -17,22 +18,30 @@
       {{ _readiness_results + [{
         'component': 'Headlamp',
         'check_name': 'Namespace exists',
-        'status': 'pass' if _rc_headlamp_namespace.rc == 0 else 'fail',
+        'status': 'pass' if (_rc_headlamp_namespace_info.resources | default([]) | length) > 0 else 'fail',
         'detail': readiness_check_headlamp_namespace,
-        'error': ''
+        'error': _rc_headlamp_namespace_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check Headlamp deployment availability
-  ansible.builtin.command: >-
-    k3s kubectl get deployment {{ readiness_check_headlamp_deployment_name }}
-    -n {{ readiness_check_headlamp_namespace }}
-    -o jsonpath={.status.availableReplicas}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_headlamp_available_replicas
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ readiness_check_headlamp_deployment_name }}"
+    namespace: "{{ readiness_check_headlamp_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_headlamp_deployment_info
   changed_when: false
   failed_when: false
+
+- name: Resolve Headlamp deployment available replicas
+  ansible.builtin.set_fact:
+    _rc_headlamp_available_replicas: >-
+      {{
+        ((_rc_headlamp_deployment_info.resources | default([]) | first | default({})).status.availableReplicas | default(0)) | int
+      }}
+  changed_when: false
 
 - name: Add Headlamp deployment check to results
   ansible.builtin.set_fact:
@@ -40,19 +49,20 @@
       {{ _readiness_results + [{
         'component': 'Headlamp',
         'check_name': 'Deployment available',
-        'status': 'pass' if (_rc_headlamp_available_replicas.stdout | default('0') | int) > 0 else 'fail',
-        'detail': ((_rc_headlamp_available_replicas.stdout | default('0') | int) | string) + ' available replicas',
-        'error': ''
+        'status': 'pass' if (_rc_headlamp_available_replicas | int) > 0 else 'fail',
+        'detail': ((_rc_headlamp_available_replicas | int) | string) + ' available replicas',
+        'error': _rc_headlamp_deployment_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check Headlamp TLS secret exists
-  ansible.builtin.command: >-
-    k3s kubectl get secret {{ readiness_check_headlamp_tls_secret }}
-    -n {{ readiness_check_headlamp_namespace }}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_headlamp_tls_secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ readiness_check_headlamp_tls_secret }}"
+    namespace: "{{ readiness_check_headlamp_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_headlamp_tls_secret_info
   changed_when: false
   failed_when: false
 
@@ -62,19 +72,20 @@
       {{ _readiness_results + [{
         'component': 'Headlamp',
         'check_name': 'TLS secret present',
-        'status': 'pass' if _rc_headlamp_tls_secret.rc == 0 else 'warn',
+        'status': 'pass' if (_rc_headlamp_tls_secret_info.resources | default([]) | length) > 0 else 'warn',
         'detail': readiness_check_headlamp_tls_secret,
-        'error': ''
+        'error': _rc_headlamp_tls_secret_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check Headlamp OIDC secret exists
-  ansible.builtin.command: >-
-    k3s kubectl get secret {{ readiness_check_headlamp_oidc_secret }}
-    -n {{ readiness_check_headlamp_namespace }}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_headlamp_oidc_secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ readiness_check_headlamp_oidc_secret }}"
+    namespace: "{{ readiness_check_headlamp_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_headlamp_oidc_secret_info
   changed_when: false
   failed_when: false
 
@@ -84,21 +95,18 @@
       {{ _readiness_results + [{
         'component': 'Headlamp',
         'check_name': 'OIDC secret synced',
-        'status': 'pass' if _rc_headlamp_oidc_secret.rc == 0 else 'fail',
+        'status': 'pass' if (_rc_headlamp_oidc_secret_info.resources | default([]) | length) > 0 else 'fail',
         'detail': readiness_check_headlamp_oidc_secret,
-        'error': ''
+        'error': _rc_headlamp_oidc_secret_info.msg | default('')
       }] }}
   changed_when: false
 
-# Fetch full JSON and evaluate in Jinja: a jsonpath filter expression like
-# [?(@.kind=="Group")] cannot survive the command module's argument parsing
-# (quote removal strips the inner quotes and kubectl rejects the template).
 - name: Check Headlamp OIDC group ClusterRoleBindings
-  ansible.builtin.command: >-
-    k3s kubectl get clusterrolebinding headlamp-oidc-{{ item.group | regex_replace('[^a-z0-9.-]', '-') }}
-    -o json
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  kubernetes.core.k8s_info:
+    api_version: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    name: "headlamp-oidc-{{ item.group | regex_replace('[^a-z0-9.-]', '-') }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
   loop: "{{ readiness_check_headlamp_oidc_group_bindings }}"
   loop_control:
     label: "{{ item.group }} -> {{ item.cluster_role }}"
@@ -113,18 +121,18 @@
         'component': 'Headlamp',
         'check_name': 'OIDC ClusterRoleBinding ' + item.item.group,
         'status': 'pass'
-          if (item.rc == 0
-              and ((item.stdout | from_json).roleRef.name == item.item.cluster_role)
+          if ((item.resources | default([]) | length) > 0
+              and ((item.resources | first).roleRef.name == item.item.cluster_role)
               and (((k3s_oidc_groups_prefix | default('oidc:')) + item.item.group)
-                   in ((item.stdout | from_json).subjects | default([])
+                   in ((item.resources | first).subjects | default([])
                        | selectattr('kind', 'eq', 'Group') | map(attribute='name') | list)))
           else 'fail',
-        'detail': ((item.stdout | from_json).roleRef.name + ':'
-                   + ((item.stdout | from_json).subjects | default([])
+        'detail': (((item.resources | first).roleRef.name | default('missing')) + ':'
+                   + (((item.resources | first).subjects | default([]))
                       | selectattr('kind', 'eq', 'Group') | map(attribute='name') | list | join(',')))
-          if (item.rc == 0)
+          if ((item.resources | default([]) | length) > 0)
           else ('headlamp-oidc-' + (item.item.group | regex_replace('[^a-z0-9.-]', '-'))),
-        'error': (item.stderr | default(''))
+        'error': (item.msg | default(''))
       }] }}
   loop: "{{ _rc_headlamp_oidc_group_bindings.results | default([]) }}"
   loop_control:
@@ -198,7 +206,7 @@
     name: common
     tasks_from: write_ca_file_from_secret.yml
   vars:
-    common_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_kubeconfig_path: "{{ _readiness_kubeconfig_path }}"
     common_ca_secret_name: "{{ readiness_check_openbao_ca_secret_name }}"
     common_ca_source_namespace: "{{ readiness_check_headlamp_ca_source_namespace }}"
     common_ca_file_path: "{{ readiness_check_headlamp_ca_bundle_path }}"
@@ -272,7 +280,7 @@
     name: common
     tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_internal_https_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_internal_https_kubeconfig_path: "{{ _readiness_kubeconfig_path }}"
     common_internal_https_service_name: headlamp
     common_internal_https_service_namespace: headlamp
     common_internal_https_fqdn: "{{ readiness_check_headlamp_internal_fqdn }}"

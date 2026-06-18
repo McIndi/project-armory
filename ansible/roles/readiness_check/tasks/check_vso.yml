@@ -3,15 +3,23 @@
 # Validate Vault Secrets Operator deployment and vaultconnection resources
 
 - name: Check VSO deployment running
-  ansible.builtin.command: >-
-    k3s kubectl get deployment {{ readiness_check_vso_deployment_name }}
-    -n {{ readiness_check_vso_namespace }}
-    -o jsonpath='{.status.readyReplicas}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_vso_deployment
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ readiness_check_vso_deployment_name }}"
+    namespace: "{{ readiness_check_vso_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_vso_deployment_info
   changed_when: false
   failed_when: false
+
+- name: Resolve VSO deployment ready replicas
+  ansible.builtin.set_fact:
+    _rc_vso_ready_replicas: >-
+      {{
+        ((_rc_vso_deployment_info.resources | default([]) | first | default({})).status.readyReplicas | default(0)) | int
+      }}
+  changed_when: false
 
 - name: Add VSO deployment check to results
   ansible.builtin.set_fact:
@@ -19,21 +27,29 @@
       {{ _readiness_results + [{
         'component': 'Vault Secrets Operator',
         'check_name': 'Deployment ready',
-        'status': 'pass' if (_rc_vso_deployment.stdout | int) > 0 else 'fail',
-        'detail': (_rc_vso_deployment.stdout | default('0')) + ' replicas ready',
-        'error': _rc_vso_deployment.stderr | default('')
+        'status': 'pass' if (_rc_vso_ready_replicas | int) > 0 else 'fail',
+        'detail': ((_rc_vso_ready_replicas | int) | string) + ' replicas ready',
+        'error': _rc_vso_deployment_info.msg | default('')
       }] }}
   changed_when: false
 
-- name: Check VaultConnection resources exist
-  ansible.builtin.command: >-
-    k3s kubectl get vaultconnection -A
-    -o name
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_vaultconnection
+- name: Collect VaultConnection resources
+  kubernetes.core.k8s_info:
+    api_version: secrets.hashicorp.com/v1beta1
+    kind: VaultConnection
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_vaultconnection_info
   changed_when: false
   failed_when: false
+
+- name: Parse VaultConnection resources
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_items: "{{ _rc_vaultconnection_info.resources | default([]) }}"
+    _rc_vaultconnection_ca_ref_checks: []
+    _rc_vaultconnection_ca_secret_checks: []
+    _rc_vaultconnection_endpoint_lines: []
+    _rc_vaultconnection_tls_lines: []
+  changed_when: false
 
 - name: Add VaultConnection check to results
   ansible.builtin.set_fact:
@@ -41,21 +57,20 @@
       {{ _readiness_results + [{
         'component': 'Vault Secrets Operator',
         'check_name': 'VaultConnection resources configured',
-        'status': 'pass' if (_rc_vaultconnection.stdout_lines | length) > 0 else 'warn',
-        'detail': (_rc_vaultconnection.stdout_lines | length | string) + ' resources found',
-        'error': ''
+        'status': 'pass' if (_rc_vaultconnection_items | length) > 0 else 'warn',
+        'detail': (_rc_vaultconnection_items | length | string) + ' resources found',
+        'error': _rc_vaultconnection_info.msg | default('')
       }] }}
   changed_when: false
 
-- name: Collect VaultConnection endpoint addresses
-  ansible.builtin.command: >-
-    k3s kubectl get vaultconnection -A
-    -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.address}{"\n"}{end}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_vaultconnection_endpoints
+- name: Build VaultConnection endpoint lines
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_endpoint_lines: >-
+      {{ (_rc_vaultconnection_endpoint_lines | default([])) + [
+        item.metadata.namespace + '/' + item.metadata.name + '=' + ((item.spec.address | default('')) | string)
+      ] }}
+  loop: "{{ _rc_vaultconnection_items }}"
   changed_when: false
-  failed_when: false
 
 - name: Add VaultConnection HTTPS endpoint check to results
   ansible.builtin.set_fact:
@@ -64,33 +79,16 @@
         'component': 'Vault Secrets Operator',
         'check_name': 'VaultConnection endpoints use HTTPS',
         'status': (
-          'pass' if (_rc_vaultconnection_endpoints.stdout | trim | length == 0 or
-                     (_rc_vaultconnection_endpoints.stdout_lines | select('search', '=http://') | list | length == 0))
+          'pass' if (_rc_vaultconnection_endpoint_lines | length == 0 or
+                     (_rc_vaultconnection_endpoint_lines | select('search', '=http://') | list | length == 0))
           else 'fail'
         ),
         'detail': (
-          ((_rc_vaultconnection_endpoints.stdout_lines | select('search', '=http://') | list | length) | string)
+          ((_rc_vaultconnection_endpoint_lines | select('search', '=http://') | list | length) | string)
           + ' http endpoints detected'
         ),
         'error': ''
       }] }}
-  changed_when: false
-
-- name: Collect VaultConnection resources as JSON
-  ansible.builtin.command: >-
-    k3s kubectl get vaultconnection -A
-    -o json
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_vaultconnection_json
-  changed_when: false
-  failed_when: false
-
-- name: Parse VaultConnection resources
-  ansible.builtin.set_fact:
-    _rc_vaultconnection_items: "{{ ((_rc_vaultconnection_json.stdout | default('{\"items\": []}') | from_json)['items']) | default([]) }}"
-    _rc_vaultconnection_ca_ref_checks: []
-    _rc_vaultconnection_ca_secret_checks: []
   changed_when: false
 
 - name: Build VaultConnection CA reference checks
@@ -109,12 +107,12 @@
   changed_when: false
 
 - name: Collect referenced VaultConnection CA secrets
-  ansible.builtin.command: >-
-    k3s kubectl get secret {{ item.ca_ref }}
-    -n {{ item.namespace }}
-    -o json
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ item.ca_ref }}"
+    namespace: "{{ item.namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
   register: _rc_vaultconnection_ca_secret_fetch
   changed_when: false
   failed_when: false
@@ -130,7 +128,7 @@
         'namespace': item.item.namespace,
         'name': item.item.name,
         'ca_ref': item.item.ca_ref,
-        'missing_secret': ((item.rc | int) != 0),
+        'missing_secret': ((_rc_vaultconnection_secret_obj | length) == 0),
         'has_usable_key': (_rc_vaultconnection_has_ca_crt or _rc_vaultconnection_has_tls_crt or _rc_vaultconnection_has_crt),
         'selected_key': (
           'ca.crt' if _rc_vaultconnection_has_ca_crt
@@ -138,7 +136,7 @@
         )
       }] }}
   vars:
-    _rc_vaultconnection_secret_obj: "{{ (item.stdout | default('{\"data\": {}}') | from_json) if ((item.rc | int) == 0) else {'data': {}} }}"
+    _rc_vaultconnection_secret_obj: "{{ item.resources | default([]) | first | default({}) }}"
     _rc_vaultconnection_secret_data: "{{ _rc_vaultconnection_secret_obj.data | default({}) }}"
     _rc_vaultconnection_has_ca_crt: "{{ (_rc_vaultconnection_secret_data.get('ca.crt', '') | string | length) > 0 }}"
     _rc_vaultconnection_has_tls_crt: "{{ (_rc_vaultconnection_secret_data.get('tls.crt', '') | string | length) > 0 }}"
@@ -168,15 +166,14 @@
          | list }}
   changed_when: false
 
-- name: Collect VaultConnection TLS trust settings
-  ansible.builtin.command: >-
-    k3s kubectl get vaultconnection -A
-    -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.skipTLSVerify}{"\n"}{end}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_vaultconnection_tls
+- name: Build VaultConnection TLS trust lines
+  ansible.builtin.set_fact:
+    _rc_vaultconnection_tls_lines: >-
+      {{ (_rc_vaultconnection_tls_lines | default([])) + [
+        item.metadata.namespace + '/' + item.metadata.name + '=' + ((item.spec.skipTLSVerify | default(false)) | string | lower)
+      ] }}
+  loop: "{{ _rc_vaultconnection_items }}"
   changed_when: false
-  failed_when: false
 
 - name: Build VaultConnection CA trust offender list
   ansible.builtin.set_fact:
@@ -220,12 +217,12 @@
         'check_name': 'VaultConnection skipTLSVerify disabled',
         'status': (
           'pass' if (
-            _rc_vaultconnection_tls.stdout | trim | length == 0 or
-            (_rc_vaultconnection_tls.stdout_lines | select('search', '=true$') | list | length == 0)
+            _rc_vaultconnection_tls_lines | length == 0 or
+            (_rc_vaultconnection_tls_lines | select('search', '=true$') | list | length == 0)
           ) else 'fail'
         ),
         'detail': (
-          ((_rc_vaultconnection_tls.stdout_lines | select('search', '=true$') | list | length) | string)
+          ((_rc_vaultconnection_tls_lines | select('search', '=true$') | list | length) | string)
           + ' endpoints with skipTLSVerify=true'
         ),
         'error': ''

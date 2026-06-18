@@ -47,7 +47,7 @@ readiness_check_required_packages:
   - helm
 
 # k3s / Kubernetes settings
-readiness_check_k3s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+readiness_check_k3s_kubeconfig: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 
 # OpenBao / Vault settings
 readiness_check_openbao_addr: https://openbao.openbao.svc.cluster.local:8200

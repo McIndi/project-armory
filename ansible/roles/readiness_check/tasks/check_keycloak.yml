@@ -3,11 +3,12 @@
 # Validate standalone Keycloak readiness during extraction from Agent Stack
 
 - name: Check Keycloak namespace exists
-  ansible.builtin.command: >-
-    k3s kubectl get namespace {{ readiness_check_keycloak_namespace }}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_keycloak_namespace
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ readiness_check_keycloak_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_keycloak_namespace_info
   changed_when: false
   failed_when: false
 
@@ -17,19 +18,20 @@
       {{ _readiness_results + [{
         'component': 'Keycloak',
         'check_name': 'Namespace exists',
-        'status': 'pass' if _rc_keycloak_namespace.rc == 0 else 'fail',
+        'status': 'pass' if (_rc_keycloak_namespace_info.resources | default([]) | length) > 0 else 'fail',
         'detail': readiness_check_keycloak_namespace,
-        'error': ''
+        'error': _rc_keycloak_namespace_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check Keycloak service exists
-  ansible.builtin.command: >-
-    k3s kubectl get service {{ readiness_check_keycloak_service_name }}
-    -n {{ readiness_check_keycloak_namespace }}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_keycloak_service
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: "{{ readiness_check_keycloak_service_name }}"
+    namespace: "{{ readiness_check_keycloak_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_keycloak_service_info
   changed_when: false
   failed_when: false
 
@@ -39,19 +41,20 @@
       {{ _readiness_results + [{
         'component': 'Keycloak',
         'check_name': 'Service exists',
-        'status': 'pass' if _rc_keycloak_service.rc == 0 else 'fail',
+        'status': 'pass' if (_rc_keycloak_service_info.resources | default([]) | length) > 0 else 'fail',
         'detail': readiness_check_keycloak_service_name,
-        'error': ''
+        'error': _rc_keycloak_service_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check Keycloak admin secret exists
-  ansible.builtin.command: >-
-    k3s kubectl get secret {{ readiness_check_keycloak_admin_secret_name }}
-    -n {{ readiness_check_keycloak_namespace }}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_keycloak_admin_secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ readiness_check_keycloak_admin_secret_name }}"
+    namespace: "{{ readiness_check_keycloak_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_keycloak_admin_secret_info
   changed_when: false
   failed_when: false
 
@@ -61,9 +64,9 @@
       {{ _readiness_results + [{
         'component': 'Keycloak',
         'check_name': 'Admin secret exists',
-        'status': 'pass' if _rc_keycloak_admin_secret.rc == 0 else 'warn',
+        'status': 'pass' if (_rc_keycloak_admin_secret_info.resources | default([]) | length) > 0 else 'warn',
         'detail': readiness_check_keycloak_admin_secret_name,
-        'error': ''
+        'error': _rc_keycloak_admin_secret_info.msg | default('')
       }] }}
   changed_when: false
 
@@ -126,7 +129,7 @@
     name: common
     tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_internal_https_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_internal_https_kubeconfig_path: "{{ _readiness_kubeconfig_path }}"
     common_internal_https_service_name: "{{ readiness_check_keycloak_service_name }}"
     common_internal_https_service_namespace: "{{ readiness_check_keycloak_namespace }}"
     common_internal_https_fqdn: "{{ readiness_check_keycloak_internal_fqdn }}"
@@ -137,16 +140,14 @@
     common_internal_https_openbao_pki_mount: "{{ readiness_check_openbao_pki_internal_mount }}"
   when: (readiness_check_keycloak_realm_users | length) > 0
 
-- name: Read Keycloak bootstrap admin credentials for realm user checks
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get secret {{ readiness_check_keycloak_admin_secret_name }}
-      -n {{ readiness_check_keycloak_namespace }}
-      -o jsonpath={.data.{{ item }}}
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  loop: [username, password]
-  register: _rc_keycloak_admin_creds_b64
+- name: Read Keycloak bootstrap admin secret for realm user checks
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ readiness_check_keycloak_admin_secret_name }}"
+    namespace: "{{ readiness_check_keycloak_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_keycloak_admin_secret_for_realm_users
   changed_when: false
   failed_when: false
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
@@ -159,8 +160,16 @@
     body_format: form-urlencoded
     body:
       client_id: admin-cli
-      username: "{{ _rc_keycloak_admin_creds_b64.results[0].stdout | b64decode }}"
-      password: "{{ _rc_keycloak_admin_creds_b64.results[1].stdout | b64decode }}"
+      username: >-
+        {{
+          ((_rc_keycloak_admin_secret_for_realm_users.resources | default([]) | first | default({})).data.username | default(''))
+          | b64decode
+        }}
+      password: >-
+        {{
+          ((_rc_keycloak_admin_secret_for_realm_users.resources | default([]) | first | default({})).data.password | default(''))
+          | b64decode
+        }}
       grant_type: password
     ca_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
     validate_certs: true
@@ -171,7 +180,9 @@
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
   when:
     - (readiness_check_keycloak_realm_users | length) > 0
-    - (_rc_keycloak_admin_creds_b64.results | default([]) | selectattr('rc', 'defined') | rejectattr('rc', 'eq', 0) | list | length) == 0
+    - (_rc_keycloak_admin_secret_for_realm_users.resources | default([]) | length) > 0
+    - (((_rc_keycloak_admin_secret_for_realm_users.resources | first | default({})).data | default({})).username | default('') | length) > 0
+    - (((_rc_keycloak_admin_secret_for_realm_users.resources | first | default({})).data | default({})).password | default('') | length) > 0
 
 - name: Check configured Keycloak realm users exist
   ansible.builtin.uri:
@@ -247,7 +258,7 @@
     name: common
     tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_internal_https_kubeconfig_path: "{{ readiness_check_k3s_kubeconfig }}"
+    common_internal_https_kubeconfig_path: "{{ _readiness_kubeconfig_path }}"
     common_internal_https_service_name: "{{ readiness_check_keycloak_service_name }}"
     common_internal_https_service_namespace: "{{ readiness_check_keycloak_namespace }}"
     common_internal_https_fqdn: "{{ readiness_check_keycloak_internal_fqdn }}"
@@ -285,15 +296,24 @@
   when: readiness_check_strict_tls_checks_enabled | bool
 
 - name: Read Keycloak DB URL configuration from CR
-  ansible.builtin.command: >-
-    k3s kubectl get keycloak {{ readiness_check_keycloak_cr_name }}
-    -n {{ readiness_check_keycloak_namespace }}
-    -o jsonpath='{.spec.db.url}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_keycloak_db_url
+  kubernetes.core.k8s_info:
+    api_version: k8s.keycloak.org/v2alpha1
+    kind: Keycloak
+    name: "{{ readiness_check_keycloak_cr_name }}"
+    namespace: "{{ readiness_check_keycloak_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_keycloak_db_url_info
   changed_when: false
   failed_when: false
+  when: readiness_check_keycloak_pg_tls_enabled | bool
+
+- name: Build Keycloak DB URL from CR data
+  ansible.builtin.set_fact:
+    _rc_keycloak_db_url: >-
+      {{
+        ((_rc_keycloak_db_url_info.resources | default([]) | first | default({})).spec.db.url | default(''))
+      }}
+  changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
 - name: Add Keycloak DB verify-full URL check to results
@@ -302,9 +322,9 @@
       {{ _readiness_results + [{
         'component': 'Keycloak',
         'check_name': 'DB URL enforces verify-full TLS mode',
-        'status': 'pass' if ('sslmode=' + readiness_check_keycloak_pg_verify_mode) in (_rc_keycloak_db_url.stdout | default('')) else 'fail',
-        'detail': (_rc_keycloak_db_url.stdout | default('missing db.url in Keycloak CR')),
-        'error': ''
+        'status': 'pass' if ('sslmode=' + readiness_check_keycloak_pg_verify_mode) in (_rc_keycloak_db_url | default('')) else 'fail',
+        'detail': (_rc_keycloak_db_url | default('missing db.url in Keycloak CR')),
+        'error': _rc_keycloak_db_url_info.msg | default('')
       }] }}
   changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
@@ -315,7 +335,7 @@
       {{ _readiness_results + [{
         'component': 'Keycloak',
         'check_name': 'DB URL host matches Postgres TLS SAN FQDN',
-        'status': 'pass' if readiness_check_keycloak_pg_service_fqdn in (_rc_keycloak_db_url.stdout | default('')) else 'fail',
+        'status': 'pass' if readiness_check_keycloak_pg_service_fqdn in (_rc_keycloak_db_url | default('')) else 'fail',
         'detail': readiness_check_keycloak_pg_service_fqdn,
         'error': ''
       }] }}
@@ -328,7 +348,7 @@
     -n {{ readiness_check_keycloak_namespace }}
     -- sh -ec "psql -U '{{ readiness_check_keycloak_db_username }}' -d '{{ readiness_check_keycloak_db_name }}' -tAc 'SHOW ssl;'"
   environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
   register: _rc_postgres_ssl_setting
   changed_when: false
   failed_when: false

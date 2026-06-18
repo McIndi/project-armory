@@ -3,13 +3,29 @@
 # Validate k3s cluster health: node status, apiserver, service status
 
 - name: Check k3s nodes ready
-  ansible.builtin.command: >-
-    k3s kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_k3s_nodes_ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_k3s_nodes
   changed_when: false
   failed_when: false
+
+- name: Build k3s node readiness status list
+  ansible.builtin.set_fact:
+    _rc_k3s_nodes_ready_statuses: >-
+      {{ (_rc_k3s_nodes_ready_statuses | default([])) + [
+        (
+          item.status.conditions
+          | default([])
+          | selectattr('type', 'equalto', 'Ready')
+          | map(attribute='status')
+          | first
+          | default('Unknown')
+        )
+      ] }}
+  loop: "{{ _rc_k3s_nodes.resources | default([]) }}"
+  changed_when: false
 
 - name: Add k3s nodes check to results
   ansible.builtin.set_fact:
@@ -17,9 +33,14 @@
       {{ _readiness_results + [{
         'component': 'k3s',
         'check_name': 'Cluster nodes ready',
-        'status': 'pass' if (_rc_k3s_nodes_ready.stdout | trim | length) > 0 and 'False' not in _rc_k3s_nodes_ready.stdout else 'fail',
-        'detail': (_rc_k3s_nodes_ready.stdout | trim) if (_rc_k3s_nodes_ready.stdout | trim | length) > 0 else 'no nodes',
-        'error': ''
+        'status': 'pass'
+          if ((_rc_k3s_nodes.resources | default([]) | length) > 0
+              and ((_rc_k3s_nodes_ready_statuses | default([])) | select('equalto', 'True') | list | length)
+                  == (_rc_k3s_nodes.resources | default([]) | length))
+          else 'fail',
+        'detail': ((_rc_k3s_nodes_ready_statuses | default([])) | join(' '))
+          if (_rc_k3s_nodes.resources | default([]) | length) > 0 else 'no nodes',
+        'error': _rc_k3s_nodes.msg | default('')
       }] }}
   changed_when: false
 
@@ -27,7 +48,7 @@
   ansible.builtin.command: >-
     k3s kubectl cluster-info
   environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
+    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
   register: _rc_k3s_apiserver
   changed_when: false
   failed_when: false
@@ -45,14 +66,25 @@
   changed_when: false
 
 - name: Check kube-system pods running
-  ansible.builtin.command: >-
-    k3s kubectl get pods -n kube-system
-    -o jsonpath='{range .items[?(@.status.phase!="Running")]}{.metadata.name}{"\n"}{end}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_k3s_kube_system_pods
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: kube-system
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_k3s_kube_system_pods_info
   changed_when: false
   failed_when: false
+
+- name: Build list of kube-system pods not running
+  ansible.builtin.set_fact:
+    _rc_k3s_kube_system_not_running: >-
+      {{
+        (_rc_k3s_kube_system_pods_info.resources | default([]))
+        | rejectattr('status.phase', 'equalto', 'Running')
+        | map(attribute='metadata.name')
+        | list
+      }}
+  changed_when: false
 
 - name: Add kube-system pods check to results
   ansible.builtin.set_fact:
@@ -60,9 +92,9 @@
       {{ _readiness_results + [{
         'component': 'k3s',
         'check_name': 'kube-system pods running',
-        'status': 'pass' if (_rc_k3s_kube_system_pods.stdout_lines | length) == 0 else 'warn',
-        'detail': 'All kube-system pods running' if (_rc_k3s_kube_system_pods.stdout_lines | length) == 0 else ((_rc_k3s_kube_system_pods.stdout_lines | length | string) + ' pods not running'),
-        'error': ''
+        'status': 'pass' if (_rc_k3s_kube_system_not_running | length) == 0 else 'warn',
+        'detail': 'All kube-system pods running' if (_rc_k3s_kube_system_not_running | length) == 0 else ((_rc_k3s_kube_system_not_running | length | string) + ' pods not running'),
+        'error': _rc_k3s_kube_system_pods_info.msg | default('')
       }] }}
   changed_when: false
 

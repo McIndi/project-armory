@@ -3,16 +3,27 @@
 # Validate nginx ingress controller and TLS certificates
 
 - name: Check nginx ingress controller pods running
-  ansible.builtin.command: >-
-    k3s kubectl get pods -n {{ readiness_check_nginx_namespace }}
-    -l {{ readiness_check_nginx_controller_label }}
-    --field-selector=status.phase=Running
-    --no-headers
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_nginx_pods
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ readiness_check_nginx_namespace }}"
+    label_selectors:
+      - "{{ readiness_check_nginx_controller_label }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_nginx_pods_info
   changed_when: false
   failed_when: false
+
+- name: Build list of running nginx ingress controller pods
+  ansible.builtin.set_fact:
+    _rc_nginx_running_pods: >-
+      {{
+        (_rc_nginx_pods_info.resources | default([]))
+        | selectattr('status.phase', 'equalto', 'Running')
+        | map(attribute='metadata.name')
+        | list
+      }}
+  changed_when: false
 
 - name: Add nginx controller pods check to results
   ansible.builtin.set_fact:
@@ -20,21 +31,34 @@
       {{ _readiness_results + [{
         'component': 'nginx ingress',
         'check_name': 'Controller pods running',
-        'status': 'pass' if (_rc_nginx_pods.stdout_lines | length) > 0 else 'fail',
-        'detail': (_rc_nginx_pods.stdout_lines | length | string) + ' pods running',
-        'error': ''
+        'status': 'pass' if (_rc_nginx_running_pods | length) > 0 else 'fail',
+        'detail': (_rc_nginx_running_pods | length | string) + ' pods running',
+        'error': _rc_nginx_pods_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check ingress rules for public domain
-  ansible.builtin.command: >-
-    k3s kubectl get ingress -n {{ readiness_check_ingress_tls_namespace }}
-    -o jsonpath='{range .items[*]}{range .spec.rules[*]}{.host}{"\n"}{end}{end}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_nginx_ingress_rules
+  kubernetes.core.k8s_info:
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ readiness_check_ingress_tls_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_nginx_ingress_rules_info
   changed_when: false
   failed_when: false
+
+- name: Build list of ingress hosts
+  ansible.builtin.set_fact:
+    _rc_nginx_ingress_hosts: >-
+      {{
+        (_rc_nginx_ingress_rules_info.resources | default([]))
+        | map(attribute='spec.rules')
+        | flatten
+        | map(attribute='host')
+        | reject('undefined')
+        | list
+      }}
+  changed_when: false
 
 - name: Add ingress rules check to results
   ansible.builtin.set_fact:
@@ -42,21 +66,32 @@
       {{ _readiness_results + [{
         'component': 'nginx ingress',
         'check_name': 'Public ingress rules present',
-        'status': 'pass' if readiness_check_public_domain in (_rc_nginx_ingress_rules.stdout_lines | default([])) else 'warn',
-        'detail': (_rc_nginx_ingress_rules.stdout_lines | select('equalto', readiness_check_public_domain) | list | length | string) + ' ingress rules for ' + readiness_check_public_domain,
-        'error': ''
+        'status': 'pass' if readiness_check_public_domain in (_rc_nginx_ingress_hosts | default([])) else 'warn',
+        'detail': (_rc_nginx_ingress_hosts | select('equalto', readiness_check_public_domain) | list | length | string) + ' ingress rules for ' + readiness_check_public_domain,
+        'error': _rc_nginx_ingress_rules_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check TLS secret for ingress
-  ansible.builtin.command: >-
-    k3s kubectl get secret -n {{ readiness_check_ingress_tls_namespace }}
-    -o jsonpath='{range .items[?(@.type=="kubernetes.io/tls")]}{.metadata.name}{"\n"}{end}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_nginx_tls_secrets
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: "{{ readiness_check_ingress_tls_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_nginx_tls_secrets_info
   changed_when: false
   failed_when: false
+
+- name: Build list of ingress TLS secrets
+  ansible.builtin.set_fact:
+    _rc_nginx_tls_secrets: >-
+      {{
+        (_rc_nginx_tls_secrets_info.resources | default([]))
+        | selectattr('type', 'equalto', 'kubernetes.io/tls')
+        | map(attribute='metadata.name')
+        | list
+      }}
+  changed_when: false
 
 - name: Add TLS secrets check to results
   ansible.builtin.set_fact:
@@ -64,21 +99,36 @@
       {{ _readiness_results + [{
         'component': 'nginx ingress',
         'check_name': 'TLS secrets configured',
-        'status': 'pass' if (_rc_nginx_tls_secrets.stdout_lines | length) > 0 else 'warn',
-        'detail': (_rc_nginx_tls_secrets.stdout_lines | length | string) + ' TLS secrets found',
-        'error': ''
+        'status': 'pass' if (_rc_nginx_tls_secrets | length) > 0 else 'warn',
+        'detail': (_rc_nginx_tls_secrets | length | string) + ' TLS secrets found',
+        'error': _rc_nginx_tls_secrets_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check OpenBao external ClusterIssuer readiness
-  ansible.builtin.command: >-
-    k3s kubectl get clusterissuer {{ readiness_check_openbao_external_clusterissuer_name }}
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_openbao_external_clusterissuer_ready
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: ClusterIssuer
+    name: "{{ readiness_check_openbao_external_clusterissuer_name }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_openbao_external_clusterissuer_ready_info
   changed_when: false
   failed_when: false
+
+- name: Resolve OpenBao external ClusterIssuer ready condition
+  ansible.builtin.set_fact:
+    _rc_openbao_external_clusterissuer_ready: >-
+      {{
+        (
+          (_rc_openbao_external_clusterissuer_ready_info.resources | default([]) | first | default({})).status.conditions
+          | default([])
+          | selectattr('type', 'equalto', 'Ready')
+          | map(attribute='status')
+          | first
+          | default('unknown')
+        )
+      }}
+  changed_when: false
 
 - name: Add OpenBao external ClusterIssuer readiness check to results
   ansible.builtin.set_fact:
@@ -86,21 +136,36 @@
       {{ _readiness_results + [{
         'component': 'nginx ingress',
         'check_name': 'OpenBao external ClusterIssuer ready',
-        'status': 'pass' if (_rc_openbao_external_clusterissuer_ready.stdout | trim) == 'True' else 'fail',
-        'detail': 'Ready=' + (_rc_openbao_external_clusterissuer_ready.stdout | default('unknown') | trim),
-        'error': _rc_openbao_external_clusterissuer_ready.stderr | default('')
+        'status': 'pass' if (_rc_openbao_external_clusterissuer_ready | trim) == 'True' else 'fail',
+        'detail': 'Ready=' + (_rc_openbao_external_clusterissuer_ready | default('unknown') | trim),
+        'error': _rc_openbao_external_clusterissuer_ready_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Check OpenBao internal ClusterIssuer readiness
-  ansible.builtin.command: >-
-    k3s kubectl get clusterissuer {{ readiness_check_openbao_internal_clusterissuer_name }}
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_openbao_internal_clusterissuer_ready
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: ClusterIssuer
+    name: "{{ readiness_check_openbao_internal_clusterissuer_name }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_openbao_internal_clusterissuer_ready_info
   changed_when: false
   failed_when: false
+
+- name: Resolve OpenBao internal ClusterIssuer ready condition
+  ansible.builtin.set_fact:
+    _rc_openbao_internal_clusterissuer_ready: >-
+      {{
+        (
+          (_rc_openbao_internal_clusterissuer_ready_info.resources | default([]) | first | default({})).status.conditions
+          | default([])
+          | selectattr('type', 'equalto', 'Ready')
+          | map(attribute='status')
+          | first
+          | default('unknown')
+        )
+      }}
+  changed_when: false
 
 - name: Add OpenBao internal ClusterIssuer readiness check to results
   ansible.builtin.set_fact:
@@ -108,22 +173,42 @@
       {{ _readiness_results + [{
         'component': 'nginx ingress',
         'check_name': 'OpenBao internal ClusterIssuer ready',
-        'status': 'pass' if (_rc_openbao_internal_clusterissuer_ready.stdout | trim) == 'True' else 'fail',
-        'detail': 'Ready=' + (_rc_openbao_internal_clusterissuer_ready.stdout | default('unknown') | trim),
-        'error': _rc_openbao_internal_clusterissuer_ready.stderr | default('')
+        'status': 'pass' if (_rc_openbao_internal_clusterissuer_ready | trim) == 'True' else 'fail',
+        'detail': 'Ready=' + (_rc_openbao_internal_clusterissuer_ready | default('unknown') | trim),
+        'error': _rc_openbao_internal_clusterissuer_ready_info.msg | default('')
       }] }}
   changed_when: false
 
 - name: Collect ingress certificate rotation fields
-  ansible.builtin.command: >-
-    k3s kubectl get certificate {{ readiness_check_ingress_tls_certificate_name }}
-    -n {{ readiness_check_ingress_tls_namespace }}
-    -o jsonpath='{.spec.duration}|{.spec.renewBefore}|{.status.renewalTime}|{.status.conditions[?(@.type=="Ready")].status}'
-  environment:
-    KUBECONFIG: "{{ readiness_check_k3s_kubeconfig }}"
-  register: _rc_ingress_certificate_rotation
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: Certificate
+    name: "{{ readiness_check_ingress_tls_certificate_name }}"
+    namespace: "{{ readiness_check_ingress_tls_namespace }}"
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_ingress_certificate_rotation_info
   changed_when: false
   failed_when: false
+
+- name: Build ingress certificate rotation summary string
+  ansible.builtin.set_fact:
+    _rc_ingress_certificate_rotation: >-
+      {{
+        [
+          ((_rc_ingress_certificate_rotation_info.resources | default([]) | first | default({})).spec.duration | default('')),
+          ((_rc_ingress_certificate_rotation_info.resources | default([]) | first | default({})).spec.renewBefore | default('')),
+          ((_rc_ingress_certificate_rotation_info.resources | default([]) | first | default({})).status.renewalTime | default('')),
+          (
+            ((_rc_ingress_certificate_rotation_info.resources | default([]) | first | default({})).status.conditions | default([])
+            | selectattr('type', 'equalto', 'Ready')
+            | map(attribute='status')
+            | first
+            | default('')
+            )
+          )
+        ] | join('|')
+      }}
+  changed_when: false
 
 - name: Add ingress certificate rotation posture check to results
   ansible.builtin.set_fact:
@@ -133,16 +218,16 @@
         'check_name': 'Ingress cert-manager rotation configured',
         'status': (
           'pass' if (
-            _rc_ingress_certificate_rotation.stdout | trim | length > 0 and
-            (_rc_ingress_certificate_rotation.stdout.split('|') | length) == 4 and
-            (_rc_ingress_certificate_rotation.stdout.split('|')[0] | trim | length) > 0 and
-            (_rc_ingress_certificate_rotation.stdout.split('|')[1] | trim | length) > 0 and
-            (_rc_ingress_certificate_rotation.stdout.split('|')[2] | trim | length) > 0 and
-            (_rc_ingress_certificate_rotation.stdout.split('|')[3] | trim) == 'True'
+            _rc_ingress_certificate_rotation | trim | length > 0 and
+            (_rc_ingress_certificate_rotation.split('|') | length) == 4 and
+            (_rc_ingress_certificate_rotation.split('|')[0] | trim | length) > 0 and
+            (_rc_ingress_certificate_rotation.split('|')[1] | trim | length) > 0 and
+            (_rc_ingress_certificate_rotation.split('|')[2] | trim | length) > 0 and
+            (_rc_ingress_certificate_rotation.split('|')[3] | trim) == 'True'
           ) else 'fail'
         ),
-        'detail': _rc_ingress_certificate_rotation.stdout | default('missing certificate data'),
-        'error': _rc_ingress_certificate_rotation.stderr | default('')
+        'detail': _rc_ingress_certificate_rotation | default('missing certificate data'),
+        'error': _rc_ingress_certificate_rotation_info.msg | default('')
       }] }}
   changed_when: false
 
