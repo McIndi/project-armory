@@ -46,7 +46,7 @@ VM is your choice; it must meet the following spec before you run
 **Runtime prerequisites** required by the `kubernetes.core` Ansible modules:
 
 - `kubernetes.core` collection — `ansible-galaxy collection install -r ansible/requirements.yml`
-- Python `kubernetes` client — `pip install kubernetes` (needed by `kubernetes.core.k8s*`)
+- Python `kubernetes` client — `dnf install python3-kubernetes` (needed by `kubernetes.core.k8s*`)
 - `helm-diff` plugin — installed idempotently by the `helm` role, required for
   `kubernetes.core.helm` no-op detection
 
