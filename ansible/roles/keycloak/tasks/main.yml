@@ -353,6 +353,16 @@
       changed_when: false
       when: not ansible_check_mode
 
+    - name: Read current Keycloak Operator deployment
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        kind: Deployment
+        namespace: "{{ keycloak_namespace }}"
+        name: "{{ keycloak_operator_deployment_name }}"
+      register: _keycloak_operator_deployment
+      when: not ansible_check_mode
+
     - name: Install Keycloak Operator into the Keycloak namespace
       ansible.builtin.command:
         cmd: >-
@@ -364,7 +374,14 @@
       changed_when: >-
         'configured' in (_keycloak_operator_apply.stdout | default('')) or
         'created' in (_keycloak_operator_apply.stdout | default(''))
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - >-
+          (_keycloak_operator_deployment.resources | default([]) | length == 0) or
+          (
+            _keycloak_operator_deployment.resources[0].metadata.labels['app.kubernetes.io/version'] | default('')
+            != keycloak_operator_version
+          )
 
     # The upstream operator Deployment ships a short startup probe
     # (delay 5s + 3x10s ~= 35s) and a 700m CPU limit. On slow/CPU-throttled
