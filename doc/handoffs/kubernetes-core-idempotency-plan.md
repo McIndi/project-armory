@@ -1,6 +1,7 @@
 # Handoff: `kubernetes.core` Migration + Idempotency Restoration
 
 Status: Stages 0–2 complete (Helm track done, cause #1 closed) · Stage 3 next · Owner: Copilot · Drafted: 2026-06-17
+Status: Stages 0–3 complete · Stage 4 code done, static validation in progress · Owner: Copilot · Drafted: 2026-06-17
 
 ## Goal
 

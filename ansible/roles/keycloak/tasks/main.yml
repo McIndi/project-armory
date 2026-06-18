@@ -9,25 +9,14 @@
   block:
     # ── Namespace ──────────────────────────────────────────────────────────────
     - name: Ensure Keycloak namespace exists
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create namespace {{ keycloak_namespace }}
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_namespace_yaml
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Apply Keycloak namespace manifest
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _keycloak_namespace_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_namespace_apply
-      changed_when: >-
-        'created' in (_keycloak_namespace_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ keycloak_namespace }}"
       when: not ansible_check_mode
 
     # ── OpenBao: generate + persist credentials ─────────────────────────────────
@@ -155,33 +144,21 @@
       when: not ansible_check_mode
 
     # The Secret must exist before the Keycloak CR is applied: the operator reads
-    # spec.bootstrapAdmin.user.secret at first creation. Render via kubectl
-    # dry-run|apply so the credentials never touch the host filesystem.
-    - name: Generate master bootstrap-admin Secret manifest
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create secret generic {{ keycloak_bootstrap_admin_secret_name }}
-          --namespace {{ keycloak_namespace }}
-          --from-literal=username={{ keycloak_bootstrap_admin_username }}
-          --from-literal=password={{ _keycloak_bootstrap_admin_password }}
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_bootstrap_admin_secret_yaml
-      changed_when: false
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
-
+    # spec.bootstrapAdmin.user.secret at first creation.
     - name: Apply master bootstrap-admin Secret in the Keycloak namespace
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _keycloak_bootstrap_admin_secret_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_bootstrap_admin_secret_apply
-      changed_when: >-
-        'configured' in (_keycloak_bootstrap_admin_secret_apply.stdout | default('')) or
-        'created' in (_keycloak_bootstrap_admin_secret_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ keycloak_bootstrap_admin_secret_name }}"
+            namespace: "{{ keycloak_namespace }}"
+          type: Opaque
+          stringData:
+            username: "{{ keycloak_bootstrap_admin_username }}"
+            password: "{{ _keycloak_bootstrap_admin_password }}"
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
@@ -198,39 +175,26 @@
       when: not (use_declarative_ca_distribution | default(false) | bool)
 
     - name: Apply Keycloak VaultConnection and VaultAuth resources
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'vaultconnection.yaml.j2') }}\n---\n{{ lookup('template', 'vaultauth.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_vault_auth_apply
-      changed_when: >-
-        'configured' in (_keycloak_vault_auth_apply.stdout | default('')) or
-        'created' in (_keycloak_vault_auth_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: >-
+          {{ (lookup('template', 'vaultconnection.yaml.j2') | from_yaml_all | list)
+             + (lookup('template', 'vaultauth.yaml.j2') | from_yaml_all | list) }}
       when: not ansible_check_mode
 
     - name: Apply Keycloak VaultStaticSecret (DB credentials)
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'vaultstaticsecret.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_vss_apply
-      changed_when: >-
-        'configured' in (_keycloak_vss_apply.stdout | default('')) or
-        'created' in (_keycloak_vss_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'vaultstaticsecret.yaml.j2') | from_yaml_all | list }}"
       when: not ansible_check_mode
 
     - name: Apply Keycloak VaultStaticSecret (realm-admin login mirror)
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'vaultstaticsecret_realm_admin.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_realm_admin_vss_apply
-      changed_when: >-
-        'configured' in (_keycloak_realm_admin_vss_apply.stdout | default('')) or
-        'created' in (_keycloak_realm_admin_vss_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'vaultstaticsecret_realm_admin.yaml.j2') | from_yaml_all | list }}"
       when: not ansible_check_mode
 
     - name: Wait for keycloak-db-secret to be synced by VSO
@@ -268,15 +232,10 @@
 
     # ── PostgreSQL StatefulSet ──────────────────────────────────────────────────
     - name: Apply PostgreSQL StatefulSet and Service
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'postgres.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_pg_apply
-      changed_when: >-
-        'configured' in (_keycloak_pg_apply.stdout | default('')) or
-        'created' in (_keycloak_pg_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'postgres.yaml.j2') | from_yaml_all | list }}"
       when:
         - not ansible_check_mode
         - keycloak_postgresql_enabled | bool
@@ -314,32 +273,32 @@
         - keycloak_postgresql_enabled | bool
         - keycloak_pg_tls_enabled | bool
 
-    - name: Create Keycloak Postgres CA ConfigMap manifest
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create configmap {{ keycloak_pg_tls_ca_configmap_name }}
-          --namespace {{ keycloak_namespace }}
-          --from-file={{ keycloak_pg_tls_ca_file_name }}={{ keycloak_pg_tls_ca_bundle_path }}
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_pg_ca_configmap_yaml
-      changed_when: false
+    # The bundle is written root-owned by the common prepare task (under become),
+    # so it must be read by a module that runs on the target under become — a
+    # controller-side lookup('file', …) runs as the unprivileged user and is
+    # denied. slurp reads it as root; b64decode inlines the PEM into the ConfigMap.
+    - name: Read Postgres CA bundle for ConfigMap (privileged read under become)
+      ansible.builtin.slurp:
+        src: "{{ keycloak_pg_tls_ca_bundle_path }}"
+      register: _keycloak_pg_ca_bundle
       when:
         - not ansible_check_mode
         - keycloak_postgresql_enabled | bool
         - keycloak_pg_tls_enabled | bool
 
     - name: Apply Keycloak Postgres CA ConfigMap
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _keycloak_pg_ca_configmap_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_pg_ca_configmap_apply
-      changed_when: >-
-        'configured' in (_keycloak_pg_ca_configmap_apply.stdout | default('')) or
-        'created' in (_keycloak_pg_ca_configmap_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ keycloak_pg_tls_ca_configmap_name }}"
+            namespace: "{{ keycloak_namespace }}"
+          # The data key is variable-named; build the dict in one Jinja
+          # expression so the KEY is evaluated (Ansible does not template dict keys).
+          data: "{{ {keycloak_pg_tls_ca_file_name: (_keycloak_pg_ca_bundle.content | b64decode)} }}"
       when:
         - not ansible_check_mode
         - keycloak_postgresql_enabled | bool
@@ -468,15 +427,10 @@
 
     # ── Keycloak custom resource ────────────────────────────────────────────────
     - name: Apply Keycloak custom resource
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'keycloak.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_cr_apply
-      changed_when: >-
-        'configured' in (_keycloak_cr_apply.stdout | default('')) or
-        'created' in (_keycloak_cr_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'keycloak.yaml.j2') | from_yaml_all | list }}"
       when: not ansible_check_mode
 
     - name: Wait for Keycloak custom resource to become Ready
@@ -546,15 +500,10 @@
 
     # ── Realm import ────────────────────────────────────────────────────────────
     - name: Apply Keycloak realm import
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'realmimport.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_realm_apply
-      changed_when: >-
-        'configured' in (_keycloak_realm_apply.stdout | default('')) or
-        'created' in (_keycloak_realm_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'realmimport.yaml.j2') | from_yaml_all | list }}"
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
@@ -581,15 +530,10 @@
 
     # ── Ingress (edge TLS at nginx) ─────────────────────────────────────────────
     - name: Apply Keycloak Ingress
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'ingress.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_ingress_apply
-      changed_when: >-
-        'configured' in (_keycloak_ingress_apply.stdout | default('')) or
-        'created' in (_keycloak_ingress_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'ingress.yaml.j2') | from_yaml_all | list }}"
       when:
         - not ansible_check_mode
         - keycloak_ingress_enabled | bool
