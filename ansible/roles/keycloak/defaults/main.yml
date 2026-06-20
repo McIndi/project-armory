@@ -121,6 +121,8 @@ keycloak_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
 keycloak_vault_connection_name: default
 keycloak_vault_auth_name: keycloak-vaultauth
 keycloak_db_secret_name: keycloak-db-secret
+# Reduce churn from frequent VSO refresh loops while still propagating rotations.
+keycloak_vault_static_secret_refresh_after: 10m
 # VSO mirror of the realm `armory` admin login (the Headlamp login). Convenience
 # only — lets operators `kubectl get secret` instead of reading OpenBao directly.
 # refreshAfter on the VaultStaticSecret means a rotated OpenBao value propagates

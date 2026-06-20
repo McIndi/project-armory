@@ -15,15 +15,10 @@
   when: not ansible_check_mode
 
 - name: Apply cert-manager Certificate resource
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ lookup('template', 'certificate.yaml.j2') }}"
-  environment:
-    KUBECONFIG: "{{ common_kubeconfig_path }}"
-  register: _common_certificate_apply
-  changed_when: >-
-    'configured' in (_common_certificate_apply.stdout | default('')) or
-    'created' in (_common_certificate_apply.stdout | default(''))
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'certificate.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ common_kubeconfig_path }}"
   when: not ansible_check_mode
 
 - name: Wait for cert-manager Certificate to become Ready

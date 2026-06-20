@@ -1,23 +1,15 @@
 ---
 - name: Provision TLS resources with diagnostics
   block:
-    - name: Generate TLS target namespace manifest
-      ansible.builtin.command:
-        cmd: k3s kubectl create namespace {{ nginx_ingress_tls_namespace }} --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _nginx_tls_ns_yaml
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Apply TLS target namespace
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _nginx_tls_ns_yaml.stdout }}"
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: _nginx_tls_ns_apply
-      changed_when: "'created' in _nginx_tls_ns_apply.stdout"
+    - name: Ensure TLS target namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ nginx_ingress_tls_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       when: not ansible_check_mode
 
     - name: Ensure ingress TLS certificate exists and is ready

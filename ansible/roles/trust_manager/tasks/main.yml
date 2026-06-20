@@ -28,28 +28,20 @@
       when: not ansible_check_mode
 
     - name: Apply internal CA Bundle for declarative CA distribution
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'bundle-internal-ca.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'bundle-internal-ca.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ trust_manager_kubeconfig_path }}"
       register: _trust_manager_internal_bundle_apply
-      changed_when: >-
-        'configured' in (_trust_manager_internal_bundle_apply.stdout | default('')) or
-        'created' in (_trust_manager_internal_bundle_apply.stdout | default(''))
       when:
         - not ansible_check_mode
 
     - name: Apply external CA Bundle for declarative CA distribution
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'bundle-external-ca.yaml.j2') }}"
-      environment:
-        KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'bundle-external-ca.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ trust_manager_kubeconfig_path }}"
       register: _trust_manager_external_bundle_apply
-      changed_when: >-
-        'configured' in (_trust_manager_external_bundle_apply.stdout | default('')) or
-        'created' in (_trust_manager_external_bundle_apply.stdout | default(''))
       when:
         - not ansible_check_mode
         - use_declarative_ca_distribution | bool

@@ -208,15 +208,11 @@
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
 
 - name: Apply realm-admin rotator manifests (SA, ConfigMap, CronJob)
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ lookup('template', 'realm_admin_rotator.yaml.j2') }}"
-  environment:
-    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'realm_admin_rotator.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ keycloak_kubeconfig_path }}"
   register: _kc_rotator_apply
-  changed_when: >-
-    'configured' in (_kc_rotator_apply.stdout | default('')) or
-    'created' in (_kc_rotator_apply.stdout | default(''))
 
 - name: Remove temporary Keycloak CA file for rotator setup
   ansible.builtin.file:

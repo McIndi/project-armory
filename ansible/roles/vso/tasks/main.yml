@@ -65,25 +65,14 @@
         content: "{{ _vso_effective_chart_values | to_nice_yaml(indent=2) }}"
 
     - name: Ensure VSO namespace exists
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl create namespace {{ vso_namespace }}
-          --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_namespace_yaml
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Apply VSO namespace manifest
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ _vso_namespace_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ vso_kubeconfig_path }}"
-      register: _vso_namespace_apply
-      changed_when: >-
-        'created' in (_vso_namespace_apply.stdout | default(''))
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ vso_namespace }}"
+        kubeconfig: "{{ vso_kubeconfig_path }}"
       when: not ansible_check_mode
 
     - name: Ensure OpenBao CA secret exists in VSO namespace

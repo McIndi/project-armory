@@ -2,13 +2,13 @@
 # Apply Kubernetes RBAC bindings for OIDC groups
 
 - name: Apply ClusterRoleBindings for Headlamp OIDC groups
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: |
+  kubernetes.core.k8s:
+    state: present
+    definition:
       apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRoleBinding
       metadata:
-        name: headlamp-oidc-{{ item.group | regex_replace('[^a-z0-9.-]', '-') }}
+        name: "headlamp-oidc-{{ item.group | regex_replace('[^a-z0-9.-]', '-') }}"
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: ClusterRole
@@ -17,10 +17,8 @@
         - kind: Group
           name: "{{ (k3s_oidc_groups_prefix | default('oidc:')) + item.group }}"
           apiGroup: rbac.authorization.k8s.io
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
   loop: "{{ headlamp_oidc_group_bindings }}"
   loop_control:
     label: "{{ item.group }} -> {{ item.cluster_role }}"
-  register: _headlamp_rbac_apply
-  changed_when: "'configured' in (_headlamp_rbac_apply.stdout | default('')) or 'created' in (_headlamp_rbac_apply.stdout | default(''))"
+  when: not ansible_check_mode

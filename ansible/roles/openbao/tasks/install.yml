@@ -1,21 +1,13 @@
 ---
-- name: Generate OpenBao namespace manifest
-  ansible.builtin.command:
-    cmd: k3s kubectl create namespace {{ openbao_namespace }} --dry-run=client -o yaml
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_ns_yaml
-  changed_when: false
-  when: not ansible_check_mode
-
-- name: Apply OpenBao namespace manifest
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ _openbao_ns_yaml.stdout }}"
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_ns_apply
-  changed_when: "'created' in (_openbao_ns_apply.stdout | default(''))"
+- name: Ensure OpenBao namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ openbao_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   when: not ansible_check_mode
 
 - name: Ensure OpenBao TLS artifact directory exists
@@ -161,61 +153,61 @@
     - _openbao_host_ca_install.changed | default(false)
     - not ansible_check_mode
 
-- name: Generate OpenBao server TLS secret manifest
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl create secret tls {{ openbao_tls_secret_name }}
-      --namespace {{ openbao_namespace }}
-      --cert={{ openbao_tls_cert_host_path }}
-      --key={{ openbao_tls_key_host_path }}
-      --dry-run=client -o yaml
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_tls_secret_yaml
-  changed_when: false
+# tls.crt/tls.key live in a 0700 root-owned dir; read them with slurp (runs on the
+# target under become), not lookup('file') (controller-side, unprivileged → denied).
+# slurp's .content is already base64 — exactly what a Secret's data field needs.
+- name: Read OpenBao server TLS cert/key for Secret (privileged read under become)
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - "{{ openbao_tls_cert_host_path }}"
+    - "{{ openbao_tls_key_host_path }}"
+  register: _openbao_tls_secret_files
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
 
 - name: Apply OpenBao server TLS secret
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ _openbao_tls_secret_yaml.stdout }}"
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ openbao_tls_secret_name }}"
+        namespace: "{{ openbao_namespace }}"
+      type: kubernetes.io/tls
+      data:
+        tls.crt: "{{ _openbao_tls_secret_files.results[0].content }}"
+        tls.key: "{{ _openbao_tls_secret_files.results[1].content }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   register: _openbao_tls_secret_apply
-  changed_when: >-
-    'created' in (_openbao_tls_secret_apply.stdout | default('')) or
-    'configured' in (_openbao_tls_secret_apply.stdout | default(''))
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
 
-- name: Generate OpenBao CA secret manifest
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl create secret generic {{ openbao_tls_ca_secret_name }}
-      --namespace {{ openbao_namespace }}
-      --from-file=ca.crt={{ openbao_tls_ca_host_path }}
-      --dry-run=client -o yaml
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_ca_secret_yaml
-  changed_when: false
+- name: Read OpenBao CA cert for Secret (privileged read under become)
+  ansible.builtin.slurp:
+    src: "{{ openbao_tls_ca_host_path }}"
+  register: _openbao_ca_secret_file
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
 
 - name: Apply OpenBao CA secret
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ _openbao_ca_secret_yaml.stdout }}"
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_ca_secret_apply
-  changed_when: >-
-    'created' in (_openbao_ca_secret_apply.stdout | default('')) or
-    'configured' in (_openbao_ca_secret_apply.stdout | default(''))
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ openbao_tls_ca_secret_name }}"
+        namespace: "{{ openbao_namespace }}"
+      data:
+        ca.crt: "{{ _openbao_ca_secret_file.content }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -326,28 +318,23 @@
     - openbao_tls_enabled | bool
     - _openbao_tls_regenerate | default(false) | bool or _openbao_tls_secret_apply.changed | default(false)
 
-- name: Create ClusterRoleBinding for OpenBao SA (token review)
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl create clusterrolebinding openbao-tokenreview
-      --clusterrole=system:auth-delegator
-      --serviceaccount={{ openbao_namespace }}:openbao
-      --dry-run=client -o yaml
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_crb_yaml
-  changed_when: false
-  when: not ansible_check_mode
-
-- name: Apply ClusterRoleBinding for OpenBao SA
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl apply -f -
-    stdin: "{{ _openbao_crb_yaml.stdout }}"
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_crb_apply
-  changed_when: false
+- name: Apply ClusterRoleBinding for OpenBao SA (token review)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: openbao-tokenreview
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:auth-delegator
+      subjects:
+        - kind: ServiceAccount
+          name: openbao
+          namespace: "{{ openbao_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   when: not ansible_check_mode
 
 - name: Wait for OpenBao pod to be ready

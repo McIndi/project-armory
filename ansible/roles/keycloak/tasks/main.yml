@@ -64,7 +64,12 @@
           data: "{{ _keycloak_db_creds }}"
         status_code: [200, 204]
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
+      # Store only on first creation. The build reuses any existing value, so a
+      # re-store would write an identical-data KV version every run — VSO then
+      # rewrites keycloak-db-secret and the operator rolls keycloak-0 (cause #3).
+      when:
+        - not ansible_check_mode
+        - (_keycloak_db_creds_current.status | default(404)) != 200
 
     - name: Read current realm-admin password from OpenBao
       ansible.builtin.uri:
@@ -102,7 +107,11 @@
             password: "{{ _keycloak_realm_admin_password }}"
         status_code: [200, 204]
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
+      # Store only on first creation (see DB-credential note above) — avoids the
+      # per-run KV-version churn that bumps keycloak-realm-admin's resourceVersion.
+      when:
+        - not ansible_check_mode
+        - (_keycloak_realm_admin_current.status | default(404)) != 200
 
     # ── Master bootstrap admin: OpenBao-generated, replaces operator temp-admin ──
     - name: Read current master bootstrap-admin password from OpenBao
@@ -141,7 +150,10 @@
             password: "{{ _keycloak_bootstrap_admin_password }}"
         status_code: [200, 204]
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
+      # Store only on first creation (see DB-credential note above).
+      when:
+        - not ansible_check_mode
+        - (_keycloak_bootstrap_admin_current.status | default(404)) != 200
 
     # The Secret must exist before the Keycloak CR is applied: the operator reads
     # spec.bootstrapAdmin.user.secret at first creation.
@@ -537,6 +549,21 @@
       changed_when: false
       when: not ansible_check_mode
 
+    # Gate realm reconciliation on a settled StatefulSet: on a fresh deploy the
+    # first VSO DB-secret sync (placeholder → real creds) rolls keycloak-0 once,
+    # and the admin-REST calls below fail with connection-refused if they race it.
+    - name: Wait for Keycloak StatefulSet rollout before realm reconciliation
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl rollout status statefulset/{{ keycloak_cr_name }}
+          --namespace {{ keycloak_namespace }}
+          --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+      register: _keycloak_statefulset_rollout
+      changed_when: false
+      when: not ansible_check_mode
+
     - name: Ensure configured Keycloak realm groups exist via admin REST
       ansible.builtin.include_tasks: realm_groups.yml
       when: not ansible_check_mode
@@ -554,18 +581,6 @@
       when:
         - not ansible_check_mode
         - keycloak_ingress_enabled | bool
-
-    - name: Wait for Keycloak StatefulSet rollout before rotator provisioning
-      ansible.builtin.command:
-        cmd: >-
-          k3s kubectl rollout status statefulset/{{ keycloak_cr_name }}
-          --namespace {{ keycloak_namespace }}
-          --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_statefulset_rollout
-      changed_when: false
-      when: not ansible_check_mode
 
     # ── realm-admin password auto-rotation ──────────────────────────────────────
     - name: Provision realm-admin password rotation CronJob

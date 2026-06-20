@@ -12,13 +12,11 @@
         common_ca_target_namespace: "{{ certmanager_namespace }}"
 
     - name: Apply cert-manager ClusterIssuer for OpenBao PKI
-      ansible.builtin.command:
-        cmd: k3s kubectl apply -f -
-        stdin: "{{ lookup('template', 'cluster-issuer.yaml.j2') }}"
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'cluster-issuer.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: _cluster_issuer_result
-      changed_when: "'configured' in _cluster_issuer_result.stdout or 'created' in _cluster_issuer_result.stdout"
       when: not ansible_check_mode
 
     - name: Wait for OpenBao PKI ClusterIssuer readiness

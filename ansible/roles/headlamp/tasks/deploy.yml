@@ -12,28 +12,25 @@
     common_ca_target_namespace: "{{ headlamp_namespace }}"
   when: not (use_declarative_ca_distribution | default(false) | bool)
 
-- name: Apply Headlamp VaultConnection and VaultAuth resources
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ lookup('template', 'headlamp_vaultconnection.yaml.j2') }}\n---\n{{ lookup('template', 'headlamp_vaultauth.yaml.j2') }}"
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_vault_auth_apply
-  changed_when: >-
-    'configured' in (_headlamp_vault_auth_apply.stdout | default('')) or
-    'created' in (_headlamp_vault_auth_apply.stdout | default(''))
+- name: Apply Headlamp VaultConnection resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'headlamp_vaultconnection.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Apply Headlamp VaultAuth resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'headlamp_vaultauth.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
   when: not ansible_check_mode
 
 - name: Apply Headlamp VaultStaticSecret resource
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ lookup('template', 'headlamp_vaultstaticsecret.yaml.j2') }}"
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_vss_apply
-  changed_when: >-
-    'configured' in (_headlamp_vss_apply.stdout | default('')) or
-    'created' in (_headlamp_vss_apply.stdout | default(''))
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'headlamp_vaultstaticsecret.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
   when: not ansible_check_mode
 
 - name: Wait for Headlamp OIDC secret to be synced by VSO
@@ -212,37 +209,30 @@
   when: not ansible_check_mode
 
 - name: Patch Headlamp deployment probes to HTTPS
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl patch deployment {{ headlamp_release_name }}
-      --namespace {{ headlamp_namespace }}
-      --type=strategic
-      --patch
-      {{ ({
-          'spec': {
-            'template': {
-              'spec': {
-                'containers': [{
-                  'name': 'headlamp',
-                  'livenessProbe': {
-                    'httpGet': {
-                      'scheme': 'HTTPS'
-                    }
-                  },
-                  'readinessProbe': {
-                    'httpGet': {
-                      'scheme': 'HTTPS'
-                    }
-                  }
-                }]
-              }
-            }
-          }
-        }) | to_json | quote }}
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_probe_scheme_patch_result
-  changed_when: true
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: "{{ headlamp_release_name }}"
+        namespace: "{{ headlamp_namespace }}"
+      spec:
+        template:
+          spec:
+            containers:
+              - name: headlamp
+                livenessProbe:
+                  httpGet:
+                    scheme: HTTPS
+                readinessProbe:
+                  httpGet:
+                    scheme: HTTPS
+    server_side_apply:
+      field_manager: armory-ansible
+      force_conflicts: true
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
   when:
     - not ansible_check_mode
     - (_headlamp_probe_schemes.stdout | default('')) != 'HTTPS|HTTPS'

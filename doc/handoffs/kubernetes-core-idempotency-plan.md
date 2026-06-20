@@ -1,7 +1,11 @@
 # Handoff: `kubernetes.core` Migration + Idempotency Restoration
 
-Status: Stages 0–2 complete (Helm track done, cause #1 closed) · Stage 3 next · Owner: Copilot · Drafted: 2026-06-17
-Status: Stages 0–3 complete · Stage 4 code done, static validation in progress · Owner: Copilot · Drafted: 2026-06-17
+Status: **Stages 0–6 complete and validated** (all three causes closed, 2026-06-19).
+**Stage 7 code complete** (all `kubectl apply` / namespace-secret two-steps migrated
+across openbao, vso, nginx_ingress, headlamp, common, cert_manager, trust_manager,
+and the keycloak rotator) — awaiting maintainer two-run validation. Only the 2
+operator-install-from-URL applies remain as `command` by design (the module can't
+apply a remote URL). · Owner: Copilot · Drafted: 2026-06-17
 
 ## Goal
 
@@ -313,7 +317,27 @@ Stage 5.
 
 ---
 
-## Stage 7 — Sweep remaining roles to `kubernetes.core.k8s` + fold in Task D
+## Stage 7 — Sweep remaining roles to `kubernetes.core.k8s` + fold in Task D — ✅ code complete
+
+**Execution notes (2026-06-19):**
+- All targeted files converted (openbao, vso, nginx_ingress/tls, headlamp
+  deploy/pki/rbac, common apply_certificate/copy_openbao_ca_secret) + Task D (SSA
+  with `force_conflicts: true` to take the probe-scheme fields from helm).
+- **Bug caught in review:** openbao's TLS/CA Secret conversions used
+  `lookup('file', …)` on the `0700 root:root` TLS artifacts → would fail with
+  `Permission denied` (gotcha #2). Fixed with `slurp` (`.content` is already
+  base64 — fed straight into Secret `data`); `no_log` added on the key read.
+- **Scope extension:** the 3 applies in `cert_manager/issuer.yml` and
+  `trust_manager/main.yml` (originally excluded because the initial scan didn't
+  scan those roles) plus the `keycloak/rotator.yml` manifest apply were also
+  converted — so **no `kubectl apply` remains except the 2 operator-install-from-
+  URL commands** in `keycloak/main.yml` (kept by design; the module can't apply a
+  remote URL — these are the documented residual-`command` allowlist).
+
+---
+
+### Original Stage 7 plan (for reference)
+
 
 Finishes the backlog item repo-wide and removes the last always-changed tasks.
 Each role independent — one commit at a time.

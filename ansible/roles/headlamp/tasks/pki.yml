@@ -1,23 +1,15 @@
 ---
 # Provision cert-manager Certificate for the Headlamp ingress host.
 
-- name: Generate Headlamp namespace manifest
-  ansible.builtin.command:
-    cmd: k3s kubectl create namespace {{ headlamp_namespace }} --dry-run=client -o yaml
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_ns_yaml
-  changed_when: false
-  when: not ansible_check_mode
-
-- name: Apply Headlamp namespace
-  ansible.builtin.command:
-    cmd: k3s kubectl apply -f -
-    stdin: "{{ _headlamp_ns_yaml.stdout }}"
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_ns_apply
-  changed_when: "'created' in (_headlamp_ns_apply.stdout | default(''))"
+- name: Ensure Headlamp namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ headlamp_namespace }}"
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
   when: not ansible_check_mode
 
 - name: Ensure Headlamp TLS certificate exists and is ready

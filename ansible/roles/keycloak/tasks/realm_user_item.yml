@@ -58,6 +58,9 @@
     status_code: 200
   register: _kc_realm_user_lookup
   changed_when: false
+  retries: 30
+  delay: 10
+  until: _kc_realm_user_lookup.status == 200
 
 - name: Create missing realm user in Keycloak
   ansible.builtin.uri:
@@ -96,6 +99,9 @@
     status_code: 200
   register: _kc_realm_user_final_lookup
   changed_when: false
+  retries: 30
+  delay: 10
+  until: _kc_realm_user_final_lookup.status == 200
 
 - name: Assert realm user exists after ensure
   ansible.builtin.assert:
@@ -118,6 +124,9 @@
     status_code: 200
   register: _kc_realm_user_details
   changed_when: false
+  retries: 30
+  delay: 10
+  until: _kc_realm_user_details.status == 200
 
 - name: Update realm user profile (idempotent)
   ansible.builtin.uri:
@@ -140,6 +149,10 @@
     ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
     validate_certs: true
     status_code: 204
+  register: _kc_realm_user_update
+  retries: 30
+  delay: 10
+  until: _kc_realm_user_update.status == 204
 
 - name: Ensure realm user group memberships
   ansible.builtin.uri:
@@ -150,6 +163,10 @@
     ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-realm-users-ca.crt
     validate_certs: true
     status_code: 204
+  register: _kc_realm_user_group
+  retries: 30
+  delay: 10
+  until: _kc_realm_user_group.status == 204
   loop: "{{ keycloak_realm_user.groups | default([]) }}"
   loop_control:
     loop_var: group_name
