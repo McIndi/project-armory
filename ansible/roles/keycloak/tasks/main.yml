@@ -572,6 +572,10 @@
       ansible.builtin.include_tasks: realm_users.yml
       when: not ansible_check_mode
 
+    - name: Reconcile Keycloak realm event auditing config via admin REST
+      ansible.builtin.include_tasks: realm_events.yml
+      when: not ansible_check_mode
+
     # ── Ingress (edge TLS at nginx) ─────────────────────────────────────────────
     - name: Apply Keycloak Ingress
       kubernetes.core.k8s:
@@ -588,4 +592,10 @@
       when:
         - not ansible_check_mode
         - keycloak_realm_admin_rotation_enabled | bool
+
+    - name: Provision Keycloak admin-events retention prune timer
+      ansible.builtin.import_tasks: admin_events_prune.yml
+      when:
+        - not ansible_check_mode
+        - keycloak_admin_events_prune_enabled | bool
   when: not ansible_check_mode

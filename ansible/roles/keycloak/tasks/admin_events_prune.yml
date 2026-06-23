@@ -1,0 +1,62 @@
+---
+- name: Configure Keycloak admin-events prune timer
+  when: keycloak_admin_events_prune_enabled | bool
+  block:
+    - name: Ensure Keycloak work directory exists
+      ansible.builtin.file:
+        path: "{{ keycloak_work_dir }}"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Install Keycloak admin-events prune script
+      ansible.builtin.template:
+        src: keycloak-admin-events-prune.sh.j2
+        dest: "{{ keycloak_work_dir }}/keycloak-admin-events-prune.sh"
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Install Keycloak admin-events prune service unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/keycloak-admin-events-prune.service
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Prune Keycloak admin events
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart={{ keycloak_work_dir }}/keycloak-admin-events-prune.sh
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Install Keycloak admin-events prune timer unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/keycloak-admin-events-prune.timer
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Schedule Keycloak admin-events prune
+
+          [Timer]
+          OnCalendar={{ keycloak_admin_events_prune_on_calendar }}
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start Keycloak admin-events prune timer
+      ansible.builtin.systemd_service:
+        name: keycloak-admin-events-prune.timer
+        daemon_reload: true
+        enabled: true
+        state: started

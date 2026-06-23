@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Managed by Ansible - do not edit manually
+set -euo pipefail
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# Delete admin events older than the retention window. admin_event_time is epoch ms.
+k3s kubectl exec -n {{ keycloak_namespace }} statefulset/{{ keycloak_pg_service }} -- \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+  "DELETE FROM admin_event_entity WHERE admin_event_time < (EXTRACT(EPOCH FROM now()) - {{ keycloak_admin_events_prune_keep_days | int * 86400 }}) * 1000;"'

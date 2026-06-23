@@ -90,6 +90,22 @@ keycloak_realm_users:
       - armory-viewers
     openbao_path: keycloak/realm-users/viewer
 
+# ── Event auditing (Tier 1 store + Tier 2 log stream) ───────────────────────────
+keycloak_events_enabled: true
+keycloak_events_expiration_seconds: 7776000   # 90 days; user events only
+keycloak_events_listeners:
+  - jboss-logging
+keycloak_admin_events_enabled: true
+keycloak_admin_events_details_enabled: true
+keycloak_events_jboss_logging_success_level: info
+keycloak_events_jboss_logging_error_level: warn
+
+# Admin events have no server-side expiration; a host systemd timer prunes the
+# admin_event_entity table by age. Mirrors the OpenBao audit-rotate timer pattern.
+keycloak_admin_events_prune_enabled: true
+keycloak_admin_events_prune_on_calendar: weekly
+keycloak_admin_events_prune_keep_days: 90
+
 # ── PostgreSQL StatefulSet (single-node backing store) ───────────────────────────
 keycloak_postgresql_enabled: true
 keycloak_pg_image: "postgres:16"

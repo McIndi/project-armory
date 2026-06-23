@@ -35,6 +35,11 @@ spec:
     strict: {{ (keycloak_hostname_strict | bool) | string | lower }}
   proxy:
     headers: xforwarded
+  additionalOptions:
+    - name: spi-events-listener-jboss-logging-success-level
+      value: {{ keycloak_events_jboss_logging_success_level }}
+    - name: spi-events-listener-jboss-logging-error-level
+      value: {{ keycloak_events_jboss_logging_error_level }}
 {% if keycloak_pg_tls_enabled | bool %}
   truststores:
     postgres:

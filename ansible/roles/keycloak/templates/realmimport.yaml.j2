@@ -20,6 +20,14 @@ spec:
     realm: {{ keycloak_realm }}
     enabled: true
     sslRequired: external
+    eventsEnabled: {{ keycloak_events_enabled | bool | string | lower }}
+    eventsExpiration: {{ keycloak_events_expiration_seconds | int }}
+    eventsListeners:
+{% for listener in keycloak_events_listeners %}
+      - {{ listener }}
+{% endfor %}
+    adminEventsEnabled: {{ keycloak_admin_events_enabled | bool | string | lower }}
+    adminEventsDetailsEnabled: {{ keycloak_admin_events_details_enabled | bool | string | lower }}
     groups:
 {% for group_name in keycloak_realm_groups %}
       - name: {{ group_name }}

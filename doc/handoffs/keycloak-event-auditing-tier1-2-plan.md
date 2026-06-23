@@ -15,10 +15,20 @@ Make the `armory` realm audit-capable with **no custom image**:
 
 ## Current state (baseline)
 
-- `realmimport.yaml.j2` sets no events keys → realm boots `eventsEnabled: false`,
-  `adminEventsEnabled: false`. Nothing persisted or queryable.
-- Default `jboss-logging` listener is registered, but success events log at DEBUG
-  (invisible at INFO) and admin events aren't dispatched at all.
+Confirmed against the live environment (2026-06-23, KC 26.5.2):
+
+- `GET /admin/realms/armory/events/config` returns `eventsEnabled: false`,
+  `adminEventsEnabled: false`, `adminEventsDetailsEnabled: false`. Nothing persisted.
+- `eventsListeners: ["jboss-logging"]` is **already present** in the realm — the
+  listener is registered; Stage A/B only needs to enable it and set retention.
+- `enabledEventTypes` is already the full enumerated list (~90 types) on a fresh
+  realm with events disabled — confirms design decision #2: comparing this field
+  would trigger a PUT on every run.
+- `event_entity` and `admin_event_entity` tables both exist with correct schema;
+  both are empty (expected while events are disabled).
+- `admin_event_entity.admin_event_time` is `bigint` (epoch milliseconds). Index
+  `idx_admin_event_time` on `(realm_id, admin_event_time)` exists and will serve
+  the Stage E prune query efficiently.
 - No retention, no off-box shipping.
 
 ## Design decisions (read before implementing)
@@ -30,11 +40,13 @@ Make the `armory` realm audit-capable with **no custom image**:
    keys (Stage B) are a belt-and-suspenders seed for the fresh-build window before
    the REST task runs; harmless and self-documenting, but not authoritative.
 2. **Drift check compares only stable fields.** Keycloak normalizes an empty
-   `enabledEventTypes` (= "all types") into the full enumerated list on read. If
-   we compared that field we'd PUT on every run forever. The reconcile manages and
-   compares **only**: `eventsEnabled`, `eventsExpiration`, `eventsListeners`,
-   `adminEventsEnabled`, `adminEventsDetailsEnabled`. We send `enabledEventTypes: []`
-   in the PUT body (= all) but exclude it from the comparison. PUT only on drift.
+   `enabledEventTypes` (= "all types") into the full enumerated list on read. This
+   was confirmed live: a fresh `armory` realm with events disabled already returns
+   ~90 enumerated types. If we compared that field we'd PUT on every run forever.
+   The reconcile manages and compares **only**: `eventsEnabled`, `eventsExpiration`,
+   `eventsListeners`, `adminEventsEnabled`, `adminEventsDetailsEnabled`. We send
+   `enabledEventTypes: []` in the PUT body (= all) but exclude it from the
+   comparison. PUT only on drift.
 3. **Tier 2 rolls keycloak-0 exactly once.** Adding `additionalOptions` to the
    Keycloak CR is a spec change → the operator rolls the StatefulSet on the run
    that first introduces it. Expected one-time roll, not per-run churn — the CR is
@@ -253,6 +265,9 @@ File: `ansible/roles/keycloak/templates/keycloak.yaml.j2`. Add an
 
 This first-time spec change rolls `keycloak-0` once (Design decision #3).
 
+Both option names were verified against the live KC 26.5.2 pod via
+`kc.sh start --<option>=<value> --dry-run` — exit 0, no "unknown option" error.
+
 ---
 
 ## Stage E — Admin-event retention prune (optional, recommended)
@@ -282,10 +297,14 @@ Two deliberate divergences from the OpenBao original:
    image trusts the local socket; passing `PGPASSWORD` is belt-and-suspenders).
 
 Single-tenant simplification: prune by age across **all** realms (master + armory)
-rather than scoping by `realm_id` — `admin_event_entity.realm_id` stores the realm
-name in newer schemas but is version-fragile; age-only avoids that and is correct
-for this platform. Scope by `realm_id = '{{ keycloak_realm }}'` later only if a
-second tenant realm is ever added.
+rather than scoping by `realm_id`. Age-only is correct for this platform.
+
+**Important — `realm_id` stores UUIDs, not names (confirmed live).** The
+`admin_event_entity.realm_id` column holds the realm UUID
+(e.g. `627f4a0f-f422-4608-89e6-d1dcf1bef23c` for `armory`), not the realm name.
+If per-realm scoping is ever needed, use a subquery:
+`WHERE realm_id = (SELECT id FROM realm WHERE name = '{{ keycloak_realm }}')`
+— **not** `WHERE realm_id = '{{ keycloak_realm }}'`, which would never match.
 
 ### E1. Defaults
 
@@ -377,5 +396,12 @@ Runtime (two-run, maintainer):
 - [ ] Stage E `sh -c '...'` is single-quoted so `$POSTGRES_*` expands in the pod,
       not on the host; the `keep_days*86400` Jinja renders to a literal at template
       time.
-```
+- [ ] Stage E epoch formula: `(EXTRACT(EPOCH FROM now()) - <literal_seconds>) * 1000`
+      returns `numeric` in Postgres — no integer overflow, verified live.
+- [ ] Stage E `realm_id` in `admin_event_entity` stores UUIDs. Age-only prune
+      (no `WHERE realm_id` clause) is correct for single-tenant. If scoping by
+      realm later, use a subquery join against the `realm` table — never a name literal.
+- [ ] `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` env vars confirmed set in
+      the `postgres` StatefulSet pod; `PGPASSWORD=$POSTGRES_PASSWORD psql` auth
+      pattern verified working via `kubectl exec`.
 
