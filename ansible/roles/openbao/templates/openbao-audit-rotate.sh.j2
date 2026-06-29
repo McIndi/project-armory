@@ -3,8 +3,31 @@
 set -euo pipefail
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 ts=$(date +%Y%m%d%H%M%S)
-k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
-  sh -c "mv {{ openbao_audit_log_path }} {{ openbao_audit_log_path }}.${ts} && kill -HUP 1"
+# Rotate the live audit file, then SIGHUP the *bao* process so its `file` audit
+# device closes the old inode and reopens at the configured path.
+#
+# Why not `kill -HUP 1`: in this chart PID 1 is the `/bin/sh` config-templating
+# wrapper, not bao (bao is a grandchild via dumb-init -> docker-entrypoint.sh).
+# The kernel also ignores default-action signals delivered to PID 1, so HUP to
+# PID 1 is a silent no-op and the audit device never reopens. We locate bao via
+# /proc/<pid>/comm (no ps/pkill needed in the minimal image).
+#
+# The `mv` is guarded with `-f` so this also self-heals an already-broken state
+# (no live audit.log because a previous rotation renamed it but never reopened):
+# with nothing to rename we still HUP, and bao recreates audit.log at the path.
+k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- sh -c '
+  set -e
+  audit_log="{{ openbao_audit_log_path }}"
+  [ -f "$audit_log" ] && mv "$audit_log" "$audit_log.$1"
+  for p in /proc/[0-9]*; do
+    if [ "$(cat "$p/comm" 2>/dev/null)" = "bao" ]; then
+      kill -HUP "${p#/proc/}"
+      exit 0
+    fi
+  done
+  echo "ERROR: bao process not found in pod; audit log not reopened" >&2
+  exit 1
+' _ "${ts}"
 # Prune: keep newest {{ openbao_audit_rotate_keep }} rotated files.
 k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
   sh -c "ls -1t {{ openbao_audit_log_path }}.* 2>/dev/null | tail -n +{{ openbao_audit_rotate_keep | int + 1 }} | xargs -r rm --"
