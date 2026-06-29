@@ -54,6 +54,11 @@
         - headlamp
         - headlamp_install
         - k3s_oidc
+    - role: delve
+      tags:
+        - delve
+        - delve_install
+      when: delve_enabled | default(false) | bool
     - role: readiness_check
       tags:
         - readiness

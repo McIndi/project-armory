@@ -1,0 +1,88 @@
+---
+# Delve audit-search platform — Phase 1 (local auth, Postgres, GHCR image).
+#
+# Cross-role identifiers (namespace, VSO service account, OpenBao policy/role
+# names, KV paths, the delve_enabled toggle) live in
+# inventories/development/group_vars/all.yml — role defaults are invisible to the
+# openbao role that writes the matching ACL policy and k8s auth role. Only
+# role-local settings live here.
+
+delve_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+delve_work_dir: /opt/delve
+
+# Helm release (vendored chart under charts/delve, mirroring vso-hardened).
+delve_release_name: delve
+delve_chart_path: "{{ (lookup('ansible.builtin.env', 'ARMORY_PROJECT_ROOT') | default('/vagrant/project-armory', true)) }}/charts/delve"
+delve_helm_timeout_seconds: 300
+
+# Image. Track :latest in dev per decisions/0005; pinned to a digest at the
+# end-of-project pinning step. Pulled from GHCR (public package — no pull
+# secret). delve_image_pull_secrets is left as a values-driven hook in case the
+# package is later made private.
+delve_image_repository: ghcr.io/mcindi/delve
+delve_image_tag: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_TAG') | default('latest', true) }}"
+delve_image_pull_policy: Always
+delve_image_pull_secrets: []
+
+# Public ingress.
+delve_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_HOST') | default('delve.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
+delve_ingress_class: nginx
+delve_ingress_path: /
+delve_ingress_path_type: Prefix
+delve_ingress_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.address | default('127.0.0.1')) }}"
+
+# External ingress TLS (cert-manager + OpenBao external ClusterIssuer). Phase 1
+# terminates TLS at the ingress and proxies HTTP to the pod; internal re-encrypt
+# (openbao-pki-internal) lands in Phase 3.
+delve_tls_secret_name: delve-tls
+delve_tls_issuer_name: openbao-pki-external
+delve_cert_duration: "8760h"
+delve_cert_renew_before: "720h"
+
+# PostgreSQL (role-owned StatefulSet — NOT in the Helm chart). Provisioned and
+# waited on before the Helm release so the chart's pre-install migrate hook and
+# the web/worker pods find a Ready DB and a synced credential secret.
+delve_db_name: delve
+delve_db_username: delve
+delve_pg_service: delve-postgres
+delve_pg_image: postgres:17
+delve_pg_storage_size: 8Gi
+delve_pg_storage_class: ""
+delve_pg_rollout_timeout_seconds: 300
+delve_db_secret_name: delve-db-secret
+
+# Django app settings consumed by web/worker/migrate (from the VSO-synced
+# delve-db-secret + literals).
+delve_database_engine: postgresql
+delve_database_port: 5432
+delve_log_stdout: true
+
+# OpenBao API + KV coordinates (read provisioner token, write secret/delve/db).
+delve_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+delve_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
+
+# VSO sync coordinates for the delve namespace (mirrors the headlamp role).
+delve_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+delve_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
+delve_openbao_ca_secret_name: >-
+  {{
+    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
+    if (use_declarative_ca_distribution | default(false) | bool)
+    else (openbao_tls_ca_secret_name | default('openbao-ca'))
+  }}
+delve_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
+delve_vault_connection_name: default
+delve_vault_auth_name: delve-vaultauth
+# ServiceAccount the web/worker/migrate pods run under. Created role-side (a
+# stable object, no per-run churn) so the chart's pre-install migrate hook can
+# reference it; the chart is told not to create it (serviceAccount.create=false).
+# Phase 2's k8s-audit drop rule covers system:serviceaccount:delve:* (both this
+# SA and delve-vso).
+delve_pod_sa_name: delve
+
+# Optional chart value overrides merged on top of role-managed values.
+delve_chart_values_overrides: {}
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

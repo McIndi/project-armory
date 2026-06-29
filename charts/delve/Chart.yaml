@@ -1,0 +1,12 @@
+apiVersion: v2
+name: delve
+description: >-
+  Delve audit-search platform (Django 5 + DRF) — web, django-q worker, and a
+  pre-install migrate hook. Database and secret provisioning are intentionally
+  external to this chart.
+type: application
+version: 0.1.0
+appVersion: "latest"
+sources:
+  - https://github.com/McIndi/delve
+kubeVersion: ">=1.21.0-0"

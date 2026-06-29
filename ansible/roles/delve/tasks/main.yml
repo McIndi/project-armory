@@ -1,0 +1,16 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Run Delve orchestration
+  tags: [delve, delve_install]
+  block:
+    - name: Provision Delve Postgres, credentials, and VSO sync
+      ansible.builtin.import_tasks: db.yml
+      tags: [delve, delve_db, openbao, vso]
+
+    - name: Deploy Delve via Helm
+      ansible.builtin.import_tasks: deploy.yml
+      tags: [delve, delve_deploy, openbao, vso]

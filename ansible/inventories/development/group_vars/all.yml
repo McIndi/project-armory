@@ -21,6 +21,7 @@ trust_manager_internal_ca_target_namespaces:
   - vault-secrets-operator-system
   - keycloak
   - headlamp
+  - delve
 
 # Keycloak -> Postgres TLS rollout toggle (staged off by default for compatibility).
 keycloak_pg_tls_enabled: true
@@ -46,6 +47,20 @@ headlamp_vso_sa_name: headlamp-vso
 headlamp_openbao_policy_name: headlamp-vso
 headlamp_openbao_k8s_role: headlamp-vso
 headlamp_openbao_oidc_path: headlamp/oidc
+# Delve audit-search platform. Same split as keycloak/headlamp: the openbao role
+# writes the consumer ACL policy + k8s auth role (root, at bootstrap), while the
+# delve role writes the KV secrets with the provisioner token. KV paths are added
+# per phase — db (Phase 1) now; oidc (Phase 3) and ingest (Phase 2) land with
+# their phases. `delve_vso_sa_name` authenticates VSO sync; web/worker pods run
+# under a separate `delve` SA created by the chart.
+delve_namespace: delve
+delve_vso_sa_name: delve-vso
+delve_openbao_policy_name: delve-vso
+delve_openbao_k8s_role: delve-vso
+delve_openbao_db_path: delve/db
+
+# Toggle for the delve role (mirrors keycloak_enabled). Default on for dev.
+delve_enabled: true
 
 # Ingress HTTP behavior policy.
 ingress_http_policy: disabled

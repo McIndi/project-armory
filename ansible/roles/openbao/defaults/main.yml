@@ -213,6 +213,7 @@ openbao_provisioner_kv_prefixes:
   - keycloak
   - headlamp
   - openbao
+  - delve
 
 # Whether this role manages firewalld rules for OpenBao access.
 # Disable if firewall is managed externally.

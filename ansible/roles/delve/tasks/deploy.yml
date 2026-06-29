@@ -1,0 +1,133 @@
+---
+# Deploy Delve via the vendored charts/delve Helm chart. Runs after db.yml has
+# provisioned Postgres (Ready) and the VSO-synced delve-db-secret, so the
+# chart's pre-install migrate hook and the web/worker pods start cleanly.
+
+- name: Ensure Delve working directory exists
+  ansible.builtin.file:
+    path: "{{ delve_work_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Ensure Delve external TLS certificate exists and is ready
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: apply_certificate.yml
+  vars:
+    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+    common_certificate_name: "{{ delve_tls_secret_name }}"
+    common_certificate_namespace: "{{ delve_namespace }}"
+    common_certificate_secret_name: "{{ delve_tls_secret_name }}"
+    common_certificate_issuer_name: "{{ delve_tls_issuer_name }}"
+    common_certificate_duration: "{{ delve_cert_duration }}"
+    common_certificate_renew_before: "{{ delve_cert_renew_before }}"
+    common_certificate_common_name: "{{ delve_ingress_host }}"
+    common_certificate_dns_names:
+      - "{{ delve_ingress_host }}"
+
+- name: Read ingress controller LoadBalancer IP for Delve host mapping
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get service ingress-nginx-controller
+      --namespace ingress-nginx
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_lb_ip_result
+  changed_when: false
+  failed_when: false
+
+- name: Resolve effective Delve ingress IP for local hosts entry
+  ansible.builtin.set_fact:
+    delve_ingress_ip_effective: >-
+      {{ (_delve_lb_ip_result.stdout | trim)
+         if (_delve_lb_ip_result.stdout | trim | length) > 0
+         else delve_ingress_ip }}
+  changed_when: false
+
+- name: Ensure Delve host resolves to ingress IP locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ delve_ingress_host | regex_escape }}\s*$'
+    line: "{{ delve_ingress_ip_effective }} {{ delve_ingress_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Build Delve chart values payload
+  ansible.builtin.set_fact:
+    _delve_chart_values: >-
+      {{ {
+          'image': {
+            'repository': delve_image_repository,
+            'tag': delve_image_tag,
+            'pullPolicy': delve_image_pull_policy
+          },
+          'imagePullSecrets': delve_image_pull_secrets,
+          'serviceAccount': {
+            'create': False,
+            'name': delve_pod_sa_name
+          },
+          'database': {
+            'engine': delve_database_engine,
+            'host': delve_pg_service + '.' + delve_namespace + '.svc.cluster.local',
+            'port': delve_database_port,
+            'name': delve_db_name,
+            'secretName': delve_db_secret_name
+          },
+          'allowedHosts': delve_ingress_host,
+          'logStdout': delve_log_stdout,
+          'service': {
+            'port': 8000
+          },
+          'oidc': {
+            'enabled': False
+          },
+          'ingress': {
+            'enabled': True,
+            'className': delve_ingress_class,
+            'host': delve_ingress_host,
+            'path': delve_ingress_path,
+            'pathType': delve_ingress_path_type,
+            'tlsSecretName': delve_tls_secret_name,
+            'annotations': {
+              'nginx.ingress.kubernetes.io/ssl-redirect': 'true'
+            }
+          }
+        } | combine(delve_chart_values_overrides | default({}), recursive=True)
+      }}
+  changed_when: false
+
+- name: Render Delve Helm values file
+  ansible.builtin.copy:
+    dest: "{{ delve_work_dir }}/values.yaml"
+    mode: "0600"
+    content: "{{ _delve_chart_values | to_nice_yaml(indent=2) }}"
+  register: _delve_values_result
+
+- name: Deploy Delve via Helm
+  kubernetes.core.helm:
+    release_name: "{{ delve_release_name }}"
+    chart_ref: "{{ delve_chart_path }}"
+    release_namespace: "{{ delve_namespace }}"
+    create_namespace: true
+    values_files:
+      - "{{ delve_work_dir }}/values.yaml"
+    wait: true
+    wait_timeout: "{{ (delve_helm_timeout_seconds | int) }}s"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  register: _delve_helm_apply_result
+  when: not ansible_check_mode
+
+- name: Wait for Delve web deployment rollout
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl rollout status deployment/{{ delve_release_name }}-web
+      --namespace {{ delve_namespace }}
+      --timeout=300s
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_rollout_result
+  changed_when: false
+  when: not ansible_check_mode

@@ -127,3 +127,45 @@
     status_code: [200, 204]
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
+
+# Delve audit-search platform. Phase 1 grants read on the DB credential path
+# only; the oidc (Phase 3) and ingest (Phase 2) paths are added to this policy
+# when those phases land.
+- name: Write OpenBao ACL policy for Delve secrets (VSO read)
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ delve_openbao_policy_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        path "{{ openbao_kv_mount }}/data/{{ delve_openbao_db_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/metadata/{{ delve_openbao_db_path }}" {
+          capabilities = ["read"]
+        }
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Configure OpenBao Kubernetes auth role for Delve VSO sync
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ delve_openbao_k8s_role }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_root_token }}"
+    body_format: json
+    body:
+      bound_service_account_names:
+        - "{{ delve_vso_sa_name }}"
+      bound_service_account_namespaces:
+        - "{{ delve_namespace }}"
+      policies:
+        - "{{ delve_openbao_policy_name }}"
+      ttl: 24h
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode

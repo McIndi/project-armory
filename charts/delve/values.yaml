@@ -1,0 +1,76 @@
+# Default values for the delve chart. The armory delve role overrides the
+# environment-specific values; keep this file generic and upstreamable (no
+# armory-only literals).
+
+image:
+  repository: ghcr.io/mcindi/delve
+  tag: latest
+  pullPolicy: Always
+
+# Optional image pull secrets (names of existing dockerconfigjson secrets).
+# Empty for a public GHCR package.
+imagePullSecrets: []
+
+serviceAccount:
+  # Create the ServiceAccount the web/worker/migrate pods run under.
+  create: true
+  name: delve
+
+# Database connection. The chart does NOT provision the database; `secretName`
+# must reference an existing Secret (synced by VSO) carrying the keys
+# `username`, `password`, and `secret_key` (the Django SECRET_KEY).
+database:
+  engine: postgresql
+  host: ""
+  port: 5432
+  name: delve
+  secretName: delve-db-secret
+
+# Comma-separated DELVE_ALLOWED_HOSTS. The chart always appends
+# localhost,127.0.0.1 for in-cluster checks.
+allowedHosts: ""
+
+# Send the web server's logs to stdout (DELVE_SERVER_LOG_STDOUT).
+logStdout: true
+
+# Django SECRET_KEY origin. Read from the database secret's `secret_key` key.
+secretKeyRef:
+  name: ""        # defaults to database.secretName when empty
+  key: secret_key
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# Human SSO via Keycloak OIDC. Phase 3 flips this to true; Phase 1 keeps Delve's
+# air-gapped local-auth default.
+oidc:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: nginx
+  host: delve.local
+  path: /
+  pathType: Prefix
+  tlsSecretName: delve-tls
+  annotations: {}
+
+worker:
+  # django-q cluster (qcluster). Single replica; the broker is the ORM DB.
+  replicas: 1
+
+web:
+  replicas: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+
+# Migrate pre-install/pre-upgrade hook.
+migrate:
+  backoffLimit: 3

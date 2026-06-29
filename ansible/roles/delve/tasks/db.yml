@@ -1,0 +1,157 @@
+---
+# Provision Delve's Postgres credentials (read-before-generate, persisted to
+# OpenBao), VSO-sync them into the delve namespace, then stand up the
+# role-owned Postgres StatefulSet and wait for it to be Ready.
+#
+# Ordering matters: the credential secret (delve-db-secret) must be synced by
+# VSO *before* the Postgres StatefulSet starts (it reads POSTGRES_USER/PASSWORD
+# from it) and before the Helm release runs (the chart's pre-install migrate
+# hook connects to this DB). This is why the VSO custom resources live here,
+# role-side, rather than in the chart as the Phase 1 plan's §1.3 first sketched.
+
+- name: Ensure Delve namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ delve_namespace }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Ensure Delve pod ServiceAccount exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: "{{ delve_pod_sa_name }}"
+        namespace: "{{ delve_namespace }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Ensure OpenBao provisioner token is available
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: load_openbao_provisioner_token.yml
+
+- name: Read current Delve DB credentials from OpenBao
+  ansible.builtin.uri:
+    url: "{{ delve_openbao_api_addr }}/v1/{{ delve_openbao_kv_mount }}/data/{{ delve_openbao_db_path }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    status_code: [200, 404]
+  register: _delve_db_creds_current
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+# Username is fixed; password and the Django SECRET_KEY are generated once and
+# reused on every subsequent run (AGENTS.md: read-from-OpenBao-before-generate).
+- name: Build Delve DB + app credentials (generated once, persisted)
+  ansible.builtin.set_fact:
+    _delve_db_creds: >-
+      {{
+        {
+          'username': delve_db_username,
+          'password': (
+            (_delve_db_creds_current.json.data.data.password)
+            if ((_delve_db_creds_current.status | default(404)) == 200
+                and (_delve_db_creds_current.json.data.data.password | default('') | length) > 0)
+            else lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits')
+          ),
+          'secret_key': (
+            (_delve_db_creds_current.json.data.data.secret_key)
+            if ((_delve_db_creds_current.status | default(404)) == 200
+                and (_delve_db_creds_current.json.data.data.secret_key | default('') | length) > 0)
+            else lookup('ansible.builtin.password', '/dev/null length=64 chars=ascii_letters,digits')
+          )
+        }
+      }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Store Delve DB + app credentials in OpenBao
+  ansible.builtin.uri:
+    url: "{{ delve_openbao_api_addr }}/v1/{{ delve_openbao_kv_mount }}/data/{{ delve_openbao_db_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    body_format: json
+    body:
+      data: "{{ _delve_db_creds }}"
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  # Store only on first creation. The build reuses any existing value, so a
+  # re-store would write an identical-data KV version every run, which VSO would
+  # propagate and needlessly roll the dependent pods.
+  when:
+    - not ansible_check_mode
+    - (_delve_db_creds_current.status | default(404)) != 200
+
+- name: Ensure OpenBao CA secret exists in Delve namespace
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: copy_openbao_ca_secret.yml
+  vars:
+    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+    common_ca_secret_name: "{{ delve_openbao_ca_secret_name }}"
+    common_ca_source_namespace: "{{ delve_openbao_namespace }}"
+    common_ca_target_namespace: "{{ delve_namespace }}"
+  when: not (use_declarative_ca_distribution | default(false) | bool)
+
+- name: Apply Delve VaultConnection resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_vaultconnection.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Apply Delve VaultAuth resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_vaultauth.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Apply Delve VaultStaticSecret resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_vaultstaticsecret.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Wait for Delve DB secret to be synced by VSO
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_db_secret_name }}
+      --namespace {{ delve_namespace }}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_db_secret_check
+  until: _delve_db_secret_check.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Apply Delve PostgreSQL StatefulSet and Service
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'postgres.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Wait for Delve PostgreSQL StatefulSet rollout
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl rollout status statefulset/{{ delve_pg_service }}
+      --namespace {{ delve_namespace }}
+      --timeout={{ delve_pg_rollout_timeout_seconds }}s
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_pg_rollout
+  changed_when: false
+  when: not ansible_check_mode
