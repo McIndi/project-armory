@@ -55,6 +55,45 @@
     mode: "0644"
   become: true
 
+- name: Resolve in-cluster ingress IP for Delve OIDC issuer hostname
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get svc {{ delve_oidc_resolver_service_name }}
+      --namespace {{ delve_oidc_resolver_service_namespace }}
+      -o jsonpath={.spec.clusterIP}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_oidc_resolver_ip_result
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - delve_oidc_enabled | bool
+
+- name: Build Delve OIDC issuer hostAliases
+  ansible.builtin.set_fact:
+    _delve_oidc_host_aliases: >-
+      {{
+        [{'ip': (_delve_oidc_resolver_ip_result.stdout | default('') | trim),
+          'hostnames': [delve_oidc_resolver_host]}]
+        if ((delve_oidc_enabled | bool)
+            and (_delve_oidc_resolver_ip_result.stdout | default('') | trim | length) > 0)
+        else []
+      }}
+  changed_when: false
+
+- name: Build Delve ingress annotations
+  ansible.builtin.set_fact:
+    _delve_ingress_annotations: >-
+      {{
+        {'nginx.ingress.kubernetes.io/ssl-redirect': 'true'}
+        | combine(
+            {'nginx.ingress.kubernetes.io/backend-protocol': 'HTTPS'}
+            if (delve_oidc_enabled | bool) else {}
+          )
+      }}
+  changed_when: false
+
 - name: Build Delve chart values payload
   ansible.builtin.set_fact:
     _delve_chart_values: >-
@@ -82,7 +121,17 @@
             'port': 8000
           },
           'oidc': {
-            'enabled': False
+            'enabled': (delve_oidc_enabled | bool),
+            'secretName': delve_oidc_secret_name,
+            'scopes': delve_oidc_scopes,
+            'caMountPath': delve_oidc_ca_mount_path,
+            'caFileName': delve_oidc_ca_file_name,
+            'issuerHostAliases': (_delve_oidc_host_aliases | default([]))
+          },
+          'tls': {
+            'enabled': (delve_oidc_enabled | bool),
+            'secretName': delve_internal_tls_secret_name,
+            'mountPath': delve_internal_tls_mount_path
           },
           'ingress': {
             'enabled': True,
@@ -91,9 +140,7 @@
             'path': delve_ingress_path,
             'pathType': delve_ingress_path_type,
             'tlsSecretName': delve_tls_secret_name,
-            'annotations': {
-              'nginx.ingress.kubernetes.io/ssl-redirect': 'true'
-            }
+            'annotations': _delve_ingress_annotations
           }
         } | combine(delve_chart_values_overrides | default({}), recursive=True)
       }}

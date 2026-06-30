@@ -80,6 +80,52 @@ delve_vault_auth_name: delve-vaultauth
 # SA and delve-vso).
 delve_pod_sa_name: delve
 
+# --- Phase 3: human SSO (Keycloak OIDC) + internal TLS re-encrypt ------------
+# Mirrors the headlamp role's oidc_client.yml / pki.yml. The KV path for the
+# OIDC credential (delve_openbao_oidc_path) and the VSO policy/role live in
+# group_vars/all.yml so the openbao role can grant read on them.
+
+# Keycloak admin API coordinates (used to create/update the delve client).
+delve_keycloak_enabled: true
+delve_keycloak_realm: armory
+delve_keycloak_namespace: keycloak
+delve_keycloak_service_name: keycloak-service
+delve_keycloak_service_https_port: 8443
+delve_keycloak_internal_fqdn: "{{ delve_keycloak_service_name }}.{{ delve_keycloak_namespace }}.svc.cluster.local"
+delve_keycloak_internal_api_url: "https://{{ delve_keycloak_internal_fqdn }}:{{ delve_keycloak_service_https_port }}"
+delve_keycloak_admin_secret_name: keycloak-bootstrap-admin
+delve_keycloak_admin_password_key: password
+delve_keycloak_admin_username_from_secret: true
+delve_keycloak_admin_username: admin
+
+# OIDC relying-party (confidential, standard flow) for browser SSO.
+delve_oidc_client_id: delve
+# If empty, a strong secret is generated once and persisted to OpenBao.
+delve_oidc_client_secret: ""
+delve_oidc_issuer_url: "{{ (keycloak_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + delve_keycloak_realm }}"
+delve_oidc_scopes: "openid profile email"
+delve_oidc_ca_pem_url: "{{ delve_openbao_api_addr }}/v1/{{ openbao_pki_external_mount | default('pki-ext') }}/ca/pem"
+delve_oidc_secret_name: delve-oidc
+# mozilla-django-oidc callback registered with Keycloak.
+delve_oidc_redirect_path: /oidc/callback/
+
+# Pod-level OIDC issuer hostname resolution (hostAlias). The web pod must reach
+# the public issuer host in-cluster; resolve it to the ingress controller IP.
+delve_oidc_resolver_host: "{{ delve_oidc_issuer_url | urlsplit('hostname') }}"
+delve_oidc_resolver_service_namespace: ingress-nginx
+delve_oidc_resolver_service_name: ingress-nginx-controller
+
+# Internal TLS (cert-manager + OpenBao internal ClusterIssuer) for ingress
+# re-encrypt. The web pod serves HTTPS (cherrypy DELVE_SSL_*) from this cert and
+# the ingress backend-protocol becomes HTTPS.
+delve_oidc_enabled: "{{ delve_keycloak_enabled | bool }}"
+delve_internal_tls_secret_name: delve-internal-tls
+delve_internal_tls_issuer_name: openbao-pki-internal
+delve_internal_fqdn: "{{ delve_release_name }}-web.{{ delve_namespace }}.svc.cluster.local"
+delve_internal_tls_mount_path: /etc/delve-tls
+delve_oidc_ca_mount_path: /etc/delve-oidc
+delve_oidc_ca_file_name: oidc-ca.pem
+
 # Optional chart value overrides merged on top of role-managed values.
 delve_chart_values_overrides: {}
 

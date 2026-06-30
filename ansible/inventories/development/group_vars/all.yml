@@ -58,6 +58,7 @@ delve_vso_sa_name: delve-vso
 delve_openbao_policy_name: delve-vso
 delve_openbao_k8s_role: delve-vso
 delve_openbao_db_path: delve/db
+delve_openbao_oidc_path: delve/oidc
 
 # Toggle for the delve role (mirrors keycloak_enabled). Default on for dev.
 delve_enabled: true

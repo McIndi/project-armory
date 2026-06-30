@@ -1,0 +1,32 @@
+---
+# Provision the internal TLS certificate for Delve's web pod (Phase 3 re-encrypt).
+# The web pod serves HTTPS (cherrypy DELVE_SSL_*) from this cert and the ingress
+# is annotated backend-protocol HTTPS, so traffic is encrypted ingress→pod too.
+# The external (browser-facing) cert is provisioned in deploy.yml.
+
+- name: Ensure Delve namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ delve_namespace }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Ensure Delve internal TLS certificate exists and is ready
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: apply_certificate.yml
+  vars:
+    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+    common_certificate_name: "{{ delve_internal_tls_secret_name }}"
+    common_certificate_namespace: "{{ delve_namespace }}"
+    common_certificate_secret_name: "{{ delve_internal_tls_secret_name }}"
+    common_certificate_issuer_name: "{{ delve_internal_tls_issuer_name }}"
+    common_certificate_duration: "{{ delve_cert_duration }}"
+    common_certificate_renew_before: "{{ delve_cert_renew_before }}"
+    common_certificate_common_name: "{{ delve_internal_fqdn }}"
+    common_certificate_dns_names:
+      - "{{ delve_internal_fqdn }}"

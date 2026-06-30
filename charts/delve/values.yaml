@@ -42,10 +42,35 @@ service:
   type: ClusterIP
   port: 8000
 
-# Human SSO via Keycloak OIDC. Phase 3 flips this to true; Phase 1 keeps Delve's
-# air-gapped local-auth default.
+# Human SSO via Keycloak OIDC. Phase 3 flips `enabled` to true; Phase 1 keeps
+# Delve's air-gapped local-auth default. When enabled, the web/worker pods read
+# the OIDC client credentials + issuer from `secretName` (synced by VSO) and the
+# web pod mounts the issuer CA so server-side token/JWKS calls trust it.
 oidc:
   enabled: false
+  # VSO-synced Secret carrying OIDC_CLIENT_ID / OIDC_CLIENT_SECRET /
+  # OIDC_ISSUER_URL / OIDC_SCOPES / OIDC_CA_PEM.
+  secretName: delve-oidc
+  scopes: "openid profile email"
+  # Key inside `secretName` holding the issuer CA PEM, mounted into the web pod.
+  caPemKey: OIDC_CA_PEM
+  caMountPath: /etc/delve-oidc
+  caFileName: oidc-ca.pem
+  # hostAliases injected into the web pod so it can resolve the public issuer
+  # host (e.g. armory.local) to the in-cluster ingress IP. The role fills this
+  # in at deploy time; empty here keeps the chart generic.
+  # [{ ip: "10.0.0.10", hostnames: ["armory.local"] }]
+  issuerHostAliases: []
+
+# Internal TLS re-encrypt. When enabled, the web pod serves HTTPS from a mounted
+# cert (cherrypy SSL via DELVE_SSL_*), and the ingress must carry the
+# `nginx.ingress.kubernetes.io/backend-protocol: HTTPS` annotation (set by the
+# role). Phase 3 turns this on alongside oidc; Phase 1 served plain HTTP.
+tls:
+  enabled: false
+  # VSO/cert-manager-issued internal TLS Secret (tls.crt / tls.key).
+  secretName: delve-internal-tls
+  mountPath: /etc/delve-tls
 
 ingress:
   enabled: true

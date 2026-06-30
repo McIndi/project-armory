@@ -1,0 +1,399 @@
+---
+# Automate Keycloak OIDC client setup for Delve (human SSO, Phase 3).
+# Near-verbatim clone of the headlamp role's oidc_client.yml: create/update the
+# confidential standard-flow `delve` client, ensure a groups protocol mapper,
+# persist the credentials to secret/delve/oidc, then VSO-sync them into ns delve
+# so the secret exists before the Helm release runs.
+
+- name: Set Keycloak internal base URL fact
+  ansible.builtin.set_fact:
+    _delve_kc_base_url: "{{ delve_keycloak_internal_api_url }}"
+
+- name: Prepare internal HTTPS trust bundle for Delve OIDC setup
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: prepare_internal_https_caller.yml
+  vars:
+    common_internal_https_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+    common_internal_https_service_name: "{{ delve_keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ delve_keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ delve_keycloak_internal_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ delve_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ delve_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ delve_keycloak_namespace }}"
+    common_internal_https_bundle_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+
+- name: Get Keycloak admin password from admin secret
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_keycloak_admin_secret_name }}
+      -n {{ delve_keycloak_namespace }}
+      -o jsonpath={.data.{{ delve_keycloak_admin_password_key }}}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_kc_admin_pw_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Decode Keycloak admin password
+  ansible.builtin.set_fact:
+    _delve_kc_admin_password: "{{ _delve_kc_admin_pw_b64.stdout | b64decode }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Get Keycloak admin username from admin secret
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_keycloak_admin_secret_name }}
+      -n {{ delve_keycloak_namespace }}
+      -o jsonpath={.data.username}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_kc_admin_user_b64
+  changed_when: false
+  when: delve_keycloak_admin_username_from_secret | bool
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Resolve Keycloak admin username
+  ansible.builtin.set_fact:
+    _delve_kc_admin_user: >-
+      {{
+        (_delve_kc_admin_user_b64.stdout | b64decode)
+        if ((delve_keycloak_admin_username_from_secret | bool)
+            and (_delve_kc_admin_user_b64.stdout | default('') | length) > 0)
+        else delve_keycloak_admin_username
+      }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Obtain Keycloak admin token (retry until Keycloak is ready)
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ _delve_kc_admin_user }}"
+      password: "{{ _delve_kc_admin_password }}"
+      grant_type: password
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_kc_token_result
+  retries: 10
+  delay: 15
+  until: _delve_kc_token_result.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Keycloak admin token fact
+  ansible.builtin.set_fact:
+    _delve_kc_admin_token: "{{ (_delve_kc_token_result.json.access_token | default('')) if (_delve_kc_token_result is defined) else '' }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Look up Delve OIDC client in Keycloak
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients?clientId={{ delve_oidc_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_kc_client_lookup
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Delve client existence facts
+  ansible.builtin.set_fact:
+    _delve_client_exists: "{{ (_delve_kc_client_lookup.json | length) > 0 }}"
+    _delve_client_internal_id: "{{ ((_delve_kc_client_lookup.json | first).id) if ((_delve_kc_client_lookup.json | length) > 0) else '' }}"
+
+- name: Generate Delve OIDC secret when none is provided
+  ansible.builtin.command:
+    cmd: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+  register: _delve_oidc_secret_generated
+  changed_when: true
+  when:
+    - (delve_oidc_client_secret | default('') | length) == 0
+    - not _delve_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set effective OIDC client secret for client create path
+  ansible.builtin.set_fact:
+    _delve_oidc_client_secret_effective: >-
+      {{
+        (delve_oidc_client_secret | default(''))
+        if (delve_oidc_client_secret | default('') | length) > 0
+        else (_delve_oidc_secret_generated.stdout | default(''))
+      }}
+  when: not _delve_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Create Delve Keycloak OIDC client
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      clientId: "{{ delve_oidc_client_id }}"
+      name: Delve
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      standardFlowEnabled: true
+      implicitFlowEnabled: false
+      directAccessGrantsEnabled: false
+      serviceAccountsEnabled: false
+      redirectUris:
+        - "https://{{ delve_ingress_host }}{{ delve_oidc_redirect_path }}"
+      webOrigins:
+        - "https://{{ delve_ingress_host }}"
+      rootUrl: "https://{{ delve_ingress_host }}"
+      baseUrl: "/"
+      adminUrl: "https://{{ delve_ingress_host }}"
+      secret: "{{ _delve_oidc_client_secret_effective }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 201
+  when: not _delve_client_exists
+  register: _delve_kc_client_create_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Refresh Delve client lookup after create
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients?clientId={{ delve_oidc_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_kc_client_lookup_after_create
+  changed_when: false
+  when: not _delve_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Delve client ID after create
+  ansible.builtin.set_fact:
+    _delve_client_internal_id: "{{ (_delve_kc_client_lookup_after_create.json | first).id }}"
+  when:
+    - not _delve_client_exists
+    - (_delve_kc_client_lookup_after_create.json | length) > 0
+
+- name: Get existing Delve Keycloak client representation
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_client_internal_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_kc_client_details
+  changed_when: false
+  when: _delve_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Update Delve Keycloak client settings (idempotent)
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_client_internal_id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body: >-
+      {{
+        _delve_kc_client_details.json | combine({
+          'enabled': true,
+          'protocol': 'openid-connect',
+          'publicClient': false,
+          'standardFlowEnabled': true,
+          'implicitFlowEnabled': false,
+          'directAccessGrantsEnabled': false,
+          'serviceAccountsEnabled': false,
+          'redirectUris': [
+            'https://' + delve_ingress_host + delve_oidc_redirect_path
+          ],
+          'webOrigins': [
+            'https://' + delve_ingress_host
+          ],
+          'rootUrl': 'https://' + delve_ingress_host,
+          'adminUrl': 'https://' + delve_ingress_host,
+          'baseUrl': '/'
+        }, recursive=True)
+      }}
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 204
+  when: _delve_client_internal_id | length > 0
+  register: _delve_kc_client_update_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: List existing protocol mappers on the Delve client
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_client_internal_id }}/protocol-mappers/models"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_kc_client_mappers
+  changed_when: false
+  when: _delve_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+# Emit the `groups` claim with a client-bound group-membership mapper that always
+# applies, independent of the scopes Delve requests. DelveOIDCBackend reads this
+# claim to set is_staff / is_superuser.
+- name: Ensure groups protocol mapper on the Delve client
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_client_internal_id }}/protocol-mappers/models"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: groups
+      protocol: openid-connect
+      protocolMapper: oidc-group-membership-mapper
+      config:
+        claim.name: groups
+        full.path: "false"
+        id.token.claim: "true"
+        access.token.claim: "true"
+        userinfo.token.claim: "true"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 201
+  when:
+    - _delve_client_internal_id | length > 0
+    - "'groups' not in (_delve_kc_client_mappers.json | default([]) | map(attribute='name') | list)"
+  register: _delve_kc_groups_mapper_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Rotate Delve client secret when explicitly provided
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_client_internal_id }}/client-secret"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      value: "{{ delve_oidc_client_secret }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: [200, 204]
+  when:
+    - _delve_client_internal_id | length > 0
+    - (delve_oidc_client_secret | default('') | length) > 0
+  register: _delve_kc_secret_rotate_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Read current Delve client secret from Keycloak
+  ansible.builtin.uri:
+    url: "{{ _delve_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_client_internal_id }}/client-secret"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_kc_client_secret_read
+  changed_when: false
+  when: _delve_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set effective Keycloak client secret fact
+  ansible.builtin.set_fact:
+    delve_oidc_effective_client_secret: "{{ _delve_kc_client_secret_read.json.value | default(_delve_oidc_client_secret_effective | default('')) }}"
+  when: _delve_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Load OpenBao provisioner token
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: load_openbao_provisioner_token.yml
+
+- name: Read OpenBao root CA PEM for Delve OIDC trust
+  ansible.builtin.uri:
+    url: "{{ delve_oidc_ca_pem_url }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    status_code: 200
+    return_content: true
+  register: _delve_openbao_ca_pem_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Set Delve OIDC CA PEM fact
+  ansible.builtin.set_fact:
+    _delve_oidc_ca_pem: "{{ _delve_openbao_ca_pem_result.content | default('') | trim }}"
+  when: not ansible_check_mode
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Persist Delve OIDC credentials in OpenBao KV
+  ansible.builtin.uri:
+    url: "{{ delve_openbao_api_addr }}/v1/{{ delve_openbao_kv_mount }}/data/{{ delve_openbao_oidc_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    body_format: json
+    body:
+      data:
+        OIDC_CLIENT_ID: "{{ delve_oidc_client_id }}"
+        OIDC_CLIENT_SECRET: "{{ delve_oidc_effective_client_secret }}"
+        OIDC_ISSUER_URL: "{{ delve_oidc_issuer_url }}"
+        OIDC_SCOPES: "{{ delve_oidc_scopes }}"
+        OIDC_CA_PEM: "{{ _delve_oidc_ca_pem | default('') }}"
+    status_code: [200, 204]
+  register: _delve_openbao_oidc_store_result
+  when:
+    - not ansible_check_mode
+    - delve_oidc_effective_client_secret is defined
+    - (delve_oidc_effective_client_secret | string | length) > 0
+    - (_delve_oidc_ca_pem | default('') | length) > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+# Sync secret/delve/oidc into ns delve so the secret exists before the Helm
+# release (the web/worker/migrate pods reference its keys via the chart's env).
+- name: Apply Delve OIDC VaultStaticSecret resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_vaultstaticsecret_oidc.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Wait for Delve OIDC secret to be synced by VSO
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_oidc_secret_name }}
+      --namespace {{ delve_namespace }}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_oidc_secret_check
+  until: _delve_oidc_secret_check.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Remove temporary Keycloak CA file for Delve OIDC setup
+  ansible.builtin.file:
+    path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-oidc-ca.crt
+    state: absent
+  changed_when: false
+
+- name: Remove temporary Keycloak internal FQDN hosts override for Delve OIDC setup
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ delve_keycloak_service_name }}\.{{ delve_keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
+    state: absent
+  become: true

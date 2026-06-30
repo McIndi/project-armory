@@ -1,7 +1,9 @@
 # Implementation Plan — Delve Audit-Search Integration (Plan A: in-cluster role)
 
-Status: Phase 1 implemented & deployed (2026-06-30). Remaining work runs in the
-order **Phase 3 → Phase 2 → Phase 4** (see "Execution order & decisions" below).
+Status: Phase 1 implemented & deployed (2026-06-30). Phase 3 (human SSO)
+implemented (2026-06-30), pending a fresh-rebuild deploy verification. Remaining
+work runs in the order **Phase 2 → Phase 4** (see "Execution order & decisions"
+below).
 Scope: Deploy [Delve](https://github.com/McIndi/delve) (Django 5 + DRF log
 platform) into the armory cluster as a first-class component that ingests,
 correlates, and dashboards the audit logs from OpenBao, Keycloak, and a new
@@ -248,12 +250,12 @@ client-credentials grant.
 ### 2.3 Delve code — bearer-JWT DRF auth (delve repo)
 - New `events/authentication.py`: a DRF `BaseAuthentication` that validates a
   Keycloak-issued bearer JWT. **Do not hand-roll JWT/JWKS verification** — use
-  `mozilla-django-oidc`'s token-validation utilities (the dep is added this
-  phase; see below), which handle JWKS fetch/caching/rotation and reject
+  `mozilla-django-oidc`'s token-validation utilities (already added in Phase 3),
+  which handle JWKS fetch/caching/rotation and reject
   `alg=none`. Verify signature against the realm JWKS and check
   `azp`/audience = `delve-ingest` and `exp`.
-- `requirements.txt`: add `mozilla-django-oidc` (used here for token validation;
-  the browser-SSO backend that also uses it lands in Phase 3).
+- `requirements.txt`: `mozilla-django-oidc` is already present (added in Phase 3
+  for the browser-SSO backend; reused here for token validation).
 - Add the auth class to `REST_FRAMEWORK['DEFAULT_AUTHENTICATION_CLASSES']` in
   [`delve/settings.py`](https://github.com/McIndi/delve) **alongside** the
   existing Basic + Session classes (interactive use unaffected).
@@ -293,12 +295,21 @@ scheduled-query ingestion. This yields structured rows directly. Requirements:
 
 ---
 
-## 3. Phase 3 — human SSO (Keycloak OIDC)
+## 3. Phase 3 — human SSO (Keycloak OIDC) — ✅ IMPLEMENTED (2026-06-30)
 
-> **Run order: this is the NEXT phase, before Phase 2.** It delivers the browser
-> login used to verify every later feed. Logins are the shared `armory` realm
-> users (no Delve-specific user); retrieve the superuser login from the existing
+> **Run order: ran before Phase 2.** It delivers the browser login used to
+> verify every later feed. Logins are the shared `armory` realm users (no
+> Delve-specific user); retrieve the superuser login from the existing
 > `keycloak-realm-admin` secret (ns `keycloak`).
+>
+> **Implementation note:** because Phase 3 ran before Phase 2, the
+> `mozilla-django-oidc` requirement and the `delve-oidc` OpenBao read on the
+> `delve-vso` policy were added *here*, not in Phase 2. The Delve chart also
+> gained the OIDC env + internal-TLS re-encrypt plumbing (`oidc.*` / `tls.*`
+> values, web-pod CA + TLS mounts, issuer `hostAlias`, `backend-protocol: HTTPS`
+> annotation), driven by the role's `delve_oidc_enabled` toggle (default on in
+> dev). The web server already supported TLS via `DELVE_SSL_*`, so re-encrypt
+> needed no Delve code change.
 
 Goal: browser login to Delve via Keycloak, group-mapped, with local
 `ModelBackend` retained as fallback.

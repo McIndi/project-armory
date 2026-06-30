@@ -11,6 +11,16 @@
       ansible.builtin.import_tasks: db.yml
       tags: [delve, delve_db, openbao, vso]
 
+    - name: Provision Delve internal TLS certificate (re-encrypt)
+      ansible.builtin.import_tasks: pki.yml
+      tags: [delve, delve_pki, cert_manager]
+      when: delve_oidc_enabled | bool
+
+    - name: Configure Delve Keycloak OIDC client and sync credentials
+      ansible.builtin.import_tasks: oidc_client.yml
+      tags: [delve, delve_oidc, keycloak, openbao, vso]
+      when: delve_oidc_enabled | bool
+
     - name: Deploy Delve via Helm
       ansible.builtin.import_tasks: deploy.yml
       tags: [delve, delve_deploy, openbao, vso]

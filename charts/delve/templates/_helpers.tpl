@@ -66,4 +66,67 @@ Django SECRET_KEY come from the VSO-synced secret; everything else is literal.
   value: "{{ .Values.service.port }}"
 - name: DELVE_SERVER_LOG_STDOUT
   value: "{{ .Values.logStdout | ternary "True" "False" }}"
+{{- if .Values.tls.enabled }}
+- name: DELVE_SSL_CERTIFICATE
+  value: "{{ .Values.tls.mountPath }}/tls.crt"
+- name: DELVE_SSL_PRIVATE_KEY
+  value: "{{ .Values.tls.mountPath }}/tls.key"
+{{- end }}
+{{- if .Values.oidc.enabled }}
+- name: DELVE_OIDC_ENABLED
+  value: "True"
+- name: DELVE_OIDC_SCOPES
+  value: "{{ .Values.oidc.scopes }}"
+- name: DELVE_OIDC_CA_FILE
+  value: "{{ .Values.oidc.caMountPath }}/{{ .Values.oidc.caFileName }}"
+- name: DELVE_OIDC_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.oidc.secretName }}
+      key: OIDC_CLIENT_ID
+- name: DELVE_OIDC_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.oidc.secretName }}
+      key: OIDC_CLIENT_SECRET
+- name: DELVE_OIDC_ISSUER_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.oidc.secretName }}
+      key: OIDC_ISSUER_URL
+{{- end }}
+{{- end -}}
+
+{{/*
+Volumes for the web pod: the internal TLS cert (re-encrypt) and the OIDC issuer
+CA. Both are gated on their feature flags so Phase 1 renders neither.
+*/}}
+{{- define "delve.webVolumes" -}}
+{{- if .Values.tls.enabled }}
+- name: internal-tls
+  secret:
+    secretName: {{ .Values.tls.secretName }}
+{{- end }}
+{{- if .Values.oidc.enabled }}
+- name: oidc-ca
+  secret:
+    secretName: {{ .Values.oidc.secretName }}
+    items:
+      - key: {{ .Values.oidc.caPemKey }}
+        path: {{ .Values.oidc.caFileName }}
+{{- end }}
+{{- end -}}
+
+{{/* Matching volumeMounts for the web container. */}}
+{{- define "delve.webVolumeMounts" -}}
+{{- if .Values.tls.enabled }}
+- name: internal-tls
+  mountPath: {{ .Values.tls.mountPath }}
+  readOnly: true
+{{- end }}
+{{- if .Values.oidc.enabled }}
+- name: oidc-ca
+  mountPath: {{ .Values.oidc.caMountPath }}
+  readOnly: true
+{{- end }}
 {{- end -}}
