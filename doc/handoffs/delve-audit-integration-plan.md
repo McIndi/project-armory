@@ -1,6 +1,7 @@
 # Implementation Plan — Delve Audit-Search Integration (Plan A: in-cluster role)
 
-Status: ready for implementation
+Status: Phase 1 implemented & deployed (2026-06-30). Remaining work runs in the
+order **Phase 3 → Phase 2 → Phase 4** (see "Execution order & decisions" below).
 Scope: Deploy [Delve](https://github.com/McIndi/delve) (Django 5 + DRF log
 platform) into the armory cluster as a first-class component that ingests,
 correlates, and dashboards the audit logs from OpenBao, Keycloak, and a new
@@ -17,13 +18,49 @@ Companions: [`openbao-audit-device-handoff.md`](openbao-audit-device-handoff.md)
 [`openbao-ui-keycloak-oidc-plan.md`](openbao-ui-keycloak-oidc-plan.md).
 
 ## How to use this doc
-Execute phases in order; each task names exact files and the change. Run the
-§6 validation after each phase. Match existing role conventions
+Each task names exact files and the change. Run the §6 validation after each
+phase. Match existing role conventions
 ([../../AGENTS.md](../../AGENTS.md)) — no new abstractions. The `delve` role
 clones the `headlamp` role almost verbatim; read
 [`ansible/roles/headlamp/`](../../ansible/roles/headlamp) before starting.
 Delve-side code changes happen in the separate `delve` repo and are gated by
 feature flags (off by default, preserving Delve's air-gapped default).
+The phase **numbers below are stable identifiers, not the run order** — see
+the execution order immediately below.
+
+## Execution order & decisions
+
+**Run order: Phase 1 (done) → Phase 3 → Phase 2 → Phase 4.** Phase 3 (human
+SSO) is pulled ahead of Phase 2 (audit feeds + machine ingestion) because every
+Phase 2 feed is only *verifiable through a browser login*, and SSO is that
+login. The two are independent — Phase 2's machine ingestion authenticates with
+the `delve-ingest` client-credentials token, never the human OIDC path — so
+nothing in Phase 2 blocks on Phase 3 or vice-versa. Phase 4 needs both.
+
+**Credential / login convention (decided 2026-06-30).** Delve follows the
+**armory shared-realm** convention, *not* garrison's per-app pattern:
+- Delve logins are the shared `armory` realm users (`admin`→superuser,
+  `operator`→staff, `viewer`→read), group-mapped. No dedicated Delve realm, no
+  Delve admin user, no `delve-admin-credentials` secret in ns `delve`.
+- Retrieval is the standard armory way (OpenBao = source of truth, VSO mirrors
+  to a k8s secret). The Delve **superuser** login is already retrievable via the
+  existing `keycloak-realm-admin` secret (ns `keycloak`). `operator`/`viewer`
+  remain **OpenBao-only** (not mirrored) — the accepted exception.
+- **No local Django superuser is provisioned.** Interactive browser login to
+  Delve therefore arrives with Phase 3; this is intended (nothing to view until
+  Phase 2 ingestion, and Phase 2's auth is independent of human SSO).
+
+**Phase 1 deltas vs. the as-written §1 (already implemented).** Three required
+changes the original draft omitted, plus two deliberate deviations:
+- *Gap fixes (would otherwise break the deploy):* added `delve` to
+  `openbao_provisioner_kv_prefixes`; added a `delve-vso` ACL policy + k8s auth
+  role in `openbao/tasks/consumer_wiring.yml`; added `delve` to
+  `trust_manager_internal_ca_target_namespaces`.
+- *Deviation:* the VSO custom resources (VaultConnection/Auth/StaticSecret) and
+  the pod ServiceAccount live **role-side in `db.yml`**, not in the chart as §1.3
+  first sketched — `delve-db-secret` must be VSO-synced *before* the Helm release
+  (the role-owned Postgres reads the DB password from it and the chart's
+  pre-install migrate hook connects to the DB). See the `delve` role README.
 
 ---
 
@@ -48,7 +85,10 @@ path, so the OIDC-SSO work cannot block log ingestion.
 
 ---
 
-## 1. Phase 1 — `delve` role skeleton, DB, deploy (local auth only)
+## 1. Phase 1 — `delve` role skeleton, DB, deploy (local auth only) — ✅ DONE (2026-06-30)
+
+> Implemented and deployed. See "Execution order & decisions" above for the
+> gap fixes and the role-side VSO/ServiceAccount deviation from §1.3.
 
 Goal: Delve running in-cluster on Postgres, reachable at
 `https://delve.armory.local`, authenticating with a local Django superuser.
@@ -151,6 +191,10 @@ Add the `delve` role after `headlamp`. Add a `delve_enabled` toggle in
 
 ## 2. Phase 2 — k8s secret-access audit, machine ingestion auth, feed shippers
 
+> **Run order: this phase runs AFTER Phase 3.** Machine ingestion here is
+> independent of Phase 3's human SSO, but the feeds are only verifiable through
+> a browser login, which Phase 3 provides.
+
 Goal: OpenBao, Keycloak, and k8s secret-access audit events flowing into Delve
 via the `ingress/` REST endpoint, **authenticated from the start** with the
 `delve-ingest` client-credentials token. (Machine auth is folded into this
@@ -250,6 +294,11 @@ scheduled-query ingestion. This yields structured rows directly. Requirements:
 ---
 
 ## 3. Phase 3 — human SSO (Keycloak OIDC)
+
+> **Run order: this is the NEXT phase, before Phase 2.** It delivers the browser
+> login used to verify every later feed. Logins are the shared `armory` realm
+> users (no Delve-specific user); retrieve the superuser login from the existing
+> `keycloak-realm-admin` secret (ns `keycloak`).
 
 Goal: browser login to Delve via Keycloak, group-mapped, with local
 `ModelBackend` retained as fallback.
