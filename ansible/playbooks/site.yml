@@ -8,6 +8,10 @@
         - always
         - env_guard
         - preflight
+    - role: host_dependencies
+      tags:
+        - host_dependencies
+        - host_prereqs
     - role: system_update
       tags:
         - system_update

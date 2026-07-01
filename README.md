@@ -40,13 +40,13 @@ VM is your choice; it must meet the following spec before you run
 | OS | Fedora 44 (x86_64) |
 | Network | a routable IP reachable from your workstation (for the web UIs) |
 
-**Packages** that must be present on the VM: `ansible`, `ansible-lint`,
-`yamllint`, `python3-pip`, `git`, `curl`, `btrfs-progs`, `cloud-utils-growpart`.
+`playbooks/site.yml` now installs project host dependencies via the
+`host_dependencies` role (`ansible`, `ansible-lint`, `yamllint`, `python3-pip`,
+`git`, `curl`, and `python3-kubernetes`).
 
 **Runtime prerequisites** required by the `kubernetes.core` Ansible modules:
 
 - `kubernetes.core` collection — `ansible-galaxy collection install -r ansible/requirements.yml`
-- Python `kubernetes` client — `dnf install python3-kubernetes` (needed by `kubernetes.core.k8s*`)
 - `helm-diff` plugin — installed idempotently by the `helm` role, required for
   `kubernetes.core.helm` no-op detection
 

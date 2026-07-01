@@ -1,0 +1,13 @@
+---
+# Host packages required for armory workflows and module runtime dependencies.
+armory_host_dependency_packages:
+  - ansible-lint
+  - yamllint
+  - python3-pip
+  - curl
+  - git
+  - python3-kubernetes
+
+# Keep present by default; override to latest if host drift correction is needed.
+armory_host_dependency_state: present
+armory_host_dependency_update_cache: true
