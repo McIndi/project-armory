@@ -200,3 +200,32 @@ ansible-playbook playbooks/teardown_k3s_workloads.yml -e teardown_confirm=true  
 ```
 
 Full command reference and troubleshooting: [doc/operations.md](doc/operations.md).
+
+## Refreshing the `delve:latest` image
+
+The `delve-web`, `delve-worker`, and migrate Job workloads use `imagePullPolicy: Always` with `ghcr.io/mcindi/delve:latest`. Because the tag is mutable, k3s will re-resolve the image digest whenever new pods are created; you only need to restart the workloads so they pick up the current upstream image.
+
+From the VM:
+
+```bash
+vagrant ssh
+export KUBECONFIG=<delve_kubeconfig_path>   # for example: /etc/rancher/k3s/k3s.yaml
+
+# Force fresh pulls for the web and worker deployments
+k3s kubectl rollout restart deployment/delve-web deployment/delve-worker -n delve
+
+# Watch them come up on the new image
+k3s kubectl rollout status deployment/delve-web -n delve
+k3s kubectl rollout status deployment/delve-worker -n delve
+```
+
+If the image update includes a schema or migration change, re-run the migrate Job as well. The simplest path is to re-apply the Ansible deploy, which re-triggers the Helm hook:
+
+```bash
+ansible-playbook ... --tags delve
+# or rerun the delve role from the project-armory playbook root
+```
+
+In most cases, a rollout restart is enough for the web and worker deployments. No manual `crictl rmi`, image pre-pull, or Helm upgrade is needed; `Always` causes each new pod to resolve `ghcr.io/mcindi/delve:latest` against the registry instead of using a cached digest.
+
+If your environment overrides the defaults, verify `delve_kubeconfig_path` and `delve_namespace` in `ansible/roles/delve/defaults/main.yml` before running the commands above.
