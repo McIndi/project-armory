@@ -1,0 +1,44 @@
+# Managed by Ansible — do not edit manually
+# k3s API-server audit policy (Phase 2, Delve k8s_audit feed).
+#
+# Scope decision (delve-audit-integration-plan §2.1): audit `secrets` access
+# ONLY, at `Metadata` level, and default-drop everything else. The demo goal is
+# secret-access correlation, and a cluster-wide policy is a firehose django-q +
+# Postgres FTS won't keep up with.
+#
+# `Metadata` (NOT `RequestResponse`): a RequestResponse audit of a secret
+# get/list captures the response body, which carries the secret `data` in
+# cleartext base64 — that would ship plaintext secrets into Delve's Postgres.
+# Metadata still records who / when / which-secret / verb, which is the point.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+# Skip the RequestReceived stage so each request yields a single event.
+omitStages:
+  - RequestReceived
+rules:
+  # 1. Early drop — the platform's own service accounts. This is the single most
+  #    important tuning step: the feed must show CONSUMER secret access, not the
+  #    platform machinery (VSO, cert-manager) and not Delve auditing its own VSO
+  #    reads. Service accounts belong to the group
+  #    `system:serviceaccounts:<namespace>`, so matching the group drops every SA
+  #    in that namespace (equivalent to `system:serviceaccount:<ns>:*`).
+  - level: None
+    userGroups:
+      - system:serviceaccounts:vault-secrets-operator-system
+      - system:serviceaccounts:cert-manager
+      - system:serviceaccounts:delve
+  # 2. Audit secret access at Metadata for every remaining (consumer) identity.
+  - level: Metadata
+    resources:
+      - group: ""
+        resources:
+          - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+  # 3. Default drop — no audit for any other resource.
+  - level: None

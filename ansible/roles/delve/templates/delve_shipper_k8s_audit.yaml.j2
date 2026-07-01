@@ -1,0 +1,103 @@
+---
+# k8s API-server audit feed shipper. Tails the host kube-apiserver audit log
+# (written by k3s per roles/k3s audit-policy.yaml.j2 — secrets access at
+# Metadata) and POSTs to Delve api/events/ with a delve-ingest bearer token. A
+# DaemonSet so it runs on every node that writes an audit log; runs as root to
+# read the root-owned audit file. The position cursor persists on a host dir so
+# kubelet rotation / restarts do not re-ingest or drop lines.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: delve-shipper-k8s-audit
+  namespace: {{ delve_namespace }}
+  labels:
+    app.kubernetes.io/name: delve-shipper
+    app.kubernetes.io/component: k8s-audit
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: delve-shipper
+      app.kubernetes.io/component: k8s-audit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: delve-shipper
+        app.kubernetes.io/component: k8s-audit
+    spec:
+      serviceAccountName: {{ delve_pod_sa_name }}
+      securityContext:
+        runAsUser: 0
+{% if delve_image_pull_secrets | default([]) | length > 0 %}
+      imagePullSecrets:
+{% for secret in delve_image_pull_secrets %}
+        - name: {{ secret }}
+{% endfor %}
+{% endif %}
+{% if (_delve_shipper_host_aliases | default([])) | length > 0 %}
+      hostAliases:
+{% for alias in _delve_shipper_host_aliases %}
+        - ip: {{ alias.ip }}
+          hostnames:
+{% for hostname in alias.hostnames %}
+            - {{ hostname }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+      containers:
+        - name: shipper
+          image: "{{ delve_shipper_image_repository }}:{{ delve_shipper_image_tag }}"
+          imagePullPolicy: {{ delve_shipper_image_pull_policy }}
+          command: ["python", "utilities/cli/tail-files.py"]
+          args:
+            - "--server"
+            - "{{ delve_shipper_server_url }}"
+            - "--auth"
+            - "bearer"
+            - "--token-url"
+            - "{{ delve_shipper_token_url }}"
+            - "--client-id"
+            - "{{ delve_ingest_client_id }}"
+            - "--ca-file"
+            - "{{ delve_shipper_ca_mount_path }}/{{ delve_shipper_ca_file_name }}"
+            - "-i"
+            - "{{ delve_shipper_k8s_index }}"
+            - "-t"
+            - "{{ delve_shipper_k8s_sourcetype }}"
+            - "-H"
+            - "$(NODE_NAME)"
+            - "-v"
+            - "/k8s-audit/{{ delve_shipper_k8s_audit_filename }}"
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: DELVE_INGEST_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_ingest_secret_name }}
+                  key: OIDC_CLIENT_SECRET
+          volumeMounts:
+            - name: k8s-audit
+              mountPath: /k8s-audit
+              readOnly: true
+            - name: shipper-data
+              mountPath: /app/utilities/_data
+            - name: ingest-ca
+              mountPath: {{ delve_shipper_ca_mount_path }}
+              readOnly: true
+      volumes:
+        - name: k8s-audit
+          hostPath:
+            path: {{ delve_shipper_k8s_audit_host_dir }}
+            type: Directory
+        - name: shipper-data
+          hostPath:
+            path: /var/lib/delve-shippers/k8s-audit
+            type: DirectoryOrCreate
+        - name: ingest-ca
+          secret:
+            secretName: {{ delve_ingest_secret_name }}
+            items:
+              - key: OIDC_CA_PEM
+                path: {{ delve_shipper_ca_file_name }}

@@ -1,0 +1,262 @@
+---
+# Phase 2 audit feed shippers. Three workloads in ns delve, all running the
+# Delve image (which bundles utilities/cli/tail-files.py + keycloak-events.py)
+# under the delve SA (covered by the k8s-audit SA drop rule). Each authenticates
+# to Delve's api/events/ with a delve-ingest client-credentials bearer token:
+#   - openbao_audit  : tail the OpenBao audit log (host dir of its PVC, ro)
+#   - k8s_audit      : tail the host kube-apiserver audit log (hostPath, ro)
+#   - keycloak_event : scheduled query of the Keycloak Tier-1 tables, cursor on PVC
+# Runs after deploy.yml so delve-web exists to receive events. Gated upstream on
+# delve_ingest_enabled.
+
+# --- resolve runtime coordinates ---------------------------------------------
+
+- name: Resolve in-cluster ingress IP for Delve shipper hostAliases
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get svc {{ delve_shipper_resolver_service_name }}
+      --namespace {{ delve_shipper_resolver_service_namespace }}
+      -o jsonpath={.spec.clusterIP}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_shipper_ingress_ip
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+# Both the Delve host and the token issuer host resolve to the ingress IP so the
+# shippers reach api/events/ and the token endpoint over the external cert.
+- name: Build Delve shipper hostAliases
+  ansible.builtin.set_fact:
+    _delve_shipper_host_aliases: >-
+      {{
+        [{'ip': (_delve_shipper_ingress_ip.stdout | default('') | trim),
+          'hostnames': ([delve_ingress_host, delve_shipper_issuer_host] | unique)}]
+        if ((_delve_shipper_ingress_ip.stdout | default('') | trim | length) > 0)
+        else []
+      }}
+  changed_when: false
+
+- name: Resolve OpenBao audit PVC bound PersistentVolume
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get pvc {{ delve_shipper_openbao_pvc_name }}
+      --namespace {{ delve_shipper_openbao_pvc_namespace }}
+      -o jsonpath={.spec.volumeName}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_openbao_pv_name
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+# local-path provisioner exposes the backing host directory as spec.local.path
+# (newer) or spec.hostPath.path (older); try local first, fall back to hostPath.
+- name: Resolve OpenBao audit PV host directory
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get pv {{ _delve_openbao_pv_name.stdout }}
+      -o jsonpath={.spec.local.path}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_openbao_pv_local_path
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - (_delve_openbao_pv_name.stdout | default('') | length) > 0
+
+- name: Resolve OpenBao audit PV host directory (hostPath fallback)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get pv {{ _delve_openbao_pv_name.stdout }}
+      -o jsonpath={.spec.hostPath.path}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_openbao_pv_hostpath
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - (_delve_openbao_pv_name.stdout | default('') | length) > 0
+    - (_delve_openbao_pv_local_path.stdout | default('') | trim | length) == 0
+
+- name: Set OpenBao audit host directory fact
+  ansible.builtin.set_fact:
+    delve_shipper_openbao_host_dir: >-
+      {{ (_delve_openbao_pv_local_path.stdout | default('') | trim)
+         if ((_delve_openbao_pv_local_path.stdout | default('') | trim | length) > 0)
+         else (_delve_openbao_pv_hostpath.stdout | default('') | trim) }}
+  changed_when: false
+
+- name: Warn when the OpenBao audit host directory could not be resolved
+  ansible.builtin.debug:
+    msg: >-
+      Could not resolve the host directory backing PVC
+      {{ delve_shipper_openbao_pvc_name }} in ns {{ delve_shipper_openbao_pvc_namespace }};
+      the openbao_audit shipper will be skipped this run.
+  when:
+    - not ansible_check_mode
+    - (delve_shipper_openbao_host_dir | default('') | length) == 0
+
+# --- read-only Keycloak DB credentials (read-before-generate) ----------------
+
+- name: Ensure OpenBao provisioner token is available (shippers)
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: load_openbao_provisioner_token.yml
+
+- name: Read current Keycloak reader credentials from OpenBao
+  ansible.builtin.uri:
+    url: "{{ delve_openbao_api_addr }}/v1/{{ delve_openbao_kv_mount }}/data/{{ delve_openbao_keycloak_reader_path }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    status_code: [200, 404]
+  register: _delve_kc_reader_current
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+# Password generated once and reused (AGENTS.md read-before-generate). Charset is
+# letters+digits so it embeds safely in the GRANT SQL and the libpq DSN.
+- name: Build Keycloak reader credentials (generated once, persisted)
+  ansible.builtin.set_fact:
+    _delve_kc_reader_creds: >-
+      {{
+        {
+          'DB_HOST': delve_keycloak_db_host,
+          'DB_PORT': (delve_keycloak_db_port | string),
+          'DB_NAME': delve_keycloak_db_name,
+          'DB_USERNAME': delve_keycloak_reader_username,
+          'DB_SSLMODE': delve_keycloak_db_sslmode,
+          'DB_PASSWORD': (
+            (_delve_kc_reader_current.json.data.data.DB_PASSWORD)
+            if ((_delve_kc_reader_current.status | default(404)) == 200
+                and (_delve_kc_reader_current.json.data.data.DB_PASSWORD | default('') | length) > 0)
+            else lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits')
+          )
+        }
+      }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Store Keycloak reader credentials in OpenBao
+  ansible.builtin.uri:
+    url: "{{ delve_openbao_api_addr }}/v1/{{ delve_openbao_kv_mount }}/data/{{ delve_openbao_keycloak_reader_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    body_format: json
+    body:
+      data: "{{ _delve_kc_reader_creds }}"
+    status_code: [200, 204]
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - (_delve_kc_reader_current.status | default(404)) != 200
+
+- name: Get Keycloak admin DB password (for role provisioning)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_keycloak_admin_db_secret_name }}
+      --namespace {{ delve_keycloak_namespace }}
+      -o jsonpath={.data.password}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_kc_admin_db_pw_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Decode Keycloak admin DB password
+  ansible.builtin.set_fact:
+    _delve_kc_admin_db_password: "{{ _delve_kc_admin_db_pw_b64.stdout | b64decode }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+# Idempotent: create the LOGIN role if absent, (re)set its password, and grant
+# SELECT on exactly the two Tier-1 tables — nothing else.
+- name: Build read-only role provisioning SQL
+  ansible.builtin.set_fact:
+    _delve_kc_reader_sql: |
+      DO $do$
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ delve_keycloak_reader_username }}') THEN
+          CREATE ROLE {{ delve_keycloak_reader_username }} LOGIN;
+        END IF;
+      END
+      $do$;
+      ALTER ROLE {{ delve_keycloak_reader_username }} WITH LOGIN PASSWORD '{{ _delve_kc_reader_creds.DB_PASSWORD }}';
+      GRANT CONNECT ON DATABASE {{ delve_keycloak_db_name }} TO {{ delve_keycloak_reader_username }};
+      GRANT USAGE ON SCHEMA public TO {{ delve_keycloak_reader_username }};
+      GRANT SELECT ON event_entity TO {{ delve_keycloak_reader_username }};
+      GRANT SELECT ON admin_event_entity TO {{ delve_keycloak_reader_username }};
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Provision read-only Keycloak DB role for the event shipper
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl exec -i {{ delve_keycloak_pg_statefulset_pod }}
+      --namespace {{ delve_keycloak_namespace }}
+      --
+      env PGPASSWORD={{ _delve_kc_admin_db_password }}
+      psql -U {{ delve_keycloak_admin_db_username }} -d {{ delve_keycloak_db_name }}
+      -v ON_ERROR_STOP=1 -f -
+    stdin: "{{ _delve_kc_reader_sql }}"
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_kc_reader_provision
+  changed_when: true
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+# --- sync reader creds + cursor storage --------------------------------------
+
+- name: Apply Keycloak reader VaultStaticSecret resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_vaultstaticsecret_keycloak_reader.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Wait for Keycloak reader secret to be synced by VSO
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_keycloak_reader_secret_name }}
+      --namespace {{ delve_namespace }}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_kc_reader_secret_check
+  until: _delve_kc_reader_secret_check.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+  when: not ansible_check_mode
+
+# --- apply the shippers ------------------------------------------------------
+
+- name: Deploy OpenBao audit feed shipper
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_shipper_openbao_audit.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when:
+    - not ansible_check_mode
+    - (delve_shipper_openbao_host_dir | default('') | length) > 0
+
+- name: Deploy k8s API-server audit feed shipper
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_shipper_k8s_audit.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when:
+    - not ansible_check_mode
+    - k3s_audit_enabled | default(false) | bool
+
+- name: Deploy Keycloak event feed shipper
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_shipper_keycloak_events.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode

@@ -13,6 +13,24 @@
         mode: "0755"
       register: _k3s_config_dir_result
 
+    # Phase 2: the apiserver loads the audit policy and writes its audit log at
+    # startup, so both the log directory and the policy file must exist before
+    # config.yaml references them and the restart handler fires.
+    - name: Ensure k3s audit log directory exists
+      ansible.builtin.file:
+        path: "{{ k3s_audit_log_path | dirname }}"
+        state: directory
+        mode: "0700"
+      when: k3s_audit_enabled | bool
+
+    - name: Drop k3s API-server audit policy
+      ansible.builtin.template:
+        src: audit-policy.yaml.j2
+        dest: "{{ k3s_audit_policy_file }}"
+        mode: "0600"
+      when: k3s_audit_enabled | bool
+      notify: restart k3s
+
     - name: Write k3s config file
       ansible.builtin.template:
         src: config.yaml.j2

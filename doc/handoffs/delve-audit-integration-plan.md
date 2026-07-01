@@ -197,6 +197,38 @@ Add the `delve` role after `headlamp`. Add a `delve_enabled` toggle in
 > independent of Phase 3's human SSO, but the feeds are only verifiable through
 > a browser login, which Phase 3 provides.
 
+> **Status: implemented (pending a fresh-rebuild deploy verification).**
+> **Phase 2 deltas vs. the as-written §2 (decisions made during implementation):**
+> - *Shipper endpoint (resolved a plan contradiction):* §2.4 named both "reuse
+>   `tail-files.py`" and "POST to `ingress/`", but `tail-files.py` batch-POSTs to
+>   `api/events/` with Basic auth. Decision: reuse `tail-files.py` and ship to
+>   `api/events/` with the `delve-ingest` bearer token. The bearer-JWT guarantee
+>   is enforced there via `DEFAULT_AUTHENTICATION_CLASSES`. The `ingress/` view
+>   was *also* converted to a DRF view so the same auth/permission pipeline and
+>   token rejection apply there too (so §6's "rejected by `ingress/`" still holds).
+> - *No separate shipper image:* the shippers run the **Delve image** itself (it
+>   already bundles `utilities/cli/tail-files.py` + the new `keycloak-events.py`,
+>   `requests`, and `psycopg2`), avoiding a net-new build pipeline (AGENTS.md "no
+>   new abstractions"). `tail-files.py` gained a backward-compatible
+>   `--auth bearer` client-credentials mode; `keycloak-events.py` is new.
+> - *OpenBao audit access (cross-namespace PVC constraint):* the auditStorage PVC
+>   is RWO and namespace-scoped to `openbao`, so a pod in `delve` cannot mount it.
+>   Instead the shipper (in `delve`) hostPath-mounts the local-path-backed host
+>   directory of that PVC read-only (resolved from the PV at deploy time) —
+>   functionally identical on single-node k3s, and keeps all three shippers in
+>   `delve` under the SA-drop rule. No openbao-role change.
+> - *Ingest token `aud`:* added an `oidc-audience` mapper on the `delve-ingest`
+>   client so the access token's `aud` carries `delve-ingest` (Delve validates
+>   `azp`/`aud`); `exp` is enforced Delve-side regardless of library version.
+> - *Keycloak reader creds:* `shippers.yml` provisions a dedicated read-only DB
+>   role (`delve_keycloak_reader`, SELECT on the two Tier-1 tables only) by
+>   exec'ing `psql` in the keycloak Postgres pod as the bootstrap superuser;
+>   creds persist at `secret/delve/keycloak-reader`. Shipper→DB uses
+>   `sslmode=require` (encrypt, no cert pin) for the in-cluster demo.
+> - *File-tail cursor durability:* the file-tail shippers persist
+>   `tail-files.py`'s position file on a host dir so a restart does not re-ingest
+>   the current log; the keycloak feed persists its query cursor on a PVC.
+
 Goal: OpenBao, Keycloak, and k8s secret-access audit events flowing into Delve
 via the `ingress/` REST endpoint, **authenticated from the start** with the
 `delve-ingest` client-credentials token. (Machine auth is folded into this

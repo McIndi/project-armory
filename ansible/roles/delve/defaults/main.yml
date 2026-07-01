@@ -126,6 +126,82 @@ delve_internal_tls_mount_path: /etc/delve-tls
 delve_oidc_ca_mount_path: /etc/delve-oidc
 delve_oidc_ca_file_name: oidc-ca.pem
 
+# --- Phase 2: machine ingestion (delve-ingest client) + audit feed shippers --
+# Independent of Phase 3's human SSO: the shippers authenticate with this
+# client's client-credentials token, never the browser OIDC path. The KV path
+# (delve_openbao_ingest_path) lives in group_vars/all.yml so the openbao role can
+# grant VSO read on it.
+delve_ingest_enabled: "{{ delve_keycloak_enabled | bool }}"
+# Service-accounts (client-credentials) client the shippers authenticate as.
+delve_ingest_client_id: delve-ingest
+# If empty, a strong secret is generated once and persisted to OpenBao.
+delve_ingest_client_secret: ""
+# Same public issuer as human SSO (shared realm, different client). The shippers
+# and Delve's bearer-JWT auth both reach the issuer via the external cert chain.
+delve_ingest_issuer_url: "{{ delve_oidc_issuer_url }}"
+delve_ingest_ca_pem_url: "{{ delve_oidc_ca_pem_url }}"
+delve_ingest_secret_name: delve-ingest
+# Where the web pod mounts the issuer CA (from the ingest secret's OIDC_CA_PEM)
+# so server-side JWKS fetches trust the issuer.
+delve_ingest_ca_mount_path: /etc/delve-ingest
+delve_ingest_ca_file_name: ingest-ca.pem
+
+# --- Phase 2: audit feed shippers --------------------------------------------
+# Reuse the Delve image (it already bundles utilities/cli/tail-files.py +
+# keycloak-events.py, requests and psycopg2) rather than building a separate
+# shipper image. All three shippers run in ns delve under the delve SA (covered
+# by the k8s-audit SA drop rule, so they never audit their own reads). Gated with
+# the rest of Phase 2 on delve_ingest_enabled.
+delve_shipper_image_repository: "{{ delve_image_repository }}"
+delve_shipper_image_tag: "{{ delve_image_tag }}"
+delve_shipper_image_pull_policy: "{{ delve_image_pull_policy }}"
+# Shippers POST to Delve and fetch tokens through the public ingress (external
+# cert), so a single CA (the delve-ingest OIDC_CA_PEM) verifies both. The pods
+# carry hostAliases mapping both hosts to the ingress IP (resolved at deploy).
+delve_shipper_server_url: "https://{{ delve_ingress_host }}"
+delve_shipper_token_url: "{{ delve_ingest_issuer_url }}/protocol/openid-connect/token"
+delve_shipper_issuer_host: "{{ delve_ingest_issuer_url | urlsplit('hostname') }}"
+delve_shipper_ca_mount_path: /etc/delve-ingest
+delve_shipper_ca_file_name: ingest-ca.pem
+delve_shipper_resolver_service_namespace: "{{ delve_oidc_resolver_service_namespace }}"
+delve_shipper_resolver_service_name: "{{ delve_oidc_resolver_service_name }}"
+
+# OpenBao audit feed (file tail). The audit log lives on the openbao
+# auditStorage PVC (RWO, ns openbao); on single-node k3s the local-path-backed
+# host directory is hostPath-mounted read-only into the shipper (the host path
+# is resolved from the PV at deploy time) so the shipper stays in ns delve.
+delve_shipper_openbao_pvc_name: "audit-{{ openbao_release_name | default('openbao') }}-0"
+delve_shipper_openbao_pvc_namespace: "{{ openbao_namespace | default('openbao') }}"
+delve_shipper_openbao_audit_filename: "{{ openbao_audit_log_path | default('/openbao/audit/audit.log') | basename }}"
+delve_shipper_openbao_index: openbao
+delve_shipper_openbao_sourcetype: openbao_audit
+
+# k8s API-server audit feed (file tail of the host audit log, read-only).
+delve_shipper_k8s_audit_host_dir: "{{ k3s_audit_log_path | default('/var/log/k3s/audit/audit.log') | dirname }}"
+delve_shipper_k8s_audit_filename: "{{ k3s_audit_log_path | default('/var/log/k3s/audit/audit.log') | basename }}"
+delve_shipper_k8s_index: k8s
+delve_shipper_k8s_sourcetype: k8s_audit
+
+# Keycloak event feed (scheduled DB query with a persisted cursor).
+delve_shipper_keycloak_index: keycloak
+delve_shipper_keycloak_sourcetype: keycloak_event
+delve_shipper_keycloak_interval: 30
+delve_shipper_keycloak_cursor_pvc: delve-keycloak-cursor
+delve_shipper_keycloak_cursor_size: 64Mi
+delve_shipper_keycloak_cursor_dir: /var/lib/delve-keycloak
+# Read-only DB role scoped to event_entity / admin_event_entity (provisioned by
+# shippers.yml against the keycloak Postgres). sslmode=require encrypts without
+# pinning the server cert — sufficient for the in-cluster demo.
+delve_keycloak_db_host: "{{ keycloak_pg_service | default('postgres') }}.{{ keycloak_namespace | default('keycloak') }}.svc.cluster.local"
+delve_keycloak_db_port: 5432
+delve_keycloak_db_name: "{{ keycloak_db_name | default('keycloak') }}"
+delve_keycloak_db_sslmode: require
+delve_keycloak_admin_db_secret_name: "{{ keycloak_db_secret_name | default('keycloak-db-secret') }}"
+delve_keycloak_admin_db_username: "{{ keycloak_db_username | default('keycloak') }}"
+delve_keycloak_pg_statefulset_pod: "{{ keycloak_pg_service | default('postgres') }}-0"
+delve_keycloak_reader_secret_name: delve-keycloak-reader
+delve_keycloak_reader_username: delve_keycloak_reader
+
 # Optional chart value overrides merged on top of role-managed values.
 delve_chart_values_overrides: {}
 

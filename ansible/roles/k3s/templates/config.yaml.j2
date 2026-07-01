@@ -8,13 +8,28 @@ disable:
 {% if k3s_secrets_encryption %}
 secrets-encryption: true
 {% endif %}
-{% if (k3s_oidc_enabled | default(false) | bool) and (k3s_oidc_ca_configured | default(false) | bool) %}
+{# kube-apiserver-arg must be a single YAML key, so the OIDC (Phase 3) and audit #}
+{# (Phase 2) argument sets are merged into one list, each gated independently. #}
+{% set _oidc_apiserver_args = [
+     'oidc-issuer-url=' ~ k3s_oidc_issuer_url,
+     'oidc-client-id=' ~ k3s_oidc_client_id,
+     'oidc-username-claim=' ~ k3s_oidc_username_claim,
+     'oidc-username-prefix=' ~ k3s_oidc_username_prefix,
+     'oidc-groups-claim=' ~ k3s_oidc_groups_claim,
+     'oidc-groups-prefix=' ~ k3s_oidc_groups_prefix,
+     'oidc-ca-file=' ~ k3s_oidc_ca_file,
+   ] if ((k3s_oidc_enabled | default(false) | bool) and (k3s_oidc_ca_configured | default(false) | bool)) else [] %}
+{% set _audit_apiserver_args = [
+     'audit-policy-file=' ~ k3s_audit_policy_file,
+     'audit-log-path=' ~ k3s_audit_log_path,
+     'audit-log-maxage=' ~ k3s_audit_log_maxage,
+     'audit-log-maxbackup=' ~ k3s_audit_log_maxbackup,
+     'audit-log-maxsize=' ~ k3s_audit_log_maxsize,
+   ] if (k3s_audit_enabled | default(false) | bool) else [] %}
+{% set _kube_apiserver_args = _oidc_apiserver_args + _audit_apiserver_args %}
+{% if _kube_apiserver_args | length > 0 %}
 kube-apiserver-arg:
-  - "oidc-issuer-url={{ k3s_oidc_issuer_url }}"
-  - "oidc-client-id={{ k3s_oidc_client_id }}"
-  - "oidc-username-claim={{ k3s_oidc_username_claim }}"
-  - "oidc-username-prefix={{ k3s_oidc_username_prefix }}"
-  - "oidc-groups-claim={{ k3s_oidc_groups_claim }}"
-  - "oidc-groups-prefix={{ k3s_oidc_groups_prefix }}"
-  - "oidc-ca-file={{ k3s_oidc_ca_file }}"
+{% for arg in _kube_apiserver_args %}
+  - "{{ arg }}"
+{% endfor %}
 {% endif %}

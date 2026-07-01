@@ -1,0 +1,392 @@
+---
+# Automate Keycloak machine-ingestion client setup for Delve (Phase 2).
+#
+# Near-verbatim clone of oidc_client.yml, but creates the `delve-ingest` client
+# as a service-accounts (client-credentials) client — NOT a browser standard-flow
+# client. The feed shippers (§2.4) fetch a token from this client and POST audit
+# events to Delve's ingress/ with that bearer JWT. Machine ingestion is fully
+# independent of the human OIDC/SSO path (Phase 3): same issuer, different client,
+# never a shared code path.
+#
+# Differences from the human `delve` client:
+#   - serviceAccountsEnabled: true  (client-credentials grant)
+#   - standardFlowEnabled / directAccessGrantsEnabled: false (no browser, no ROPC)
+#   - an oidc-audience mapper instead of a groups mapper, so the access token's
+#     `aud` carries `delve-ingest` — Delve's bearer-JWT auth validates azp/aud.
+# Credentials land in secret/delve/ingest and VSO-sync into ns delve.
+
+- name: Set Keycloak internal base URL fact (ingest)
+  ansible.builtin.set_fact:
+    _delve_ingest_kc_base_url: "{{ delve_keycloak_internal_api_url }}"
+
+- name: Prepare internal HTTPS trust bundle for Delve ingest client setup
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: prepare_internal_https_caller.yml
+  vars:
+    common_internal_https_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+    common_internal_https_service_name: "{{ delve_keycloak_service_name }}"
+    common_internal_https_service_namespace: "{{ delve_keycloak_namespace }}"
+    common_internal_https_fqdn: "{{ delve_keycloak_internal_fqdn }}"
+    common_internal_https_openbao_cluster_addr: "{{ delve_openbao_cluster_addr }}"
+    common_internal_https_openbao_ca_secret_name: "{{ delve_openbao_ca_secret_name }}"
+    common_internal_https_ca_source_namespace: "{{ delve_keycloak_namespace }}"
+    common_internal_https_bundle_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    common_internal_https_openbao_pki_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
+
+- name: Get Keycloak admin password from admin secret (ingest)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_keycloak_admin_secret_name }}
+      -n {{ delve_keycloak_namespace }}
+      -o jsonpath={.data.{{ delve_keycloak_admin_password_key }}}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_ingest_kc_admin_pw_b64
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Decode Keycloak admin password (ingest)
+  ansible.builtin.set_fact:
+    _delve_ingest_kc_admin_password: "{{ _delve_ingest_kc_admin_pw_b64.stdout | b64decode }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Get Keycloak admin username from admin secret (ingest)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_keycloak_admin_secret_name }}
+      -n {{ delve_keycloak_namespace }}
+      -o jsonpath={.data.username}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_ingest_kc_admin_user_b64
+  changed_when: false
+  when: delve_keycloak_admin_username_from_secret | bool
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Resolve Keycloak admin username (ingest)
+  ansible.builtin.set_fact:
+    _delve_ingest_kc_admin_user: >-
+      {{
+        (_delve_ingest_kc_admin_user_b64.stdout | b64decode)
+        if ((delve_keycloak_admin_username_from_secret | bool)
+            and (_delve_ingest_kc_admin_user_b64.stdout | default('') | length) > 0)
+        else delve_keycloak_admin_username
+      }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Obtain Keycloak admin token (retry until Keycloak is ready) (ingest)
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: admin-cli
+      username: "{{ _delve_ingest_kc_admin_user }}"
+      password: "{{ _delve_ingest_kc_admin_password }}"
+      grant_type: password
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_ingest_kc_token_result
+  retries: 10
+  delay: 15
+  until: _delve_ingest_kc_token_result.status == 200
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Keycloak admin token fact (ingest)
+  ansible.builtin.set_fact:
+    _delve_ingest_kc_admin_token: "{{ (_delve_ingest_kc_token_result.json.access_token | default('')) if (_delve_ingest_kc_token_result is defined) else '' }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Look up Delve ingest client in Keycloak
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients?clientId={{ delve_ingest_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_ingest_kc_client_lookup
+  changed_when: false
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Delve ingest client existence facts
+  ansible.builtin.set_fact:
+    _delve_ingest_client_exists: "{{ (_delve_ingest_kc_client_lookup.json | length) > 0 }}"
+    _delve_ingest_client_internal_id: "{{ ((_delve_ingest_kc_client_lookup.json | first).id) if ((_delve_ingest_kc_client_lookup.json | length) > 0) else '' }}"
+
+- name: Generate Delve ingest client secret when none is provided
+  ansible.builtin.command:
+    cmd: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+  register: _delve_ingest_secret_generated
+  changed_when: true
+  when:
+    - (delve_ingest_client_secret | default('') | length) == 0
+    - not _delve_ingest_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set effective ingest client secret for client create path
+  ansible.builtin.set_fact:
+    _delve_ingest_client_secret_effective: >-
+      {{
+        (delve_ingest_client_secret | default(''))
+        if (delve_ingest_client_secret | default('') | length) > 0
+        else (_delve_ingest_secret_generated.stdout | default(''))
+      }}
+  when: not _delve_ingest_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Create Delve ingest Keycloak client (service accounts / client-credentials)
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      clientId: "{{ delve_ingest_client_id }}"
+      name: Delve Ingest
+      description: "Machine ingestion (client-credentials) client for the Delve audit feed shippers."
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      standardFlowEnabled: false
+      implicitFlowEnabled: false
+      directAccessGrantsEnabled: false
+      serviceAccountsEnabled: true
+      secret: "{{ _delve_ingest_client_secret_effective }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 201
+  when: not _delve_ingest_client_exists
+  register: _delve_ingest_kc_client_create_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Refresh Delve ingest client lookup after create
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients?clientId={{ delve_ingest_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_ingest_kc_client_lookup_after_create
+  changed_when: false
+  when: not _delve_ingest_client_exists
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set Delve ingest client ID after create
+  ansible.builtin.set_fact:
+    _delve_ingest_client_internal_id: "{{ (_delve_ingest_kc_client_lookup_after_create.json | first).id }}"
+  when:
+    - not _delve_ingest_client_exists
+    - (_delve_ingest_kc_client_lookup_after_create.json | length) > 0
+
+- name: Get existing Delve ingest Keycloak client representation
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_ingest_client_internal_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_ingest_kc_client_details
+  changed_when: false
+  when: _delve_ingest_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Update Delve ingest Keycloak client settings (idempotent)
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_ingest_client_internal_id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body: >-
+      {{
+        _delve_ingest_kc_client_details.json | combine({
+          'enabled': true,
+          'protocol': 'openid-connect',
+          'publicClient': false,
+          'standardFlowEnabled': false,
+          'implicitFlowEnabled': false,
+          'directAccessGrantsEnabled': false,
+          'serviceAccountsEnabled': true
+        }, recursive=True)
+      }}
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 204
+  when: _delve_ingest_client_internal_id | length > 0
+  register: _delve_ingest_kc_client_update_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: List existing protocol mappers on the Delve ingest client
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_ingest_client_internal_id }}/protocol-mappers/models"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_ingest_kc_client_mappers
+  changed_when: false
+  when: _delve_ingest_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+# Add `delve-ingest` to the access token's `aud` so Delve's bearer-JWT auth can
+# validate the audience as well as `azp`. Without this mapper Keycloak's
+# client-credentials token may carry only `azp`, not a matching `aud`.
+- name: Ensure audience protocol mapper on the Delve ingest client
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_ingest_client_internal_id }}/protocol-mappers/models"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: delve-ingest-audience
+      protocol: openid-connect
+      protocolMapper: oidc-audience-mapper
+      config:
+        included.client.audience: "{{ delve_ingest_client_id }}"
+        id.token.claim: "false"
+        access.token.claim: "true"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 201
+  when:
+    - _delve_ingest_client_internal_id | length > 0
+    - "'delve-ingest-audience' not in (_delve_ingest_kc_client_mappers.json | default([]) | map(attribute='name') | list)"
+  register: _delve_ingest_kc_audience_mapper_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Rotate Delve ingest client secret when explicitly provided
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_ingest_client_internal_id }}/client-secret"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      value: "{{ delve_ingest_client_secret }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: [200, 204]
+  when:
+    - _delve_ingest_client_internal_id | length > 0
+    - (delve_ingest_client_secret | default('') | length) > 0
+  register: _delve_ingest_kc_secret_rotate_result
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Read current Delve ingest client secret from Keycloak
+  ansible.builtin.uri:
+    url: "{{ _delve_ingest_kc_base_url }}/admin/realms/{{ delve_keycloak_realm }}/clients/{{ _delve_ingest_client_internal_id }}/client-secret"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _delve_ingest_kc_admin_token }}"
+    ca_path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    validate_certs: true
+    status_code: 200
+  register: _delve_ingest_kc_client_secret_read
+  changed_when: false
+  when: _delve_ingest_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Set effective Keycloak ingest client secret fact
+  ansible.builtin.set_fact:
+    delve_ingest_effective_client_secret: "{{ _delve_ingest_kc_client_secret_read.json.value | default(_delve_ingest_client_secret_effective | default('')) }}"
+  when: _delve_ingest_client_internal_id | length > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Load OpenBao provisioner token (ingest)
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: load_openbao_provisioner_token.yml
+
+- name: Read OpenBao root CA PEM for Delve ingest trust
+  ansible.builtin.uri:
+    url: "{{ delve_ingest_ca_pem_url }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    status_code: 200
+    return_content: true
+  register: _delve_ingest_openbao_ca_pem_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Set Delve ingest CA PEM fact
+  ansible.builtin.set_fact:
+    _delve_ingest_ca_pem: "{{ _delve_ingest_openbao_ca_pem_result.content | default('') | trim }}"
+  when: not ansible_check_mode
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+- name: Persist Delve ingest credentials in OpenBao KV
+  ansible.builtin.uri:
+    url: "{{ delve_openbao_api_addr }}/v1/{{ delve_openbao_kv_mount }}/data/{{ delve_openbao_ingest_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_provisioner_token }}"
+    body_format: json
+    body:
+      data:
+        OIDC_CLIENT_ID: "{{ delve_ingest_client_id }}"
+        OIDC_CLIENT_SECRET: "{{ delve_ingest_effective_client_secret }}"
+        OIDC_ISSUER_URL: "{{ delve_ingest_issuer_url }}"
+        OIDC_CA_PEM: "{{ _delve_ingest_ca_pem | default('') }}"
+    status_code: [200, 204]
+  register: _delve_ingest_openbao_store_result
+  when:
+    - not ansible_check_mode
+    - delve_ingest_effective_client_secret is defined
+    - (delve_ingest_effective_client_secret | string | length) > 0
+    - (_delve_ingest_ca_pem | default('') | length) > 0
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+
+# Sync secret/delve/ingest into ns delve so the shipper pods (§2.4) can read it
+# to fetch client-credentials tokens, and so Delve's web pod can read the issuer
+# coordinates for bearer-JWT validation.
+- name: Apply Delve ingest VaultStaticSecret resource
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'delve_vaultstaticsecret_ingest.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ delve_kubeconfig_path }}"
+  when: not ansible_check_mode
+
+- name: Wait for Delve ingest secret to be synced by VSO
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get secret {{ delve_ingest_secret_name }}
+      --namespace {{ delve_namespace }}
+  environment:
+    KUBECONFIG: "{{ delve_kubeconfig_path }}"
+  register: _delve_ingest_secret_check
+  until: _delve_ingest_secret_check.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Remove temporary Keycloak CA file for Delve ingest setup
+  ansible.builtin.file:
+    path: /tmp/{{ delve_openbao_ca_secret_name }}-delve-ingest-ca.crt
+    state: absent
+  changed_when: false
+
+- name: Remove temporary Keycloak internal FQDN hosts override for Delve ingest setup
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^.*\s+{{ delve_keycloak_service_name }}\.{{ delve_keycloak_namespace }}\.svc\.cluster\.local(\s|$)'
+    state: absent
+  become: true

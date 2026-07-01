@@ -59,9 +59,17 @@ delve_openbao_policy_name: delve-vso
 delve_openbao_k8s_role: delve-vso
 delve_openbao_db_path: delve/db
 delve_openbao_oidc_path: delve/oidc
+delve_openbao_ingest_path: delve/ingest
+# Read-only Keycloak DB credentials the keycloak_event shipper uses (Phase 2).
+delve_openbao_keycloak_reader_path: delve/keycloak-reader
 
 # Toggle for the delve role (mirrors keycloak_enabled). Default on for dev.
 delve_enabled: true
+
+# Phase 2: enable the k3s API-server audit feed (secrets-only, Metadata level)
+# so the Delve k8s_audit shipper has a log to tail. Off in the role default to
+# keep the minimal default; on here for the dev demo.
+k3s_audit_enabled: true
 
 # Ingress HTTP behavior policy.
 ingress_http_policy: disabled

@@ -62,6 +62,22 @@ oidc:
   # [{ ip: "10.0.0.10", hostnames: ["armory.local"] }]
   issuerHostAliases: []
 
+# Machine ingestion (bearer-JWT) for the audit feed shippers. Independent of
+# `oidc` (human SSO): same issuer, different client (delve-ingest), separate code
+# path. When enabled, the web pod validates Bearer tokens on ingress/ against the
+# realm JWKS, trusting the issuer's TLS via the CA mounted from `secretName`.
+ingest:
+  enabled: false
+  # VSO-synced Secret carrying OIDC_CLIENT_ID / OIDC_CLIENT_SECRET /
+  # OIDC_ISSUER_URL / OIDC_CA_PEM for the delve-ingest client.
+  secretName: delve-ingest
+  # Required azp/aud of accepted tokens.
+  audience: delve-ingest
+  # Key inside `secretName` holding the issuer CA PEM, mounted into the web pod.
+  caPemKey: OIDC_CA_PEM
+  caMountPath: /etc/delve-ingest
+  caFileName: ingest-ca.pem
+
 # Internal TLS re-encrypt. When enabled, the web pod serves HTTPS from a mounted
 # cert (cherrypy SSL via DELVE_SSL_*), and the ingress must carry the
 # `nginx.ingress.kubernetes.io/backend-protocol: HTTPS` annotation (set by the

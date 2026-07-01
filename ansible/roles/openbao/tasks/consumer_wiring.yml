@@ -129,8 +129,8 @@
   when: not ansible_check_mode
 
 # Delve audit-search platform. Phase 1 grants read on the DB credential path;
-# Phase 3 adds the oidc (human SSO) path; the ingest (Phase 2) path is added to
-# this policy when that phase lands.
+# Phase 3 adds the oidc (human SSO) path; Phase 2 adds the ingest
+# (delve-ingest client-credentials) path the shippers + bearer-JWT auth use.
 - name: Write OpenBao ACL policy for Delve secrets (VSO read)
   ansible.builtin.uri:
     url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ delve_openbao_policy_name }}"
@@ -153,6 +153,22 @@
         }
 
         path "{{ openbao_kv_mount }}/metadata/{{ delve_openbao_oidc_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/data/{{ delve_openbao_ingest_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/metadata/{{ delve_openbao_ingest_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/data/{{ delve_openbao_keycloak_reader_path }}" {
+          capabilities = ["read"]
+        }
+
+        path "{{ openbao_kv_mount }}/metadata/{{ delve_openbao_keycloak_reader_path }}" {
           capabilities = ["read"]
         }
     status_code: [200, 204]

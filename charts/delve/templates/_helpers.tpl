@@ -95,6 +95,19 @@ Django SECRET_KEY come from the VSO-synced secret; everything else is literal.
       name: {{ .Values.oidc.secretName }}
       key: OIDC_ISSUER_URL
 {{- end }}
+{{- if .Values.ingest.enabled }}
+- name: DELVE_INGEST_ENABLED
+  value: "True"
+- name: DELVE_INGEST_AUDIENCE
+  value: "{{ .Values.ingest.audience }}"
+- name: DELVE_INGEST_CA_FILE
+  value: "{{ .Values.ingest.caMountPath }}/{{ .Values.ingest.caFileName }}"
+- name: DELVE_INGEST_ISSUER_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.ingest.secretName }}
+      key: OIDC_ISSUER_URL
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -115,6 +128,14 @@ CA. Both are gated on their feature flags so Phase 1 renders neither.
       - key: {{ .Values.oidc.caPemKey }}
         path: {{ .Values.oidc.caFileName }}
 {{- end }}
+{{- if .Values.ingest.enabled }}
+- name: ingest-ca
+  secret:
+    secretName: {{ .Values.ingest.secretName }}
+    items:
+      - key: {{ .Values.ingest.caPemKey }}
+        path: {{ .Values.ingest.caFileName }}
+{{- end }}
 {{- end -}}
 
 {{/* Matching volumeMounts for the web container. */}}
@@ -127,6 +148,11 @@ CA. Both are gated on their feature flags so Phase 1 renders neither.
 {{- if .Values.oidc.enabled }}
 - name: oidc-ca
   mountPath: {{ .Values.oidc.caMountPath }}
+  readOnly: true
+{{- end }}
+{{- if .Values.ingest.enabled }}
+- name: ingest-ca
+  mountPath: {{ .Values.ingest.caMountPath }}
   readOnly: true
 {{- end }}
 {{- end -}}

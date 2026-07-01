@@ -1,0 +1,140 @@
+---
+# Keycloak event feed shipper. Periodically queries the Keycloak Tier-1 tables
+# (event_entity / admin_event_entity) with the read-only delve_keycloak_reader
+# role and POSTs new rows to Delve api/events/ with a delve-ingest bearer token.
+# The high-water-mark cursor persists on a PVC so restarts/reschedules neither
+# re-ingest nor skip. Runs as root so it can write the cursor on the PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ delve_shipper_keycloak_cursor_pvc }}
+  namespace: {{ delve_namespace }}
+  labels:
+    app.kubernetes.io/name: delve-shipper
+    app.kubernetes.io/component: keycloak-event
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ delve_shipper_keycloak_cursor_size }}
+{% if delve_pg_storage_class | default('') | length > 0 %}
+  storageClassName: {{ delve_pg_storage_class }}
+{% endif %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delve-shipper-keycloak-event
+  namespace: {{ delve_namespace }}
+  labels:
+    app.kubernetes.io/name: delve-shipper
+    app.kubernetes.io/component: keycloak-event
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: delve-shipper
+      app.kubernetes.io/component: keycloak-event
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: delve-shipper
+        app.kubernetes.io/component: keycloak-event
+    spec:
+      serviceAccountName: {{ delve_pod_sa_name }}
+      securityContext:
+        runAsUser: 0
+{% if delve_image_pull_secrets | default([]) | length > 0 %}
+      imagePullSecrets:
+{% for secret in delve_image_pull_secrets %}
+        - name: {{ secret }}
+{% endfor %}
+{% endif %}
+{% if (_delve_shipper_host_aliases | default([])) | length > 0 %}
+      hostAliases:
+{% for alias in _delve_shipper_host_aliases %}
+        - ip: {{ alias.ip }}
+          hostnames:
+{% for hostname in alias.hostnames %}
+            - {{ hostname }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+      containers:
+        - name: shipper
+          image: "{{ delve_shipper_image_repository }}:{{ delve_shipper_image_tag }}"
+          imagePullPolicy: {{ delve_shipper_image_pull_policy }}
+          command: ["python", "utilities/cli/keycloak-events.py", "-v"]
+          env:
+            - name: DELVE_SERVER
+              value: "{{ delve_shipper_server_url }}"
+            - name: DELVE_KC_INDEX
+              value: "{{ delve_shipper_keycloak_index }}"
+            - name: DELVE_KC_SOURCETYPE
+              value: "{{ delve_shipper_keycloak_sourcetype }}"
+            - name: DELVE_KC_INTERVAL
+              value: "{{ delve_shipper_keycloak_interval }}"
+            - name: DELVE_KC_CURSOR_FILE
+              value: "{{ delve_shipper_keycloak_cursor_dir }}/cursor.json"
+            # Bearer auth to Delve.
+            - name: DELVE_INGEST_TOKEN_URL
+              value: "{{ delve_shipper_token_url }}"
+            - name: DELVE_INGEST_CLIENT_ID
+              value: "{{ delve_ingest_client_id }}"
+            - name: DELVE_INGEST_CA_FILE
+              value: "{{ delve_shipper_ca_mount_path }}/{{ delve_shipper_ca_file_name }}"
+            - name: DELVE_INGEST_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_ingest_secret_name }}
+                  key: OIDC_CLIENT_SECRET
+            # Read-only Keycloak DB connection.
+            - name: DELVE_KC_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_keycloak_reader_secret_name }}
+                  key: DB_HOST
+            - name: DELVE_KC_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_keycloak_reader_secret_name }}
+                  key: DB_PORT
+            - name: DELVE_KC_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_keycloak_reader_secret_name }}
+                  key: DB_NAME
+            - name: DELVE_KC_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_keycloak_reader_secret_name }}
+                  key: DB_USERNAME
+            - name: DELVE_KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_keycloak_reader_secret_name }}
+                  key: DB_PASSWORD
+            - name: DELVE_KC_DB_SSLMODE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ delve_keycloak_reader_secret_name }}
+                  key: DB_SSLMODE
+          volumeMounts:
+            - name: cursor
+              mountPath: {{ delve_shipper_keycloak_cursor_dir }}
+            - name: ingest-ca
+              mountPath: {{ delve_shipper_ca_mount_path }}
+              readOnly: true
+      volumes:
+        - name: cursor
+          persistentVolumeClaim:
+            claimName: {{ delve_shipper_keycloak_cursor_pvc }}
+        - name: ingest-ca
+          secret:
+            secretName: {{ delve_ingest_secret_name }}
+            items:
+              - key: OIDC_CA_PEM
+                path: {{ delve_shipper_ca_file_name }}

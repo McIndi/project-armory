@@ -94,3 +94,20 @@ k3s_oidc_ca_secret_key: "OIDC_CA_PEM"
 
 # k3s kubeconfig path for API access
 k3s_kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
+
+# --- Phase 2: API-server audit logging (Delve k8s_audit feed) ----------------
+# Off by default to preserve the minimal/air-gapped default; group_vars flips it
+# on for dev. When enabled, the apiserver loads templates/audit-policy.yaml.j2
+# (secrets-only, Metadata level) and writes a rotating JSON audit log that the
+# Delve k8s_audit shipper tails by inode. See
+# doc/handoffs/delve-audit-integration-plan.md §2.1.
+k3s_audit_enabled: false
+# Where the rendered audit policy lands (must exist before the apiserver starts,
+# so the role drops it before templating config.yaml and restarting k3s).
+k3s_audit_policy_file: "{{ k3s_config_dir }}/audit-policy.yaml"
+# Host path the apiserver writes the audit log to; the shipper hostPath-mounts
+# this directory read-only. kubelet/apiserver rotate it per the max* limits.
+k3s_audit_log_path: "/var/log/k3s/audit/audit.log"
+k3s_audit_log_maxage: 7
+k3s_audit_log_maxbackup: 5
+k3s_audit_log_maxsize: 100

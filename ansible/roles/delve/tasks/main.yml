@@ -21,6 +21,16 @@
       tags: [delve, delve_oidc, keycloak, openbao, vso]
       when: delve_oidc_enabled | bool
 
+    - name: Configure Delve machine-ingestion client and sync credentials
+      ansible.builtin.import_tasks: ingestion_auth.yml
+      tags: [delve, delve_ingest, keycloak, openbao, vso]
+      when: delve_ingest_enabled | bool
+
     - name: Deploy Delve via Helm
       ansible.builtin.import_tasks: deploy.yml
       tags: [delve, delve_deploy, openbao, vso]
+
+    - name: Deploy Delve audit feed shippers
+      ansible.builtin.import_tasks: shippers.yml
+      tags: [delve, delve_shippers, openbao, vso, keycloak]
+      when: delve_ingest_enabled | bool
