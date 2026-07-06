@@ -1,0 +1,22 @@
+{% extends 'events/base.html' %}
+{% load query %}
+
+{% block title %}Armory Security Overview{% endblock %}
+
+{% block content %}
+<h2>Armory Security Overview</h2>
+
+<h4>Event volume by index (last 24h)</h4>
+{% query_chart by_index %}
+
+<h4>Event volume trend, per index, per hour</h4>
+{% query_chart by_index_over_time %}
+
+<h4>OpenBao policy-denied requests (last 24h)</h4>
+{% query_table openbao_denied %}
+{% endblock %}
+
+{% block js %}
+<script src="{% query_table_js %}"></script>
+<script src="{% query_chart_js %}"></script>
+{% endblock %}

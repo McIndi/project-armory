@@ -1,0 +1,18 @@
+{% extends 'events/base.html' %}
+{% load query %}
+
+{% block title %}Armory Failed Logins{% endblock %}
+
+{% block content %}
+<h2>Failed Login / Brute-Force Signal</h2>
+<p>Keycloak <code>LOGIN_ERROR</code> events grouped by user and source IP, last 24h, 5+ attempts.</p>
+
+{% query_table brute_force %}
+
+<h4>Machine (client-credentials) login audit</h4>
+{% query_table client_logins %}
+{% endblock %}
+
+{% block js %}
+<script src="{% query_table_js %}"></script>
+{% endblock %}
