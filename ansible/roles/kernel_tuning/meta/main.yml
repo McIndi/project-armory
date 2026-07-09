@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: "Clifford Bressette & Brian Kearney"
+  role_name: kernel_tuning
+  namespace: mcindi
+  company: "McIndi Solutions"
+  description: "Apply host kernel sysctl, I/O scheduler, and THP settings."
+  license: "MIT"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Fedora
+      versions: [all]
+  galaxy_tags:
+    - kernel
+    - tuning
+    - sysctl
+    - performance
+dependencies: []

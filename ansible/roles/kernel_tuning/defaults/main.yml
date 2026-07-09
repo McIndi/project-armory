@@ -1,0 +1,13 @@
+---
+kernel_tuning_swappiness: 10
+kernel_tuning_dirty_bytes: 134217728
+kernel_tuning_dirty_background_bytes: 67108864
+kernel_tuning_inotify_max_user_watches: 524288
+kernel_tuning_inotify_max_user_instances: 512
+kernel_tuning_io_scheduler: mq-deadline
+kernel_tuning_io_scheduler_device: sda
+kernel_tuning_thp_enabled: never
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

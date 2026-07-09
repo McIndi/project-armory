@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply Armory transparent hugepage mode
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sh -c 'echo {{ kernel_tuning_thp_enabled }} > /sys/kernel/mm/transparent_hugepage/enabled'
+
+[Install]
+WantedBy=multi-user.target

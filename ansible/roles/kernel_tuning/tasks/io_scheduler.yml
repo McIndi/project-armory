@@ -1,0 +1,17 @@
+---
+- name: Install udev rule for block scheduler
+  ansible.builtin.template:
+    src: 60-armory-io-scheduler.rules.j2
+    dest: /etc/udev/rules.d/60-armory-io-scheduler.rules
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: not ansible_check_mode
+
+- name: Trigger udev for scheduler target block device
+  ansible.builtin.command:
+    cmd: "udevadm trigger --name-match=/dev/{{ kernel_tuning_io_scheduler_device }}"
+  become: true
+  changed_when: false
+  when: not ansible_check_mode

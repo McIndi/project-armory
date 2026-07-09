@@ -1,0 +1,12 @@
+---
+- name: Apply sysctl tuning
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: [kernel_tuning, sysctl]
+
+- name: Apply I/O scheduler tuning
+  ansible.builtin.import_tasks: io_scheduler.yml
+  tags: [kernel_tuning, io_scheduler]
+
+- name: Apply transparent hugepage tuning
+  ansible.builtin.import_tasks: thp.yml
+  tags: [kernel_tuning, thp]
