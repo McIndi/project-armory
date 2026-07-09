@@ -1,0 +1,39 @@
+---
+- name: Provision cert-manager TokenRequest RBAC with diagnostics
+  block:
+    - name: Apply Role granting cert-manager serviceaccounts/token create
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: "{{ certmanager_release_name }}-tokenrequest"
+            namespace: "{{ certmanager_namespace }}"
+          rules:
+            - apiGroups: [""]
+              resources: ["serviceaccounts/token"]
+              resourceNames: ["{{ certmanager_release_name }}"]
+              verbs: ["create"]
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      when: not ansible_check_mode
+
+    - name: Apply RoleBinding for cert-manager TokenRequest Role
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: "{{ certmanager_release_name }}-tokenrequest"
+            namespace: "{{ certmanager_namespace }}"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: "{{ certmanager_release_name }}-tokenrequest"
+          subjects:
+            - kind: ServiceAccount
+              name: "{{ certmanager_release_name }}"
+              namespace: "{{ certmanager_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      when: not ansible_check_mode

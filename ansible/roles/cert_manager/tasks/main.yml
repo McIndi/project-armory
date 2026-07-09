@@ -10,6 +10,10 @@
       ansible.builtin.import_tasks: install.yml
       tags: [cert_manager, cert_manager_install]
 
+    - name: cert-manager TokenRequest RBAC
+      ansible.builtin.import_tasks: rbac.yml
+      tags: [cert_manager, cert_manager_rbac]
+
     - name: ClusterIssuer provisioning
       ansible.builtin.import_tasks: issuer.yml
       tags: [cert_manager, cert_manager_issuer]
