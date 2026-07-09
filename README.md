@@ -201,31 +201,53 @@ ansible-playbook playbooks/teardown_k3s_workloads.yml -e teardown_confirm=true  
 
 Full command reference and troubleshooting: [doc/operations.md](doc/operations.md).
 
-## Refreshing the `delve:latest` image
+## Building and refreshing the local `delve-armory` image
 
-The `delve-web`, `delve-worker`, and migrate Job workloads use `imagePullPolicy: Always` with `ghcr.io/mcindi/delve:latest`. Because the tag is mutable, k3s will re-resolve the image digest whenever new pods are created; you only need to restart the workloads so they pick up the current upstream image.
+The Delve role now builds the `delve-armory` child image locally on the node
+with `buildah`, exports it as an OCI archive, and imports it into k3s
+containerd (`k8s.io` namespace). Helm then deploys that local ref with
+`imagePullPolicy: IfNotPresent`.
 
-From the VM:
+Default flow (no registry push/pull secrets required):
+
+- image: `localhost/delve-armory:v0.1.0`
+- pull policy: `IfNotPresent`
+- orchestration: buildah build -> OCI archive -> `k3s ctr images import`
+
+To refresh the running app after code changes, either bump the image tag in
+`.env` or force a same-tag rebuild:
 
 ```bash
 vagrant ssh
-export KUBECONFIG=<delve_kubeconfig_path>   # for example: /etc/rancher/k3s/k3s.yaml
+cd /vagrant/project-armory
+set -a; source .env; set +a
 
-# Force fresh pulls for the web and worker deployments
-k3s kubectl rollout restart deployment/delve-web deployment/delve-worker -n delve
+# Option A: bump ARMORY_DELVE_IMAGE_TAG in .env, then deploy
+# Option B: force same-tag rebuild/reimport
+export ARMORY_DELVE_IMAGE_REBUILD=true
 
-# Watch them come up on the new image
-k3s kubectl rollout status deployment/delve-web -n delve
-k3s kubectl rollout status deployment/delve-worker -n delve
+cd ansible
+ansible-playbook playbooks/site.yml --tags delve
 ```
 
-If the image update includes a schema or migration change, re-run the migrate Job as well. The simplest path is to re-apply the Ansible deploy, which re-triggers the Helm hook:
+Quick verification from the VM:
 
 ```bash
-ansible-playbook ... --tags delve
-# or rerun the delve role from the project-armory playbook root
+# Confirm the image exists in k3s containerd
+sudo k3s ctr -n k8s.io images ls -q | grep delve-armory
+
+# Confirm the deployment is using the expected image ref
+sudo k3s kubectl -n delve get deploy delve-web -o jsonpath='{..image}{"\n"}'
+
+# Confirm the overlay settings module is active in the web pod
+sudo k3s kubectl -n delve exec deploy/delve-web -- printenv DJANGO_SETTINGS_MODULE
 ```
 
-In most cases, a rollout restart is enough for the web and worker deployments. No manual `crictl rmi`, image pre-pull, or Helm upgrade is needed; `Always` causes each new pod to resolve `ghcr.io/mcindi/delve:latest` against the registry instead of using a cached digest.
+Notes:
 
-If your environment overrides the defaults, verify `delve_kubeconfig_path` and `delve_namespace` in `ansible/roles/delve/defaults/main.yml` before running the commands above.
+- `ARMORY_DELVE_IMAGE_REBUILD=true` forces build+import even when the same tag
+  already exists locally.
+- For same-tag rebuilds, the role triggers rollout restarts for `delve-web` and
+  `delve-worker` so pods pick up the rebuilt image.
+- The base image (`ghcr.io/mcindi/delve`) is still pulled during build time.
+  This is local build/import, not full air-gap operation.

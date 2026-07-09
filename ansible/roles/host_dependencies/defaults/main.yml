@@ -7,6 +7,7 @@ armory_host_dependency_packages:
   - curl
   - git
   - python3-kubernetes
+  - buildah
 
 # Keep present by default; override to latest if host drift correction is needed.
 armory_host_dependency_state: present

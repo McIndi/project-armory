@@ -7,6 +7,11 @@
 - name: Run Delve orchestration
   tags: [delve, delve_install]
   block:
+    - name: Build and import the delve-armory image
+      ansible.builtin.import_tasks: build.yml
+      tags: [delve, delve_build]
+      when: delve_image_build_enabled | bool
+
     - name: Provision Delve Postgres, credentials, and VSO sync
       ansible.builtin.import_tasks: db.yml
       tags: [delve, delve_db, openbao, vso]

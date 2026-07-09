@@ -19,10 +19,22 @@ delve_helm_timeout_seconds: 300
 # end-of-project pinning step. Pulled from GHCR (public package — no pull
 # secret). delve_image_pull_secrets is left as a values-driven hook in case the
 # package is later made private.
-delve_image_repository: ghcr.io/mcindi/delve
-delve_image_tag: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_TAG') | default('latest', true) }}"
-delve_image_pull_policy: Always
+delve_image_repository: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_REPOSITORY')
+                            | default('localhost/delve-armory', true) }}"
+delve_image_tag: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_TAG') | default('v0.1.0', true) }}"
+# Local containerd import → IfNotPresent (Always would force a registry pull of a
+# ref that only exists on-node). Override to Always only if you point at a registry.
+delve_image_pull_policy: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_PULL_POLICY')
+                             | default('IfNotPresent', true) }}"
 delve_image_pull_secrets: []
+# --- Local image build (buildah -> OCI archive -> k3s containerd import) -----
+delve_image_build_enabled: true
+delve_image_rebuild: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_REBUILD') | default('false', true) | bool }}"
+delve_image_build_context: "{{ (lookup('ansible.builtin.env', 'ARMORY_PROJECT_ROOT') | default('/vagrant/project-armory', true)) }}/delve-armory-app"
+# Pin the upstream base before any demo (mutable 'latest' otherwise).
+delve_base_image_tag: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_BASE_TAG') | default('latest', true) }}"
+delve_image_archive_path: "{{ delve_work_dir }}/delve-armory-image.tar"
+delve_containerd_namespace: k8s.io
 # Optional override for DJANGO_SETTINGS_MODULE in chart env. Leave empty for
 # upstream Delve defaults; set armory_dashboard.settings for delve-armory images.
 delve_django_settings_module: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_DJANGO_SETTINGS_MODULE') | default('', true) }}"
