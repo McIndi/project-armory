@@ -1,0 +1,12 @@
+---
+# Renders config.yaml from the role's own template/defaults scope. Callers
+# outside the k3s role should reach this via `include_role`/`import_role`
+# (not by templating config.yaml.j2 directly) so k3s_* role defaults such as
+# k3s_disable, k3s_secrets_encryption, k3s_audit_*, and k3s_oidc_* are
+# actually in scope at render time.
+- name: Write k3s config file
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ k3s_config_dir }}/config.yaml"
+    mode: "0644"
+  register: _k3s_config_file

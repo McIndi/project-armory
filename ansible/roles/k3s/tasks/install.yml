@@ -32,11 +32,7 @@
       notify: restart k3s
 
     - name: Write k3s config file
-      ansible.builtin.template:
-        src: config.yaml.j2
-        dest: "{{ k3s_config_dir }}/config.yaml"
-        mode: "0644"
-      register: _k3s_config_file
+      ansible.builtin.import_tasks: render_config.yml
       notify: restart k3s
 
     - name: Download k3s install script

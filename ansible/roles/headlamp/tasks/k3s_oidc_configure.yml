@@ -26,23 +26,18 @@
       register: _k3s_oidc_ca_written
       changed_when: true
 
-    - name: Update k3s config with OIDC settings (enable OIDC flag)
-      ansible.builtin.lineinfile:
-        path: /etc/rancher/k3s/config.yaml
-        regexp: '^k3s_oidc_ca_configured:'
-        line: "k3s_oidc_ca_configured: true"
-        state: present
-      register: _k3s_config_updated
-      become: true
-
     - name: Re-render k3s config.yaml to include OIDC settings
-      ansible.builtin.template:
-        src: "{{ headlamp_k3s_config_template | default((playbook_dir | dirname) ~ '/roles/k3s/templates/config.yaml.j2') }}"
-        dest: /etc/rancher/k3s/config.yaml
-        mode: "0644"
+      # Rendered via import_role (not a direct template task referencing
+      # config.yaml.j2 by path) so the k3s role's own defaults
+      # (k3s_disable, k3s_secrets_encryption, k3s_audit_*, k3s_oidc_*) are
+      # actually in scope — this task runs from the headlamp role in a
+      # separate play from the one that installs k3s, so those defaults are
+      # not otherwise loaded here.
+      ansible.builtin.import_role:
+        name: k3s
+        tasks_from: render_config
       vars:
-        k3s_oidc_ca_configured: true  # Override to enable OIDC in template
-      register: _k3s_config_rerendered
+        k3s_oidc_ca_configured: true
       become: true
 
     - name: Reload k3s service to apply OIDC configuration
