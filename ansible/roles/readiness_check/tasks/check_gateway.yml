@@ -1,92 +1,127 @@
 ---
-# readiness_check/tasks/check_nginx.yml
-# Validate nginx ingress controller and TLS certificates
+# readiness_check/tasks/check_gateway.yml
+# Validate the Envoy Gateway edge: data-plane pods, Gateway status, routes,
+# TLS certificates, and HTTP exposure policy conformance.
 
-- name: Check nginx ingress controller pods running
+- name: Check Envoy data-plane pods running
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Pod
-    namespace: "{{ readiness_check_nginx_namespace }}"
-    label_selectors:
-      - "{{ readiness_check_nginx_controller_label }}"
+    namespace: "{{ readiness_check_gateway_namespace }}"
+    label_selectors: "{{ readiness_check_gateway_proxy_labels }}"
     kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_nginx_pods_info
+  register: _rc_gateway_pods_info
   changed_when: false
   failed_when: false
 
-- name: Build list of running nginx ingress controller pods
+- name: Build list of running Envoy data-plane pods
   ansible.builtin.set_fact:
-    _rc_nginx_running_pods: >-
+    _rc_gateway_running_pods: >-
       {{
-        (_rc_nginx_pods_info.resources | default([]))
+        (_rc_gateway_pods_info.resources | default([]))
         | selectattr('status.phase', 'equalto', 'Running')
         | map(attribute='metadata.name')
         | list
       }}
   changed_when: false
 
-- name: Add nginx controller pods check to results
+- name: Add Envoy data-plane pods check to results
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
-        'check_name': 'Controller pods running',
-        'status': 'pass' if (_rc_nginx_running_pods | length) > 0 else 'fail',
-        'detail': (_rc_nginx_running_pods | length | string) + ' pods running',
-        'error': _rc_nginx_pods_info.msg | default('')
+        'component': 'edge gateway',
+        'check_name': 'Envoy data-plane pods running',
+        'status': 'pass' if (_rc_gateway_running_pods | length) > 0 else 'fail',
+        'detail': (_rc_gateway_running_pods | length | string) + ' pods running',
+        'error': _rc_gateway_pods_info.msg | default('')
       }] }}
   changed_when: false
 
-- name: Check ingress rules for public domain
+- name: Check Gateway status conditions
   kubernetes.core.k8s_info:
-    api_version: networking.k8s.io/v1
-    kind: Ingress
-    namespace: "{{ readiness_check_ingress_tls_namespace }}"
+    api_version: gateway.networking.k8s.io/v1
+    kind: Gateway
+    name: "{{ readiness_check_gateway_name }}"
+    namespace: "{{ readiness_check_gateway_namespace }}"
     kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_nginx_ingress_rules_info
+  register: _rc_gateway_info
   changed_when: false
   failed_when: false
 
-- name: Build list of ingress hosts
+- name: Resolve Gateway Programmed condition
   ansible.builtin.set_fact:
-    _rc_nginx_ingress_hosts: >-
+    _rc_gateway_programmed: >-
       {{
-        (_rc_nginx_ingress_rules_info.resources | default([]))
-        | map(attribute='spec.rules')
+        (
+          (_rc_gateway_info.resources | default([]) | first | default({})).status.conditions
+          | default([])
+          | selectattr('type', 'equalto', 'Programmed')
+          | map(attribute='status')
+          | first
+          | default('unknown')
+        )
+      }}
+  changed_when: false
+
+- name: Add Gateway Programmed check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'edge gateway',
+        'check_name': 'Gateway Programmed',
+        'status': 'pass' if (_rc_gateway_programmed | trim) == 'True' else 'fail',
+        'detail': 'Programmed=' + (_rc_gateway_programmed | default('unknown') | trim),
+        'error': _rc_gateway_info.msg | default('')
+      }] }}
+  changed_when: false
+
+- name: Check HTTPRoutes across namespaces
+  kubernetes.core.k8s_info:
+    api_version: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_gateway_routes_info
+  changed_when: false
+  failed_when: false
+
+- name: Build list of HTTPRoute hostnames
+  ansible.builtin.set_fact:
+    _rc_gateway_route_hosts: >-
+      {{
+        (_rc_gateway_routes_info.resources | default([]))
+        | map(attribute='spec.hostnames', default=[])
         | flatten
-        | map(attribute='host')
-        | reject('undefined')
         | list
       }}
   changed_when: false
 
-- name: Add ingress rules check to results
+- name: Add HTTPRoute hostname check to results
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
-        'check_name': 'Public ingress rules present',
-        'status': 'pass' if readiness_check_public_domain in (_rc_nginx_ingress_hosts | default([])) else 'warn',
-        'detail': (_rc_nginx_ingress_hosts | select('equalto', readiness_check_public_domain) | list | length | string) + ' ingress rules for ' + readiness_check_public_domain,
-        'error': _rc_nginx_ingress_rules_info.msg | default('')
+        'component': 'edge gateway',
+        'check_name': 'Public route present for domain',
+        'status': 'pass' if readiness_check_public_domain in (_rc_gateway_route_hosts | default([])) else 'warn',
+        'detail': (_rc_gateway_route_hosts | select('equalto', readiness_check_public_domain) | list | length | string) + ' routes for ' + readiness_check_public_domain + ' (' + (_rc_gateway_route_hosts | length | string) + ' route hostnames total)',
+        'error': _rc_gateway_routes_info.msg | default('')
       }] }}
   changed_when: false
 
-- name: Check TLS secret for ingress
+- name: Check TLS secret for gateway listeners
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Secret
     namespace: "{{ readiness_check_ingress_tls_namespace }}"
     kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_nginx_tls_secrets_info
+  register: _rc_gateway_tls_secrets_info
   changed_when: false
   failed_when: false
 
-- name: Build list of ingress TLS secrets
+- name: Build list of gateway TLS secrets
   ansible.builtin.set_fact:
-    _rc_nginx_tls_secrets: >-
+    _rc_gateway_tls_secrets: >-
       {{
-        (_rc_nginx_tls_secrets_info.resources | default([]))
+        (_rc_gateway_tls_secrets_info.resources | default([]))
         | selectattr('type', 'equalto', 'kubernetes.io/tls')
         | map(attribute='metadata.name')
         | list
@@ -97,11 +132,11 @@
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
+        'component': 'edge gateway',
         'check_name': 'TLS secrets configured',
-        'status': 'pass' if (_rc_nginx_tls_secrets | length) > 0 else 'warn',
-        'detail': (_rc_nginx_tls_secrets | length | string) + ' TLS secrets found',
-        'error': _rc_nginx_tls_secrets_info.msg | default('')
+        'status': 'pass' if (readiness_check_ingress_tls_certificate_name in _rc_gateway_tls_secrets) else 'fail',
+        'detail': (_rc_gateway_tls_secrets | length | string) + ' TLS secrets found',
+        'error': _rc_gateway_tls_secrets_info.msg | default('')
       }] }}
   changed_when: false
 
@@ -134,7 +169,7 @@
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
+        'component': 'edge gateway',
         'check_name': 'OpenBao external ClusterIssuer ready',
         'status': 'pass' if (_rc_openbao_external_clusterissuer_ready | trim) == 'True' else 'fail',
         'detail': 'Ready=' + (_rc_openbao_external_clusterissuer_ready | default('unknown') | trim),
@@ -171,7 +206,7 @@
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
+        'component': 'edge gateway',
         'check_name': 'OpenBao internal ClusterIssuer ready',
         'status': 'pass' if (_rc_openbao_internal_clusterissuer_ready | trim) == 'True' else 'fail',
         'detail': 'Ready=' + (_rc_openbao_internal_clusterissuer_ready | default('unknown') | trim),
@@ -179,7 +214,7 @@
       }] }}
   changed_when: false
 
-- name: Collect ingress certificate rotation fields
+- name: Collect edge certificate rotation fields
   kubernetes.core.k8s_info:
     api_version: cert-manager.io/v1
     kind: Certificate
@@ -190,7 +225,7 @@
   changed_when: false
   failed_when: false
 
-- name: Build ingress certificate rotation summary string
+- name: Build edge certificate rotation summary string
   ansible.builtin.set_fact:
     _rc_ingress_certificate_rotation: >-
       {{
@@ -210,12 +245,12 @@
       }}
   changed_when: false
 
-- name: Add ingress certificate rotation posture check to results
+- name: Add edge certificate rotation posture check to results
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
-        'check_name': 'Ingress cert-manager rotation configured',
+        'component': 'edge gateway',
+        'check_name': 'Edge cert-manager rotation configured',
         'status': (
           'pass' if (
             _rc_ingress_certificate_rotation | trim | length > 0 and
@@ -231,7 +266,7 @@
       }] }}
   changed_when: false
 
-- name: Check HTTP to HTTPS redirect via ingress endpoint
+- name: Check HTTP to HTTPS redirect via gateway endpoint
   ansible.builtin.uri:
     url: "{{ readiness_check_ingress_http_probe_url }}"
     method: GET
@@ -253,8 +288,8 @@
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
-        'check_name': 'HTTP redirects to HTTPS for ingress hosts',
+        'component': 'edge gateway',
+        'check_name': 'HTTP redirects to HTTPS for public hosts',
         'status': (
           'pass' if (
             (_rc_http_redirect_checks.results | default([]) | length) > 0 and
@@ -285,11 +320,9 @@
   changed_when: false
   when: (readiness_check_ingress_http_policy | default('redirect-only')) == 'redirect-only'
 
-# With a hostNetwork ingress controller the HTTP listener is bound directly on
-# the host, so it cannot be removed via the Service's enableHttp flag and a
-# localhost probe always reaches it (loopback bypasses firewalld). The real
-# enforcement for the 'disabled' policy is the firewalld port closure, so that
-# is what we validate here.
+# Under the 'disabled' policy no HTTP listener exists on the Gateway, but the
+# enforced boundary is still the firewalld port closure, so that is what we
+# validate (loopback probes bypass firewalld).
 - name: Query firewalld for HTTP port when ingress HTTP policy is disabled
   ansible.builtin.command:
     cmd: firewall-cmd --zone={{ readiness_check_ingress_firewall_zone | default('public') }} --query-port=80/tcp
@@ -303,7 +336,7 @@
   ansible.builtin.set_fact:
     _readiness_results: >-
       {{ _readiness_results + [{
-        'component': 'nginx ingress',
+        'component': 'edge gateway',
         'check_name': 'HTTP port closed in firewall per ingress policy',
         'status': 'pass' if ((_rc_http_disabled_fw.stdout | default('') | trim) == 'no') else 'fail',
         'detail': 'firewalld 80/tcp allowed=' + (_rc_http_disabled_fw.stdout | default('unknown') | trim)

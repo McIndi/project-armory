@@ -26,10 +26,9 @@ Defined in `defaults/main.yml`:
 | `certmanager_chart_version` | `""` | Chart version override; empty uses latest. |
 | `certmanager_tofu_timeout_seconds` | `600` | Helm wait timeout for cert-manager install/upgrade. |
 | `certmanager_tofu_chart_values` | `crds.enabled=true` | Helm values for cert-manager release. |
-| `nginx_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao URL for ClusterIssuer. |
-| `nginx_openbao_pki_mount` | `pki` | PKI mount path used by cert-manager issuer. |
-| `nginx_openbao_pki_cert_role` | Derived from `openbao_pki_cert_role` | PKI role used for certificate requests. |
-| `nginx_openbao_certmanager_k8s_role` | `cert-manager` | OpenBao Kubernetes auth role name for cert-manager. |
+| `certmanager_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao URL for ClusterIssuer. |
+| `certmanager_openbao_cluster_issuers` | pki-int / pki-ext | PKI mounts + roles per ClusterIssuer. |
+| `certmanager_openbao_k8s_role` | `cert-manager` | OpenBao Kubernetes auth role name for cert-manager. |
 
 ## Task flow
 1. Install cert-manager via Helm and wait for webhook readiness (`install.yml`).

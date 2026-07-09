@@ -47,31 +47,13 @@
   changed_when: false
   when: not ansible_check_mode
 
-- name: Read ingress controller LoadBalancer IP for Headlamp host mapping
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get service ingress-nginx-controller
-      --namespace ingress-nginx
-      -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_lb_ip_result
-  changed_when: false
-  failed_when: false
-
-- name: Resolve effective Headlamp ingress IP for local hosts entry
-  ansible.builtin.set_fact:
-    headlamp_ingress_ip_effective: >-
-      {{ (_headlamp_lb_ip_result.stdout | trim)
-         if (_headlamp_lb_ip_result.stdout | trim | length) > 0
-         else headlamp_ingress_ip }}
-  changed_when: false
-
-- name: Ensure Headlamp host resolves to ingress IP locally
+# The gateway Service carries the node address as an externalIP, so the
+# public host maps straight to the node IP.
+- name: Ensure Headlamp host resolves to gateway IP locally
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^\S+\s+{{ headlamp_ingress_host | regex_escape }}\s*$'
-    line: "{{ headlamp_ingress_ip_effective }} {{ headlamp_ingress_host }}"
+    line: "{{ headlamp_ingress_ip }} {{ headlamp_ingress_host }}"
     owner: root
     group: root
     mode: "0644"
@@ -117,6 +99,16 @@
           'service': {
             'port': 8443
           },
+          'resources': {
+            'requests': {
+              'cpu': headlamp_resources_requests_cpu,
+              'memory': headlamp_resources_requests_memory
+            },
+            'limits': {
+              'cpu': headlamp_resources_limits_cpu,
+              'memory': headlamp_resources_limits_memory
+            }
+          },
           'volumes': [{
             'name': 'headlamp-oidc-ca',
             'secret': {
@@ -153,23 +145,7 @@
             'version': 'latest'
           },
           'ingress': {
-            'enabled': True,
-            'ingressClassName': headlamp_ingress_class,
-            'annotations': {
-              'nginx.ingress.kubernetes.io/backend-protocol': 'HTTPS',
-              'nginx.ingress.kubernetes.io/ssl-redirect': 'true'
-            },
-            'hosts': [{
-              'host': headlamp_ingress_host,
-              'paths': [{
-                'path': headlamp_ingress_path,
-                'type': headlamp_ingress_path_type
-              }]
-            }],
-            'tls': [{
-              'secretName': headlamp_tls_secret_name,
-              'hosts': [headlamp_ingress_host]
-            }]
+            'enabled': False
           }
         } | combine(headlamp_chart_values_overrides | default({}), recursive=True)
       }}
@@ -237,17 +213,29 @@
     - not ansible_check_mode
     - (_headlamp_probe_schemes.stdout | default('')) != 'HTTPS|HTTPS'
 
-- name: Resolve in-cluster ingress IP for Headlamp OIDC issuer hostname
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get svc {{ headlamp_oidc_resolver_service_name }}
-      --namespace {{ headlamp_oidc_resolver_service_namespace }}
-      -o jsonpath={.spec.clusterIP}
-  environment:
-    KUBECONFIG: "{{ headlamp_kubeconfig_path }}"
-  register: _headlamp_oidc_resolver_ip_result
-  changed_when: false
+- name: Mirror Headlamp serving CA into BackendTLSPolicy ConfigMap
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: apply_backend_ca_configmap.yml
+  vars:
+    common_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
+    common_backend_ca_namespace: "{{ headlamp_namespace }}"
+    common_backend_ca_secret_name: "{{ headlamp_internal_tls_secret_name }}"
+    common_backend_ca_configmap_name: "{{ headlamp_backend_ca_configmap }}"
+
+- name: Apply Headlamp HTTPRoute and BackendTLSPolicy
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'headlamp_httproute.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: "{{ headlamp_kubeconfig_path }}"
   when: not ansible_check_mode
+
+- name: Resolve gateway Service for Headlamp OIDC issuer hostname
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: lookup_gateway_service.yml
+  vars:
+    common_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
 
 - name: Patch Headlamp deployment with OIDC issuer hostAlias
   ansible.builtin.command:
@@ -261,7 +249,7 @@
              'template': {
                'spec': {
                  'hostAliases': [{
-                   'ip': _headlamp_oidc_resolver_ip_result.stdout,
+                   'ip': edge_gateway_service_cluster_ip,
                    'hostnames': [headlamp_oidc_resolver_host]
                  }]
                }
@@ -274,7 +262,7 @@
   changed_when: "'(no change)' not in (_headlamp_oidc_hostalias_patch_result.stdout | default(''))"
   when:
     - not ansible_check_mode
-    - (_headlamp_oidc_resolver_ip_result.stdout | default('') | length) > 0
+    - (edge_gateway_service_cluster_ip | default('') | length) > 0
 
 - name: Wait for Headlamp deployment rollout
   ansible.builtin.command:

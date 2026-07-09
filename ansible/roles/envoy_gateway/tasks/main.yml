@@ -1,0 +1,31 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Run Envoy Gateway orchestration with diagnostics
+  block:
+    - name: Envoy Gateway installation
+      ansible.builtin.import_tasks: install.yml
+      tags: [envoy_gateway, envoy_gateway_install]
+
+    - name: Edge TLS certificate provisioning
+      ansible.builtin.import_tasks: tls.yml
+      tags: [envoy_gateway, envoy_gateway_tls]
+
+    - name: Gateway API and trace-boundary configuration
+      ansible.builtin.import_tasks: gateway.yml
+      tags: [envoy_gateway, envoy_gateway_config]
+
+    - name: Ensure /etc/hosts routes edge domain to the gateway externalIP
+      tags: [envoy_gateway, envoy_gateway_install]
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^\S+\s+{{ envoy_gateway_domain | regex_escape }}\s*$'
+        line: "{{ envoy_gateway_ip }} {{ envoy_gateway_domain }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: _envoy_gateway_hosts_result
+      become: true

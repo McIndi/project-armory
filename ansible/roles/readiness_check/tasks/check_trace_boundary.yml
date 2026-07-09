@@ -1,0 +1,191 @@
+---
+# readiness_check/tasks/check_trace_boundary.yml
+# Verify the trace-context trust boundary end to end: deploy an ephemeral
+# header-echo backend behind the gateway, send a forged W3C trace context
+# through the edge, and reconcile observed state against policy:
+#   1. strip   — the forged traceparent/tracestate/baggage never reach the
+#                backend,
+#   2. mint    — a fresh, gateway-minted traceparent (different trace-id)
+#                arrives instead (internal propagation intact),
+#   3. capture — the inbound value was copied into the forensic header before
+#                the strip (warn-level: degrades forensics, not the boundary).
+# The probe resources and hosts entry are removed afterwards.
+
+- name: Apply trace probe echo backend and route
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+    definition:
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: "{{ readiness_check_trace_probe_name }}"
+          namespace: "{{ readiness_check_gateway_namespace }}"
+          labels:
+            app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+            spec:
+              containers:
+                - name: echo
+                  image: "{{ readiness_check_trace_probe_image }}"
+                  ports:
+                    - containerPort: "{{ readiness_check_trace_probe_port | int }}"
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: "{{ readiness_check_trace_probe_name }}"
+          namespace: "{{ readiness_check_gateway_namespace }}"
+        spec:
+          selector:
+            app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+          ports:
+            - port: "{{ readiness_check_trace_probe_port | int }}"
+              targetPort: "{{ readiness_check_trace_probe_port | int }}"
+      - apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: "{{ readiness_check_trace_probe_name }}"
+          namespace: "{{ readiness_check_gateway_namespace }}"
+        spec:
+          parentRefs:
+            - name: "{{ readiness_check_gateway_name }}"
+          hostnames:
+            - "{{ readiness_check_trace_probe_host }}"
+          rules:
+            - backendRefs:
+                - name: "{{ readiness_check_trace_probe_name }}"
+                  port: "{{ readiness_check_trace_probe_port | int }}"
+
+- name: Wait for trace probe rollout
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl rollout status deployment/{{ readiness_check_trace_probe_name }}
+      --namespace {{ readiness_check_gateway_namespace }}
+      --timeout={{ readiness_check_trace_probe_rollout_timeout_seconds }}s
+  environment:
+    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_trace_probe_rollout
+  changed_when: false
+  failed_when: false
+
+- name: Ensure trace probe host resolves to the gateway locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_trace_probe_host | regex_escape }}\s*$'
+    line: "{{ readiness_check_ingress_probe_ip }} {{ readiness_check_trace_probe_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Send forged trace context through the gateway
+  ansible.builtin.uri:
+    url: "https://{{ readiness_check_trace_probe_host }}:{{ readiness_check_ingress_https_port }}/"
+    method: GET
+    headers:
+      traceparent: "{{ readiness_check_trace_forged_traceparent }}"
+      tracestate: "armory=forged"
+      baggage: "attacker=payload"
+    validate_certs: false
+    return_content: true
+    timeout: "{{ readiness_check_connect_timeout }}"
+    status_code: [200]
+  register: _rc_trace_probe_response
+  changed_when: false
+  failed_when: false
+  retries: "{{ readiness_check_connect_retries }}"
+  delay: 3
+  until: (_rc_trace_probe_response.status | default(0)) == 200
+
+- name: Extract backend-received headers from echo response
+  ansible.builtin.set_fact:
+    _rc_trace_probe_headers: "{{ (_rc_trace_probe_response.json | default({})).headers | default({}) }}"
+    _rc_trace_probe_ok: "{{ (_rc_trace_probe_response.status | default(0)) == 200 }}"
+  changed_when: false
+
+- name: Add trace strip check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'trace boundary',
+        'check_name': 'External trace context not propagated to backend',
+        'status': (
+          'pass' if (
+            _rc_trace_probe_ok and
+            readiness_check_trace_forged_trace_id not in (_rc_trace_probe_headers.traceparent | default('')) and
+            (_rc_trace_probe_headers.tracestate | default('') | length) == 0 and
+            (_rc_trace_probe_headers.baggage | default('') | length) == 0
+          ) else 'fail'
+        ),
+        'detail': 'backend traceparent=' + (_rc_trace_probe_headers.traceparent | default('(none)'))
+          + ' tracestate=' + (_rc_trace_probe_headers.tracestate | default('(none)'))
+          + ' baggage=' + (_rc_trace_probe_headers.baggage | default('(none)')),
+        'error': '' if _rc_trace_probe_ok else ('probe HTTP status ' + (_rc_trace_probe_response.status | default(0) | string))
+      }] }}
+  changed_when: false
+
+- name: Add fresh trace mint check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'trace boundary',
+        'check_name': 'Gateway mints fresh trace toward backend',
+        'status': (
+          'pass' if (
+            _rc_trace_probe_ok and
+            (_rc_trace_probe_headers.traceparent | default('')) is match('^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$') and
+            readiness_check_trace_forged_trace_id not in (_rc_trace_probe_headers.traceparent | default(''))
+          ) else 'fail'
+        ),
+        'detail': 'backend traceparent=' + (_rc_trace_probe_headers.traceparent | default('(none)')),
+        'error': '' if _rc_trace_probe_ok else 'probe request failed'
+      }] }}
+  changed_when: false
+  when: readiness_check_tracing_enabled | bool
+
+- name: Add forensic capture check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'trace boundary',
+        'check_name': 'Inbound traceparent captured in forensic header',
+        'status': (
+          'pass' if (
+            _rc_trace_probe_ok and
+            (_rc_trace_probe_headers[readiness_check_trace_forensic_header] | default('')) == readiness_check_trace_forged_traceparent
+          ) else 'warn'
+        ),
+        'detail': readiness_check_trace_forensic_header + '=' + (_rc_trace_probe_headers[readiness_check_trace_forensic_header] | default('(none)')),
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Remove trace probe hosts entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_trace_probe_host | regex_escape }}\s*$'
+    state: absent
+  become: true
+
+- name: Remove trace probe resources
+  kubernetes.core.k8s:
+    state: absent
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    name: "{{ readiness_check_trace_probe_name }}"
+    namespace: "{{ readiness_check_gateway_namespace }}"
+  loop:
+    - {api_version: gateway.networking.k8s.io/v1, kind: HTTPRoute}
+    - {api_version: v1, kind: Service}
+    - {api_version: apps/v1, kind: Deployment}
+  loop_control:
+    label: "{{ item.kind }}"

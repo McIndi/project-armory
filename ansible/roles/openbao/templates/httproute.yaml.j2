@@ -1,0 +1,41 @@
+---
+# OpenBao UI public route; edge TLS terminates at the Envoy gateway, which
+# re-encrypts to the OpenBao HTTPS listener. Unlike the old nginx ingress
+# (proxy-ssl-verify off), the backend connection is verified against the
+# OpenBao server CA and service FQDN.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openbao-ui
+  namespace: {{ openbao_namespace }}
+spec:
+  parentRefs:
+    - name: {{ openbao_route_gateway_name }}
+      namespace: {{ openbao_route_gateway_namespace }}
+  hostnames:
+    - {{ openbao_ingress_host }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ openbao_release_name }}
+          port: 8200
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: openbao-ui
+  namespace: {{ openbao_namespace }}
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: {{ openbao_release_name }}
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: {{ openbao_backend_ca_configmap }}
+    hostname: {{ openbao_tls_server_name }}

@@ -1,0 +1,104 @@
+---
+# Namespace where the Envoy Gateway controller and the managed Envoy data
+# plane are installed. Shared coordinate: consumer roles read
+# edge_gateway_namespace from group_vars.
+envoy_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
+
+# Helm release settings. OCI chart; empty version lets Helm choose the latest
+# available (decisions/0005 — track latest upstream).
+envoy_gateway_release_name: envoy-gateway
+envoy_gateway_chart_ref: oci://docker.io/envoyproxy/gateway-helm
+envoy_gateway_chart_version: ""
+envoy_gateway_helm_timeout_seconds: 900
+
+# Working directory for rendered Helm values files.
+envoy_gateway_work_dir: /opt/envoy-gateway
+
+envoy_gateway_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
+# Gateway API artifacts (edge-tls-admin domain). The GatewayClass is an
+# explicit managed artifact: Gateway API ships no built-in classes, and the
+# class declares controller ownership unambiguously.
+envoy_gateway_class_name: "{{ edge_gateway_class_name | default('armory') }}"
+envoy_gateway_gateway_name: "{{ edge_gateway_name | default('armory') }}"
+envoy_gateway_controller_name: gateway.envoyproxy.io/gatewayclass-controller
+envoy_gateway_envoyproxy_name: armory-proxy-config
+envoy_gateway_programmed_timeout_seconds: 300
+
+# Primary DNS name included in TLS certificates and route host rules.
+envoy_gateway_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
+
+# Host VM IP. k3s runs with servicelb disabled, so the Envoy Service is
+# ClusterIP patched with this address as an externalIP — kube-proxy then
+# binds 443 (and 80 under redirect-only policy) on the node, replacing the
+# hostNetwork arrangement ingress-nginx used.
+envoy_gateway_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
+
+# All public hosts served by the gateway. One consolidated edge certificate
+# covers the apex and the per-workload subdomains; TLS now terminates only at
+# the Gateway listeners, so per-workload edge certs are gone.
+envoy_gateway_tls_sans:
+  - "{{ envoy_gateway_domain }}"
+  - "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + envoy_gateway_domain, true) }}"
+  - "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + envoy_gateway_domain, true) }}"
+  - "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_HOST') | default('delve.' + envoy_gateway_domain, true) }}"
+
+# Edge TLS certificate (cert-manager, OpenBao external ClusterIssuer). The
+# secret must live in the Gateway's namespace: listener certificateRefs are
+# same-namespace without a ReferenceGrant.
+envoy_gateway_tls_secret_name: armory-tls
+envoy_gateway_tls_issuer_name: openbao-pki-external
+envoy_gateway_cert_duration: "8760h"
+envoy_gateway_cert_renew_before: "720h"
+
+# ── W3C Trace Context trust boundary ─────────────────────────────────────────
+# The gateway is the trust boundary for trace identity: inbound propagation
+# headers are stripped early (before the tracing decision) on ALL external
+# traffic, uniformly — no per-route exceptions. The gateway span is the trace
+# root; everything behind the perimeter may trust trace headers because the
+# edge enforces restart.
+envoy_gateway_trace_strip_headers:
+  - traceparent
+  - tracestate
+  - baggage
+  - b3
+  - x-b3-traceid
+  - x-b3-spanid
+  - x-b3-parentspanid
+  - x-b3-sampled
+  - x-b3-flags
+
+# Forensic link: the inbound traceparent is copied into this header before
+# the strip, and surfaced as span attribute external.traceparent on the
+# gateway root span — correlate external caller complaints without ever
+# trusting the identifier.
+envoy_gateway_trace_forensic_header: x-external-traceparent
+
+# OTel tracing. Sampling is decided here (100% — low volume, high audit
+# value), never from any inbound sampled flag.
+envoy_gateway_tracing_enabled: true
+envoy_gateway_tracing_sampling_rate: 100
+
+# Minimal in-cluster OTLP collector receiving the gateway spans. Debug
+# exporter only for now; swap backendRefs when a real trace store lands.
+envoy_gateway_otel_collector_enabled: "{{ envoy_gateway_tracing_enabled }}"
+envoy_gateway_otel_collector_name: otel-collector
+envoy_gateway_otel_collector_image: otel/opentelemetry-collector:latest
+envoy_gateway_otel_grpc_port: 4317
+otel_collector_resources_requests_cpu: 50m
+otel_collector_resources_requests_memory: 64Mi
+otel_collector_resources_limits_cpu: 200m
+otel_collector_resources_limits_memory: 256Mi
+
+# Whether this role manages firewalld rules for edge traffic (ports 80/443).
+envoy_gateway_firewall_manage: true
+envoy_gateway_firewall_zone: public
+
+# HTTP exposure policy (shared var, group_vars):
+# redirect-only: port 80 listener redirects to HTTPS.
+# disabled: no HTTP listener; 80/tcp firewall port closed.
+ingress_http_policy: disabled
+
+# When true, disables Ansible no_log redaction for sensitive tasks.
+# WARNING: Enabling this will print secrets/tokens into logs and output.
+armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

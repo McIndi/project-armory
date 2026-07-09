@@ -33,14 +33,18 @@ openbao_startup_wait_timeout: 300s
 # Timeout for readiness checks before init/unseal/configure steps.
 openbao_ready_wait_timeout: 600s
 
-# OpenBao UI and ingress defaults.
+# OpenBao UI and public route defaults. Edge TLS terminates at the Envoy
+# gateway (consolidated armory-tls cert); the gateway re-encrypts to the
+# OpenBao HTTPS listener, validated against the server CA.
 # Keep disabled by default; development inventory opts in.
 openbao_ui_enabled: false
 openbao_ingress_enabled: "{{ openbao_ui_enabled }}"
 openbao_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
-openbao_ingress_class: nginx
-openbao_ingress_tls_secret_name: openbao-ui-tls
-openbao_ingress_tls_issuer_name: "{{ certmanager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
+openbao_route_gateway_name: "{{ edge_gateway_name | default('armory') }}"
+openbao_route_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
+# ConfigMap mirroring the OpenBao server CA (openbao-ca) for BackendTLSPolicy
+# validation of the gateway→OpenBao re-encrypt hop.
+openbao_backend_ca_configmap: openbao-backend-ca
 openbao_cert_duration: "8760h"
 openbao_cert_renew_before: "720h"
 
@@ -48,6 +52,12 @@ openbao_cert_renew_before: "720h"
 openbao_readiness_period_seconds: 10
 openbao_readiness_timeout_seconds: 10
 openbao_readiness_failure_threshold: 6
+
+# OpenBao pod resources (Burstable QoS baseline).
+openbao_resources_requests_cpu: 200m
+openbao_resources_requests_memory: 256Mi
+openbao_resources_limits_cpu: "1"
+openbao_resources_limits_memory: 512Mi
 
 # Legacy NodePort that older installs may still have opened in firewalld.
 # Kept only so the role can remove the obsolete public firewall opening.

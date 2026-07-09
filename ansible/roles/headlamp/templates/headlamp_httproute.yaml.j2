@@ -1,0 +1,57 @@
+---
+# Headlamp's own HTTPRoute; edge TLS terminates at the Envoy gateway, which
+# re-encrypts to the Headlamp HTTPS service.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: headlamp
+  namespace: {{ headlamp_namespace }}
+spec:
+  parentRefs:
+    - name: {{ headlamp_route_gateway_name }}
+      namespace: {{ headlamp_route_gateway_namespace }}
+  hostnames:
+    - {{ headlamp_ingress_host }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ headlamp_ingress_path }}
+      backendRefs:
+        - name: {{ headlamp_release_name }}
+          port: 8443
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: headlamp
+  namespace: {{ headlamp_namespace }}
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: {{ headlamp_release_name }}
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: {{ headlamp_backend_ca_configmap }}
+    hostname: {{ headlamp_internal_fqdn }}
+---
+# Headlamp's internal HTTPS listener negotiates h2 via ALPN, but pod
+# logs/exec use a plain HTTP/1.1 Upgrade websocket handshake, which h2
+# upstream connections can't carry (Envoy resets with a protocol error).
+# useClientProtocol makes Envoy match the client's HTTP/1.1 upgrade request
+# with an HTTP/1.1 upstream connection for that request, while ordinary
+# REST calls still proxy over whatever protocol the client used.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: headlamp
+  namespace: {{ headlamp_namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: headlamp
+  useClientProtocol: true

@@ -15,7 +15,7 @@ k3s_config_dir: /etc/rancher/k3s
 
 # Built-in components disabled at install time.
 # Accepts list values supported by k3s --disable.
-# Traefik is disabled because this stack uses ingress-nginx.
+# Traefik is disabled because this stack uses Envoy Gateway as its edge.
 # Reference: https://docs.k3s.io/installation/configuration#configuration-file
 k3s_disable:
   - traefik

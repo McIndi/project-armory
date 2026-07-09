@@ -9,90 +9,50 @@
     state: directory
     mode: "0755"
 
-- name: Ensure Delve external TLS certificate exists and is ready
-  ansible.builtin.import_role:
-    name: common
-    tasks_from: apply_certificate.yml
-  vars:
-    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
-    common_certificate_name: "{{ delve_tls_secret_name }}"
-    common_certificate_namespace: "{{ delve_namespace }}"
-    common_certificate_secret_name: "{{ delve_tls_secret_name }}"
-    common_certificate_issuer_name: "{{ delve_tls_issuer_name }}"
-    common_certificate_duration: "{{ delve_cert_duration }}"
-    common_certificate_renew_before: "{{ delve_cert_renew_before }}"
-    common_certificate_common_name: "{{ delve_ingress_host }}"
-    common_certificate_dns_names:
-      - "{{ delve_ingress_host }}"
-
-- name: Read ingress controller LoadBalancer IP for Delve host mapping
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get service ingress-nginx-controller
-      --namespace ingress-nginx
-      -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-  environment:
-    KUBECONFIG: "{{ delve_kubeconfig_path }}"
-  register: _delve_lb_ip_result
-  changed_when: false
-  failed_when: false
-
-- name: Resolve effective Delve ingress IP for local hosts entry
-  ansible.builtin.set_fact:
-    delve_ingress_ip_effective: >-
-      {{ (_delve_lb_ip_result.stdout | trim)
-         if (_delve_lb_ip_result.stdout | trim | length) > 0
-         else delve_ingress_ip }}
-  changed_when: false
-
-- name: Ensure Delve host resolves to ingress IP locally
+# The gateway Service carries the node address as an externalIP, so the
+# public host maps straight to the node IP.
+- name: Ensure Delve host resolves to gateway IP locally
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^\S+\s+{{ delve_ingress_host | regex_escape }}\s*$'
-    line: "{{ delve_ingress_ip_effective }} {{ delve_ingress_host }}"
+    line: "{{ delve_ingress_ip }} {{ delve_ingress_host }}"
     owner: root
     group: root
     mode: "0644"
   become: true
 
-- name: Resolve in-cluster ingress IP for Delve OIDC issuer hostname
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get svc {{ delve_oidc_resolver_service_name }}
-      --namespace {{ delve_oidc_resolver_service_namespace }}
-      -o jsonpath={.spec.clusterIP}
-  environment:
-    KUBECONFIG: "{{ delve_kubeconfig_path }}"
-  register: _delve_oidc_resolver_ip_result
-  changed_when: false
-  failed_when: false
-  when:
-    - not ansible_check_mode
-    - delve_oidc_enabled | bool
+- name: Resolve gateway Service for Delve OIDC issuer hostname
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: lookup_gateway_service.yml
+  vars:
+    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+  when: delve_oidc_enabled | bool
 
 - name: Build Delve OIDC issuer hostAliases
   ansible.builtin.set_fact:
     _delve_oidc_host_aliases: >-
       {{
-        [{'ip': (_delve_oidc_resolver_ip_result.stdout | default('') | trim),
+        [{'ip': (edge_gateway_service_cluster_ip | default('') | trim),
           'hostnames': [delve_oidc_resolver_host]}]
         if ((delve_oidc_enabled | bool)
-            and (_delve_oidc_resolver_ip_result.stdout | default('') | trim | length) > 0)
+            and (edge_gateway_service_cluster_ip | default('') | trim | length) > 0)
         else []
       }}
   changed_when: false
 
-- name: Build Delve ingress annotations
-  ansible.builtin.set_fact:
-    _delve_ingress_annotations: >-
-      {{
-        {'nginx.ingress.kubernetes.io/ssl-redirect': 'true'}
-        | combine(
-            {'nginx.ingress.kubernetes.io/backend-protocol': 'HTTPS'}
-            if (delve_oidc_enabled | bool) else {}
-          )
-      }}
-  changed_when: false
+# The gateway validates the web pod's serving cert (BackendTLSPolicy rendered
+# by the chart) against this ConfigMap when internal TLS is enabled.
+- name: Mirror Delve serving CA into BackendTLSPolicy ConfigMap
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: apply_backend_ca_configmap.yml
+  vars:
+    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
+    common_backend_ca_namespace: "{{ delve_namespace }}"
+    common_backend_ca_secret_name: "{{ delve_internal_tls_secret_name }}"
+    common_backend_ca_configmap_name: "{{ delve_backend_ca_configmap }}"
+  when: delve_oidc_enabled | bool
 
 - name: Build Delve chart values payload
   ansible.builtin.set_fact:
@@ -103,6 +63,7 @@
             'tag': delve_image_tag,
             'pullPolicy': delve_image_pull_policy
           },
+          'djangoSettingsModule': delve_django_settings_module,
           'imagePullSecrets': delve_image_pull_secrets,
           'serviceAccount': {
             'create': False,
@@ -140,14 +101,15 @@
             'secretName': delve_internal_tls_secret_name,
             'mountPath': delve_internal_tls_mount_path
           },
-          'ingress': {
+          'route': {
             'enabled': True,
-            'className': delve_ingress_class,
+            'parentGateway': {
+              'name': delve_route_gateway_name,
+              'namespace': delve_route_gateway_namespace
+            },
             'host': delve_ingress_host,
             'path': delve_ingress_path,
-            'pathType': delve_ingress_path_type,
-            'tlsSecretName': delve_tls_secret_name,
-            'annotations': _delve_ingress_annotations
+            'backendCACertConfigMap': delve_backend_ca_configmap
           }
         } | combine(delve_chart_values_overrides | default({}), recursive=True)
       }}

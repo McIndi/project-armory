@@ -11,28 +11,22 @@
 
 # --- resolve runtime coordinates ---------------------------------------------
 
-- name: Resolve in-cluster ingress IP for Delve shipper hostAliases
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get svc {{ delve_shipper_resolver_service_name }}
-      --namespace {{ delve_shipper_resolver_service_namespace }}
-      -o jsonpath={.spec.clusterIP}
-  environment:
-    KUBECONFIG: "{{ delve_kubeconfig_path }}"
-  register: _delve_shipper_ingress_ip
-  changed_when: false
-  failed_when: false
-  when: not ansible_check_mode
+- name: Resolve gateway Service for Delve shipper hostAliases
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: lookup_gateway_service.yml
+  vars:
+    common_kubeconfig_path: "{{ delve_kubeconfig_path }}"
 
-# Both the Delve host and the token issuer host resolve to the ingress IP so the
-# shippers reach api/events/ and the token endpoint over the external cert.
+# Both the Delve host and the token issuer host resolve to the gateway IP so
+# the shippers reach api/events/ and the token endpoint over the edge cert.
 - name: Build Delve shipper hostAliases
   ansible.builtin.set_fact:
     _delve_shipper_host_aliases: >-
       {{
-        [{'ip': (_delve_shipper_ingress_ip.stdout | default('') | trim),
+        [{'ip': (edge_gateway_service_cluster_ip | default('') | trim),
           'hostnames': ([delve_ingress_host, delve_shipper_issuer_host] | unique)}]
-        if ((_delve_shipper_ingress_ip.stdout | default('') | trim | length) > 0)
+        if ((edge_gateway_service_cluster_ip | default('') | trim | length) > 0)
         else []
       }}
   changed_when: false

@@ -7,6 +7,11 @@ image:
   tag: latest
   pullPolicy: Always
 
+# Optional Django settings module override. Leave empty for upstream Delve
+# defaults. When image.repository contains "delve-armory", the chart
+# auto-sets this to armory_dashboard.settings unless explicitly overridden.
+djangoSettingsModule: ""
+
 # Optional image pull secrets (names of existing dockerconfigjson secrets).
 # Empty for a public GHCR package.
 imagePullSecrets: []
@@ -79,23 +84,29 @@ ingest:
   caFileName: ingest-ca.pem
 
 # Internal TLS re-encrypt. When enabled, the web pod serves HTTPS from a mounted
-# cert (cherrypy SSL via DELVE_SSL_*), and the ingress must carry the
-# `nginx.ingress.kubernetes.io/backend-protocol: HTTPS` annotation (set by the
-# role). Phase 3 turns this on alongside oidc; Phase 1 served plain HTTP.
+# cert (cherrypy SSL via DELVE_SSL_*), and the gateway re-encrypts to it — a
+# BackendTLSPolicy is rendered alongside the HTTPRoute (see `route`). Phase 3
+# turns this on alongside oidc; Phase 1 served plain HTTP.
 tls:
   enabled: false
   # VSO/cert-manager-issued internal TLS Secret (tls.crt / tls.key).
   secretName: delve-internal-tls
   mountPath: /etc/delve-tls
 
-ingress:
+# Gateway API route. Edge TLS terminates at the parent Gateway; the chart owns
+# only Delve's HTTPRoute (+ BackendTLSPolicy when tls.enabled).
+route:
   enabled: true
-  className: nginx
+  # The Gateway the route attaches to (cross-namespace parentRef).
+  parentGateway:
+    name: ""
+    namespace: ""
   host: delve.local
   path: /
-  pathType: Prefix
-  tlsSecretName: delve-tls
-  annotations: {}
+  # ConfigMap (key ca.crt) holding the CA that validates the web pod's serving
+  # cert for the re-encrypt hop. The role mirrors it from the serving Secret.
+  # Required when tls.enabled.
+  backendCACertConfigMap: delve-backend-ca
 
 worker:
   # django-q cluster (qcluster). Single replica; the broker is the ORM DB.

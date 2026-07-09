@@ -8,17 +8,24 @@ headlamp_release_name: headlamp
 headlamp_chart_repo: https://kubernetes-sigs.github.io/headlamp
 headlamp_chart_name: headlamp
 headlamp_chart_version: "0.42.0"
+headlamp_resources_requests_cpu: 50m
+headlamp_resources_requests_memory: 64Mi
+headlamp_resources_limits_cpu: 250m
+headlamp_resources_limits_memory: 256Mi
 
-# Public ingress settings
+# Public route settings. Edge TLS terminates at the Envoy gateway; this role
+# owns only Headlamp's HTTPRoute + BackendTLSPolicy.
 headlamp_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
-headlamp_ingress_class: nginx
 headlamp_ingress_path: /
-headlamp_ingress_path_type: Prefix
-headlamp_ingress_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.address | default('127.0.0.1')) }}"
+headlamp_ingress_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
+headlamp_route_gateway_name: "{{ edge_gateway_name | default('armory') }}"
+headlamp_route_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
+# ConfigMap mirroring the serving cert's issuing chain (pki-int) for
+# BackendTLSPolicy validation; built from headlamp-internal-tls ca.crt.
+headlamp_backend_ca_configmap: headlamp-backend-ca
 
-# TLS settings (cert-manager + OpenBao ClusterIssuer)
-headlamp_tls_secret_name: headlamp-tls
-headlamp_tls_issuer_name: openbao-pki-external
+# TLS settings (cert-manager + OpenBao internal ClusterIssuer). The gateway
+# re-encrypts to this serving cert; there is no per-workload edge cert anymore.
 headlamp_cert_duration: "8760h"
 headlamp_cert_renew_before: "720h"
 headlamp_internal_tls_secret_name: headlamp-internal-tls
@@ -54,10 +61,10 @@ headlamp_oidc_ca_mount_path: /etc/headlamp-oidc
 headlamp_oidc_ca_file_name: oidc-ca.pem
 headlamp_oidc_ca_file_path: "{{ headlamp_oidc_ca_mount_path }}/{{ headlamp_oidc_ca_file_name }}"
 
-# Pod-level OIDC issuer hostname resolution
+# Pod-level OIDC issuer hostname resolution. The Envoy Service name is
+# generated, so it is resolved by owning-gateway labels
+# (common/tasks/lookup_gateway_service.yml).
 headlamp_oidc_resolver_host: "{{ headlamp_oidc_issuer_url | urlsplit('hostname') }}"
-headlamp_oidc_resolver_service_namespace: ingress-nginx
-headlamp_oidc_resolver_service_name: ingress-nginx-controller
 
 # OpenBao KV destination for Headlamp OIDC credentials
 headlamp_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"

@@ -1,0 +1,45 @@
+---
+# Own HTTPRoute for Keycloak (identity-admin authorship). The Envoy gateway
+# terminates edge TLS and re-encrypts to the Keycloak HTTPS service. Trace
+# restart for the unauthenticated login paths (/realms/*/protocol/...) is
+# enforced uniformly at the gateway (ClientTrafficPolicy) — deliberately not
+# configured per-route here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak
+  namespace: {{ keycloak_namespace }}
+spec:
+  parentRefs:
+    - name: {{ keycloak_route_gateway_name }}
+      namespace: {{ keycloak_route_gateway_namespace }}
+  hostnames:
+    - {{ keycloak_ingress_host }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ keycloak_service_name }}
+          port: {{ keycloak_service_https_port }}
+---
+# Backend re-encryption validation: the gateway verifies the Keycloak serving
+# certificate (openbao-pki-internal) against the internal CA bundle and the
+# service FQDN SAN.
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: keycloak
+  namespace: {{ keycloak_namespace }}
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: {{ keycloak_service_name }}
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: {{ keycloak_backend_ca_configmap }}
+    hostname: {{ keycloak_internal_service_fqdn }}

@@ -1,18 +1,19 @@
 ---
 galaxy_info:
   author: "Clifford Bressette & Brian Kearney"
-  role_name: nginx_ingress
+  role_name: envoy_gateway
   namespace: mcindi
   company: "McIndi Solutions"
-  description: "Deploy ingress-nginx and ingress TLS resources."
+  description: "Deploy Envoy Gateway (Gateway API edge) with trace-context trust boundary and edge TLS."
   license: "MIT"
   min_ansible_version: "2.9"
   platforms:
     - name: Fedora
       versions: [all]
   galaxy_tags:
-    - nginx
-    - ingress
+    - envoy
+    - gateway
     - kubernetes
     - tls
+    - tracing
 dependencies: []

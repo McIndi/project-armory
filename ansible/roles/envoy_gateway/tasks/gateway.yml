@@ -1,0 +1,59 @@
+---
+- name: Configure Gateway API edge with diagnostics
+  block:
+    - name: Apply OTel collector for gateway traces
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'otel_collector.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      when:
+        - not ansible_check_mode
+        - envoy_gateway_otel_collector_enabled | bool
+
+    - name: Apply EnvoyProxy data-plane configuration
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'envoyproxy.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      when: not ansible_check_mode
+
+    - name: Apply GatewayClass
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'gatewayclass.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      when: not ansible_check_mode
+
+    - name: Apply Gateway
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'gateway.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      when: not ansible_check_mode
+
+    - name: Apply trace-boundary ClientTrafficPolicy
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'clienttrafficpolicy.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      when: not ansible_check_mode
+
+    - name: Apply HTTP-to-HTTPS redirect route
+      kubernetes.core.k8s:
+        state: "{{ 'present' if ((ingress_http_policy | default('disabled')) == 'redirect-only') else 'absent' }}"
+        definition: "{{ lookup('template', 'redirect_httproute.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      when: not ansible_check_mode
+
+    - name: Wait for Gateway to be Programmed
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl wait
+          --namespace {{ envoy_gateway_namespace }}
+          --for=condition=Programmed
+          gateway/{{ envoy_gateway_gateway_name }}
+          --timeout={{ envoy_gateway_programmed_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ envoy_gateway_kubeconfig_path }}"
+      changed_when: false
+      when: not ansible_check_mode

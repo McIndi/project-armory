@@ -18,3 +18,4 @@ full analysis.
 | [0006](0006-defer-kubernetes-core.md) | Keep `command`-module kubectl/helm; defer `kubernetes.core` | superseded |
 | [0007](0007-scoped-provisioner-token.md) | Scoped provisioner token replaces root token for automation | accepted, not yet implemented |
 | [0008](0008-staged-kubernetes-core-migration.md) | Staged `kubernetes.core` migration restores idempotency | accepted |
+| [0009](0009-envoy-gateway-edge.md) | Envoy Gateway replaces ingress-nginx; trace identity minted at the edge | implemented |

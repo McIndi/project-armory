@@ -2,7 +2,7 @@
 
 This role automates deployment and integration of the Headlamp Kubernetes dashboard. It provides:
 - Automated deployment via Helm
-- External HTTPS access via nginx ingress
+- External HTTPS access via the Envoy gateway (HTTPRoute)
 - OIDC authentication with Keycloak (automated client setup)
 - PKI/TLS management via OpenBao through cert-manager
 - Out-of-the-box visibility into k3s and stack components
@@ -21,19 +21,19 @@ official plugins from Artifact Hub.
 - Keycloak: OIDC client automation, RBAC mapping
 - OpenBao: OIDC secret persistence and VSO sync into Kubernetes
 - cert-manager: TLS certificate issuance using OpenBao ClusterIssuer
-- nginx ingress: External HTTPS exposure
+- envoy_gateway: External HTTPS exposure (edge TLS + trace boundary)
 - k3s: Cluster-wide RBAC for admin users
 
 Headlamp also serves HTTPS on the in-cluster service hop using the
 `headlamp-internal-tls` certificate issued by `openbao-pki-internal`.
-The ingress is configured with `nginx.ingress.kubernetes.io/backend-protocol: HTTPS`
-so ingress-nginx terminates edge TLS and forwards to Headlamp over HTTPS.
+Edge TLS terminates at the gateway; a `BackendTLSPolicy` makes the gateway
+re-encrypt to Headlamp's HTTPS service and verify its serving cert.
 
 ## Tasks
 - Create/update Keycloak OIDC client for Headlamp
 - Persist effective OIDC credentials in OpenBao KV
 - Configure OpenBao policy and auth role for Headlamp VSO sync
-- Issue Headlamp ingress TLS certificate via cert-manager + OpenBao
+- Issue Headlamp internal serving certificate via cert-manager + OpenBao
 - Deploy Headlamp Helm chart directly with Helm
 - Validate readiness through the shared readiness_check role
 

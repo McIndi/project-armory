@@ -11,7 +11,7 @@ Deploy OpenBao and configure it for PKI issuance, Kubernetes auth, and platform 
   - k3s cluster must be available.
   - Helm must be installed.
 - Cross-role dependencies:
-  - Consumed by `nginx_ingress` (PKI issuer integration).
+  - Consumed by `envoy_gateway` (PKI issuer integration).
   - Consumed by `keycloak` and `headlamp` (policy/role creation and secret sync).
 
 ## Variables

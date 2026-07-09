@@ -1,0 +1,49 @@
+{{- if .Values.route.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "delve.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "delve.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.route.parentGateway.name }}
+      {{- with .Values.route.parentGateway.namespace }}
+      namespace: {{ . }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.route.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.route.path }}
+      backendRefs:
+        - name: {{ include "delve.fullname" . }}-web
+          port: {{ .Values.service.port }}
+{{- if .Values.tls.enabled }}
+---
+# Backend re-encrypt validation: the gateway verifies the web pod's serving
+# cert against the CA in `route.backendCACertConfigMap` (key ca.crt) and the
+# service FQDN.
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: {{ include "delve.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "delve.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: {{ include "delve.fullname" . }}-web
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: {{ .Values.route.backendCACertConfigMap }}
+    hostname: {{ include "delve.fullname" . }}-web.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+{{- end }}

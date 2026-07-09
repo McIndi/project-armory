@@ -23,19 +23,21 @@ delve_image_repository: ghcr.io/mcindi/delve
 delve_image_tag: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_IMAGE_TAG') | default('latest', true) }}"
 delve_image_pull_policy: Always
 delve_image_pull_secrets: []
+# Optional override for DJANGO_SETTINGS_MODULE in chart env. Leave empty for
+# upstream Delve defaults; set armory_dashboard.settings for delve-armory images.
+delve_django_settings_module: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_DJANGO_SETTINGS_MODULE') | default('', true) }}"
 
-# Public ingress.
+# Public route. Edge TLS terminates at the Envoy gateway (consolidated
+# armory-tls cert); this role owns only Delve's HTTPRoute + BackendTLSPolicy
+# (rendered by the vendored chart).
 delve_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_HOST') | default('delve.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
-delve_ingress_class: nginx
 delve_ingress_path: /
-delve_ingress_path_type: Prefix
-delve_ingress_ip: "{{ nginx_ingress_ip | default(ansible_facts.default_ipv4.address | default('127.0.0.1')) }}"
-
-# External ingress TLS (cert-manager + OpenBao external ClusterIssuer). Phase 1
-# terminates TLS at the ingress and proxies HTTP to the pod; internal re-encrypt
-# (openbao-pki-internal) lands in Phase 3.
-delve_tls_secret_name: delve-tls
-delve_tls_issuer_name: openbao-pki-external
+delve_ingress_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
+delve_route_gateway_name: "{{ edge_gateway_name | default('armory') }}"
+delve_route_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
+# ConfigMap mirroring the serving cert's issuing chain (pki-int) for
+# BackendTLSPolicy validation; built from delve-internal-tls ca.crt.
+delve_backend_ca_configmap: delve-backend-ca
 delve_cert_duration: "8760h"
 delve_cert_renew_before: "720h"
 
@@ -110,10 +112,9 @@ delve_oidc_secret_name: delve-oidc
 delve_oidc_redirect_path: /oidc/callback/
 
 # Pod-level OIDC issuer hostname resolution (hostAlias). The web pod must reach
-# the public issuer host in-cluster; resolve it to the ingress controller IP.
+# the public issuer host in-cluster; it resolves to the Envoy gateway Service,
+# looked up by owning-gateway labels (common/tasks/lookup_gateway_service.yml).
 delve_oidc_resolver_host: "{{ delve_oidc_issuer_url | urlsplit('hostname') }}"
-delve_oidc_resolver_service_namespace: ingress-nginx
-delve_oidc_resolver_service_name: ingress-nginx-controller
 
 # Internal TLS (cert-manager + OpenBao internal ClusterIssuer) for ingress
 # re-encrypt. The web pod serves HTTPS (cherrypy DELVE_SSL_*) from this cert and
@@ -155,16 +156,18 @@ delve_ingest_ca_file_name: ingest-ca.pem
 delve_shipper_image_repository: "{{ delve_image_repository }}"
 delve_shipper_image_tag: "{{ delve_image_tag }}"
 delve_shipper_image_pull_policy: "{{ delve_image_pull_policy }}"
-# Shippers POST to Delve and fetch tokens through the public ingress (external
+# Shippers POST to Delve and fetch tokens through the public edge (gateway
 # cert), so a single CA (the delve-ingest OIDC_CA_PEM) verifies both. The pods
-# carry hostAliases mapping both hosts to the ingress IP (resolved at deploy).
+# carry hostAliases mapping both hosts to the gateway IP (resolved at deploy).
 delve_shipper_server_url: "https://{{ delve_ingress_host }}"
 delve_shipper_token_url: "{{ delve_ingest_issuer_url }}/protocol/openid-connect/token"
 delve_shipper_issuer_host: "{{ delve_ingest_issuer_url | urlsplit('hostname') }}"
 delve_shipper_ca_mount_path: /etc/delve-ingest
 delve_shipper_ca_file_name: ingest-ca.pem
-delve_shipper_resolver_service_namespace: "{{ delve_oidc_resolver_service_namespace }}"
-delve_shipper_resolver_service_name: "{{ delve_oidc_resolver_service_name }}"
+delve_shipper_resources_requests_cpu: 20m
+delve_shipper_resources_requests_memory: 64Mi
+delve_shipper_resources_limits_cpu: 150m
+delve_shipper_resources_limits_memory: 256Mi
 
 # OpenBao audit feed (file tail). The audit log lives on the openbao
 # auditStorage PVC (RWO, ns openbao); on single-node k3s the local-path-backed

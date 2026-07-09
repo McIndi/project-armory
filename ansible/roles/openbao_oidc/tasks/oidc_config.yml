@@ -351,16 +351,12 @@
 # processing that request. The hostAlias patch restarts the pod (re-sealing it on
 # Shamir), so we re-unseal before configuring. See
 # doc/handoffs/openbao-ui-keycloak-oidc-plan.md (Piece 3, step 2).
-- name: Resolve in-cluster ingress IP for OpenBao OIDC issuer hostname
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get svc {{ openbao_oidc_resolver_service_name }}
-      --namespace {{ openbao_oidc_resolver_service_namespace }}
-      -o jsonpath={.spec.clusterIP}
-  environment:
-    KUBECONFIG: "{{ openbao_oidc_kubeconfig_path }}"
-  register: _openbao_oidc_resolver_ip_result
-  changed_when: false
+- name: Resolve gateway Service for OpenBao OIDC issuer hostname
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: lookup_gateway_service.yml
+  vars:
+    common_kubeconfig_path: "{{ openbao_oidc_kubeconfig_path }}"
 
 - name: Patch OpenBao StatefulSet with OIDC issuer hostAlias
   ansible.builtin.command:
@@ -374,7 +370,7 @@
              'template': {
                'spec': {
                  'hostAliases': [{
-                   'ip': _openbao_oidc_resolver_ip_result.stdout,
+                   'ip': edge_gateway_service_cluster_ip,
                    'hostnames': [openbao_oidc_resolver_host]
                  }]
                }
@@ -385,7 +381,7 @@
     KUBECONFIG: "{{ openbao_oidc_kubeconfig_path }}"
   register: _openbao_oidc_hostalias_patch_result
   changed_when: "'(no change)' not in (_openbao_oidc_hostalias_patch_result.stdout | default(''))"
-  when: (_openbao_oidc_resolver_ip_result.stdout | default('') | length) > 0
+  when: (edge_gateway_service_cluster_ip | default('') | length) > 0
 
 # The OpenBao chart's StatefulSet uses the OnDelete update strategy, so patching
 # the pod template does not restart the running pod (and `kubectl rollout status`
@@ -450,7 +446,7 @@
   ansible.builtin.import_role:
     name: openbao
     tasks_from: unseal.yml
-  when: (_openbao_oidc_resolver_ip_result.stdout | default('') | length) > 0
+  when: (edge_gateway_service_cluster_ip | default('') | length) > 0
 
 - name: Configure OpenBao OIDC auth backend
   ansible.builtin.uri:

@@ -1,0 +1,43 @@
+---
+# The Armory edge Gateway. Two HTTPS listeners (apex + subdomains) share the
+# consolidated edge certificate; TLS terminates here for every public host.
+# Per-workload HTTPRoutes attach from their own namespaces (authorship stays
+# with the owning domain), so allowedRoutes is open across namespaces.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ envoy_gateway_gateway_name }}
+  namespace: {{ envoy_gateway_namespace }}
+spec:
+  gatewayClassName: {{ envoy_gateway_class_name }}
+  listeners:
+    - name: https-apex
+      port: 443
+      protocol: HTTPS
+      hostname: "{{ envoy_gateway_domain }}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ envoy_gateway_tls_secret_name }}
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https-subdomains
+      port: 443
+      protocol: HTTPS
+      hostname: "*.{{ envoy_gateway_domain }}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ envoy_gateway_tls_secret_name }}
+      allowedRoutes:
+        namespaces:
+          from: All
+{% if (ingress_http_policy | default('disabled')) == 'redirect-only' %}
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+{% endif %}

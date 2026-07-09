@@ -25,7 +25,9 @@ OpenBao-backed DB credentials (synced via VSO) and a declarative bootstrap of th
 8. Applies a `KeycloakRealmImport` for the `armory` realm (seed admin user, admin
    group, groups protocol mapper). The Headlamp OIDC client is **not** created
    here — the Headlamp role provisions it via the admin REST API.
-9. Applies an own nginx `Ingress` referencing the existing `armory-tls` secret.
+9. Applies an own `HTTPRoute` attached to the edge Gateway, plus a
+   `BackendTLSPolicy` validating the re-encrypt hop against the mirrored
+   serving CA (`keycloak-backend-ca`).
 
 ## Credentials
 - **Keycloak master admin** is generated in OpenBao and materialized as
@@ -65,7 +67,7 @@ ansible-playbook playbooks/site.yml --tags keycloak_install
 | `keycloak_realm` | `armory` | Armory's own realm. |
 | `keycloak_cr_name` | `keycloak` | Drives the Keycloak service and bootstrap admin secret. |
 | `keycloak_public_base_url` | `$ARMORY_PUBLIC_BASE_URL` / `https://armory.local` | Issuer + ingress host. |
-| `keycloak_ingress_tls_secret` | `armory-tls` | Referenced, not created. |
+| `keycloak_route_gateway_name` / `_namespace` | `armory` / `envoy-gateway-system` | HTTPRoute parentRef (group_vars). |
 | `keycloak_pg_image` | `postgres:16` | Backing DB. |
 | `keycloak_pg_tls_enabled` | `true` | Enable Postgres TLS + Keycloak verify-full DB connection. |
 | `keycloak_pg_tls_verify_mode` | `verify-full` | JDBC SSL verification mode enforced by Keycloak. |

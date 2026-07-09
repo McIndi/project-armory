@@ -35,11 +35,17 @@ Shared environment block for web, worker, and migrate. DB credentials and the
 Django SECRET_KEY come from the VSO-synced secret; everything else is literal.
 */}}
 {{- define "delve.env" -}}
+{{- $settingsModule := .Values.djangoSettingsModule | default "" -}}
+{{- if and (eq $settingsModule "") (contains "delve-armory" .Values.image.repository) -}}
+{{- $settingsModule = "armory_dashboard.settings" -}}
+{{- end -}}
 - name: DELVE_SECRET_KEY
   valueFrom:
     secretKeyRef:
       name: {{ include "delve.secretKeyRefName" . }}
       key: {{ .Values.secretKeyRef.key }}
+- name: DJANGO_SETTINGS_MODULE
+  value: {{ $settingsModule | default "delve.settings" | quote }}
 - name: DELVE_DEBUG
   value: "False"
 - name: DELVE_ALLOWED_HOSTS

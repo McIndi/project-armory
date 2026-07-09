@@ -16,9 +16,9 @@ openbao_oidc_default_role_name: armory-ui
 openbao_oidc_ingress_host: "{{ openbao_ingress_host | default(lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true)) }}"
 openbao_oidc_issuer_url: "{{ (keycloak_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + openbao_oidc_keycloak_realm }}"
 openbao_oidc_discovery_url: "{{ openbao_oidc_issuer_url }}"
+# The issuer host resolves in-cluster to the Envoy gateway Service, looked up
+# by owning-gateway labels (common/tasks/lookup_gateway_service.yml).
 openbao_oidc_resolver_host: "{{ openbao_oidc_issuer_url | urlsplit('hostname') }}"
-openbao_oidc_resolver_service_namespace: ingress-nginx
-openbao_oidc_resolver_service_name: ingress-nginx-controller
 
 # Keycloak settings
 openbao_oidc_keycloak_realm: "{{ keycloak_realm | default('armory') }}"

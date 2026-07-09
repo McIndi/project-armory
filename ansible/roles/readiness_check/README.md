@@ -9,7 +9,7 @@ Intended to be run after core platform roles complete to verify all services are
 - Fedora (all)
 
 ## Prerequisites
-- The environment should already have been provisioned by the relevant roles before running readiness checks: `env_guard`, `system_update`, `k3s`, `openbao`, `nginx_ingress`, `vso`, `keycloak`, `headlamp`
+- The environment should already have been provisioned by the relevant roles before running readiness checks: `env_guard`, `system_update`, `k3s`, `openbao`, `envoy_gateway`, `vso`, `keycloak`, `headlamp`
 - This role intentionally has no runtime metadata dependencies so it can be executed in isolation.
 
 ## Variables
@@ -22,7 +22,8 @@ Defined in `defaults/main.yml`:
 | `readiness_check_helm_enabled` | `true` | Validate Helm availability and repo access. |
 | `readiness_check_openbao_enabled` | `true` | Validate OpenBao connectivity, health, and unsealed status. |
 | `readiness_check_vso_enabled` | `true` | Validate Vault Secrets Operator deployment and vaultconnection resources. |
-| `readiness_check_nginx_enabled` | `true` | Validate nginx ingress controller and TLS certificates. |
+| `readiness_check_gateway_enabled` | `true` | Validate the Envoy gateway, routes, and TLS certificates. |
+| `readiness_check_trace_boundary_enabled` | `true` | Verify the trace-context trust boundary via an ephemeral echo backend. |
 | `readiness_check_keycloak_enabled` | `true` | Validate Keycloak namespace/service/secret and OIDC discovery endpoint. |
 | `readiness_check_connect_timeout` | `5` | TCP connection timeout in seconds. |
 | `readiness_check_connect_retries` | `2` | Number of retry attempts for network checks. |
@@ -38,7 +39,8 @@ Defined in `defaults/main.yml`:
    - `check_helm.yml`: Helm CLI version, Helm repo availability.
   - `check_openbao.yml`: OpenBao TCP port 8200, health endpoint, and unsealed status via the internal TLS service address.
    - `check_vso.yml`: Vault Secrets Operator deployment running, vaultconnection resources present.
-  - `check_nginx.yml`: nginx ingress controller pods, ingress rules, TLS certificate validity, and policy-aware HTTP behavior (`redirect-only` vs `disabled`).
+  - `check_gateway.yml`: Envoy data-plane pods, Gateway Programmed status, HTTPRoute hosts, edge TLS certificate validity, and policy-aware HTTP behavior (`redirect-only` vs `disabled`).
+  - `check_trace_boundary.yml`: forged external trace context is stripped at the edge, a fresh gateway trace-id reaches the backend, and the inbound traceparent is captured in the forensic header.
   - `check_keycloak.yml`: Keycloak namespace, service, admin secret, OIDC discovery endpoint checks with ingress fallback, and Postgres TLS verify-full posture checks when enabled.
 4. Render summary report and per-component breakdown from template.
 5. Print report to console.

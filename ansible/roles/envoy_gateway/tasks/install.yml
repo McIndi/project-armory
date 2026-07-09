@@ -1,0 +1,45 @@
+---
+- name: Install Envoy Gateway with diagnostics
+  block:
+    - name: Validate ingress HTTP policy
+      ansible.builtin.assert:
+        that:
+          - (ingress_http_policy | default('disabled')) in ['redirect-only', 'disabled']
+        fail_msg: "ingress_http_policy must be one of: redirect-only, disabled"
+
+    - name: Ensure Envoy Gateway working directory exists
+      ansible.builtin.file:
+        path: "{{ envoy_gateway_work_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy Envoy Gateway via Helm
+      kubernetes.core.helm:
+        release_name: "{{ envoy_gateway_release_name }}"
+        chart_ref: "{{ envoy_gateway_chart_ref }}"
+        release_namespace: "{{ envoy_gateway_namespace }}"
+        create_namespace: true
+        chart_version: "{{ envoy_gateway_chart_version if (envoy_gateway_chart_version | length > 0) else omit }}"
+        wait: true
+        wait_timeout: "{{ (envoy_gateway_helm_timeout_seconds | int) }}s"
+        kubeconfig: "{{ envoy_gateway_kubeconfig_path }}"
+      register: _envoy_gateway_helm_apply_result
+      when: not ansible_check_mode
+
+    - name: Open HTTP firewall port (80/tcp)
+      ansible.posix.firewalld:
+        zone: "{{ envoy_gateway_firewall_zone }}"
+        port: "80/tcp"
+        permanent: true
+        immediate: true
+        state: "{{ 'enabled' if ((ingress_http_policy | default('disabled')) == 'redirect-only') else 'disabled' }}"
+      when: envoy_gateway_firewall_manage | bool
+
+    - name: Open HTTPS firewall port (443/tcp)
+      ansible.posix.firewalld:
+        zone: "{{ envoy_gateway_firewall_zone }}"
+        port: "443/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+      when: envoy_gateway_firewall_manage | bool

@@ -2,12 +2,27 @@
 - name: Base configuration for local Fedora VM
   hosts: all
   gather_facts: true
+  pre_tasks:
+    - name: Resolve canonical edge gateway IP
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: resolve_edge_gateway_ip.yml
+        apply:
+          tags:
+            - always
+            - edge_gateway_ip
+      tags:
+        - always
+        - edge_gateway_ip
   roles:
     - role: env_guard
       tags:
         - always
         - env_guard
         - preflight
+    - role: kernel_tuning
+      tags:
+        - kernel_tuning
     - role: host_dependencies
       tags:
         - host_dependencies
@@ -23,6 +38,16 @@
     - role: k3s
       tags:
         - k3s
+
+# k3s's "restart k3s" handler (notified by config/install changes above) does not
+# flush until the end of a play. Ending the play here guarantees any pending k3s
+# restart happens now, before later roles deploy workloads and before
+# readiness_check runs — otherwise readiness_check can pass against a control
+# plane that is about to be bounced out from under every running pod.
+- name: Deploy platform workloads onto a stable k3s control plane
+  hosts: all
+  gather_facts: false
+  roles:
     - role: openbao
       tags:
         - openbao
@@ -35,9 +60,9 @@
         - trust_manager
         - trust_manager_install
       when: trust_manager_enabled | default(false) | bool
-    - role: nginx_ingress
+    - role: envoy_gateway
       tags:
-        - nginx_ingress
+        - envoy_gateway
     - role: vso
       tags:
         - vso

@@ -1,0 +1,22 @@
+---
+# Public route for the OpenBao UI. Lives in this role (the route belongs to
+# the workload) but is invoked from openbao_oidc: the openbao role itself runs
+# before the Envoy gateway (and the Gateway API CRDs) exist on a fresh
+# cluster, and the UI is exposed for the OIDC login flow.
+
+- name: Mirror OpenBao server CA into BackendTLSPolicy ConfigMap
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: apply_backend_ca_configmap.yml
+  vars:
+    common_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    common_backend_ca_namespace: "{{ openbao_namespace }}"
+    common_backend_ca_secret_name: "{{ openbao_tls_ca_secret_name }}"
+    common_backend_ca_configmap_name: "{{ openbao_backend_ca_configmap }}"
+
+- name: Apply OpenBao UI HTTPRoute and BackendTLSPolicy
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'httproute.yaml.j2') | from_yaml_all | list }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  when: not ansible_check_mode

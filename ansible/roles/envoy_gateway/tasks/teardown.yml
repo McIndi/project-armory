@@ -1,0 +1,31 @@
+---
+- name: Register gateway namespaces for teardown checks
+  ansible.builtin.set_fact:
+    teardown_role_target_namespaces: >-
+      {{
+        (teardown_role_target_namespaces | default([]))
+        + [envoy_gateway_namespace]
+        | unique
+      }}
+
+- name: Delete GatewayClass
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl delete gatewayclass {{ envoy_gateway_class_name }}
+      --ignore-not-found
+  environment:
+    KUBECONFIG: "{{ envoy_gateway_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+  register: _envoy_gatewayclass_delete
+  changed_when: "'deleted' in (_envoy_gatewayclass_delete.stdout | default(''))"
+  failed_when: false
+
+- name: Uninstall Envoy Gateway helm release
+  ansible.builtin.command:
+    cmd: >-
+      helm uninstall {{ envoy_gateway_release_name }}
+      --namespace {{ envoy_gateway_namespace }}
+      --ignore-not-found
+      --kubeconfig {{ envoy_gateway_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}
+  register: _envoy_helm_uninstall
+  changed_when: (_envoy_helm_uninstall.rc | default(1)) == 0
+  failed_when: false

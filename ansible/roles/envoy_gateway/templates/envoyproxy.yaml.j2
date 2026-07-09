@@ -1,0 +1,47 @@
+---
+# Data-plane configuration for the Armory edge (edge-tls-admin domain).
+#
+# Service exposure: k3s runs with servicelb disabled, so the Envoy Service is
+# ClusterIP patched with the node address as an externalIP; kube-proxy binds
+# the listener ports on the node. In-cluster callers (OIDC issuer hostAliases)
+# use the Service clusterIP.
+#
+# Tracing: the gateway mints the root span for every external request. The
+# sampling decision is made here — never taken from an inbound sampled flag
+# (the inbound context is stripped before the tracing decision; see
+# clienttrafficpolicy.yaml.j2). The external.traceparent custom tag carries
+# the untrusted inbound header value for forensic correlation only.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ envoy_gateway_envoyproxy_name }}
+  namespace: {{ envoy_gateway_namespace }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: ClusterIP
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              externalIPs:
+                - {{ envoy_gateway_ip }}
+{% if envoy_gateway_tracing_enabled | bool %}
+  telemetry:
+    tracing:
+      samplingRate: {{ envoy_gateway_tracing_sampling_rate | int }}
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+          - name: {{ envoy_gateway_otel_collector_name }}
+            namespace: {{ envoy_gateway_namespace }}
+            port: {{ envoy_gateway_otel_grpc_port | int }}
+      customTags:
+        external.traceparent:
+          type: RequestHeader
+          requestHeader:
+            name: {{ envoy_gateway_trace_forensic_header }}
+            defaultValue: "-"
+{% endif %}

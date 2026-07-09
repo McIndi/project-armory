@@ -1,0 +1,82 @@
+---
+# Minimal OTLP collector for gateway traces. Debug exporter only: spans (and
+# the external.traceparent forensic attribute) land in the collector pod log,
+# which the readiness trace-boundary stage inspects. Replace the exporter when
+# a real trace store joins the stack.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ envoy_gateway_otel_collector_name }}-config
+  namespace: {{ envoy_gateway_namespace }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:{{ envoy_gateway_otel_grpc_port | int }}
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [debug]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ envoy_gateway_otel_collector_name }}
+  namespace: {{ envoy_gateway_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_gateway_otel_collector_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ envoy_gateway_otel_collector_name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ envoy_gateway_otel_collector_name }}
+    spec:
+      containers:
+        - name: otel-collector
+          image: {{ envoy_gateway_otel_collector_image }}
+          args:
+            - --config=/etc/otel/config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ envoy_gateway_otel_grpc_port | int }}
+          resources:
+            requests:
+              cpu: {{ otel_collector_resources_requests_cpu }}
+              memory: {{ otel_collector_resources_requests_memory }}
+            limits:
+              cpu: {{ otel_collector_resources_limits_cpu }}
+              memory: {{ otel_collector_resources_limits_memory }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ envoy_gateway_otel_collector_name }}-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ envoy_gateway_otel_collector_name }}
+  namespace: {{ envoy_gateway_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_gateway_otel_collector_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ envoy_gateway_otel_collector_name }}
+  ports:
+    - name: otlp-grpc
+      port: {{ envoy_gateway_otel_grpc_port | int }}
+      targetPort: {{ envoy_gateway_otel_grpc_port | int }}

@@ -262,33 +262,20 @@
   register: _openbao_hosts_result
   when: not ansible_check_mode
 
-- name: Read ingress controller LoadBalancer IP for OpenBao UI host mapping
-  ansible.builtin.command:
-    cmd: >-
-      k3s kubectl get service ingress-nginx-controller
-      --namespace ingress-nginx
-      -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: _openbao_ingress_lb_ip_result
-  changed_when: false
-  failed_when: false
-  when:
-    - not ansible_check_mode
-    - openbao_ingress_enabled | bool
-
-- name: Resolve effective ingress IP for OpenBao UI host mapping
+# The gateway Service carries the node address as an externalIP, so the
+# public UI host maps straight to the node IP.
+- name: Resolve effective gateway IP for OpenBao UI host mapping
   ansible.builtin.set_fact:
-    openbao_ingress_ip_effective: >-
-      {{ (_openbao_ingress_lb_ip_result.stdout | trim)
-         if (_openbao_ingress_lb_ip_result.stdout | trim | length) > 0
-         else (ansible_facts.default_ipv4.address | default('127.0.0.1')) }}
+    openbao_ingress_ip_effective: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
   changed_when: false
   when:
     - not ansible_check_mode
     - openbao_ingress_enabled | bool
 
-- name: Ensure OpenBao UI host resolves to ingress IP locally
+# The HTTPRoute itself is applied by roles/openbao/tasks/route.yml, invoked
+# from the openbao_oidc role: this role runs before the Gateway API CRDs
+# exist on a fresh cluster.
+- name: Ensure OpenBao UI host resolves to gateway IP locally
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^\S+\s+{{ openbao_ingress_host | regex_escape }}\s*$'

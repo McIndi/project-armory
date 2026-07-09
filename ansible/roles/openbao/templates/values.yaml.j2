@@ -38,6 +38,14 @@ server:
     port: 8200
     targetPort: 8200
 
+  resources:
+    requests:
+      cpu: {{ openbao_resources_requests_cpu }}
+      memory: {{ openbao_resources_requests_memory }}
+    limits:
+      cpu: {{ openbao_resources_limits_cpu }}
+      memory: {{ openbao_resources_limits_memory }}
+
   dataStorage:
     enabled: true
     size: 1Gi
@@ -69,25 +77,6 @@ server:
     - name: openbao-server-tls
       mountPath: {{ openbao_tls_cert_mount_path }}
       readOnly: true
-{% endif %}
-
-{% if openbao_ingress_enabled | bool %}
-  ingress:
-    enabled: true
-    ingressClassName: {{ openbao_ingress_class }}
-    annotations:
-      cert-manager.io/cluster-issuer: {{ openbao_ingress_tls_issuer_name }}
-      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-      nginx.ingress.kubernetes.io/ssl-redirect: "true"
-      nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"
-    hosts:
-      - host: {{ openbao_ingress_host }}
-        paths:
-          - /
-    tls:
-      - secretName: {{ openbao_ingress_tls_secret_name }}
-        hosts:
-          - {{ openbao_ingress_host }}
 {% endif %}
 
 ui:

@@ -50,11 +50,18 @@ keycloak_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_
 keycloak_public_host: "{{ keycloak_public_base_url | urlsplit('hostname') }}"
 keycloak_realm: armory
 
-# ── Ingress (own resource; edge TLS at nginx) ────────────────────────────────────
+# ── Public route (own HTTPRoute; edge TLS terminates at the Envoy gateway) ─────
+# identity-admin authorship: the route is Keycloak's, the Gateway/listeners
+# belong to the envoy_gateway role. The gateway re-encrypts to the Keycloak
+# HTTPS service; BackendTLSPolicy validates the internal CA bundle against the
+# service FQDN.
 keycloak_ingress_enabled: true
-keycloak_ingress_class: nginx
-keycloak_ingress_tls_secret: armory-tls
 keycloak_ingress_host: "{{ keycloak_public_host }}"
+keycloak_route_gateway_name: "{{ edge_gateway_name | default('armory') }}"
+keycloak_route_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
+# ConfigMap mirroring the serving cert's issuing chain (pki-int) for
+# BackendTLSPolicy validation; built from keycloak-internal-tls ca.crt.
+keycloak_backend_ca_configmap: keycloak-backend-ca
 
 # ── Realm seed: admin end-user (logs into Headlamp; bound to cluster-admin by k3s) ─
 # This is a realm user, distinct from the operator's master bootstrap admin.

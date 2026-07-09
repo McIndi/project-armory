@@ -38,9 +38,9 @@
         name: cert_manager
         tasks_from: teardown
 
-    - name: Run ingress teardown tasks
+    - name: Run edge gateway teardown tasks
       ansible.builtin.include_role:
-        name: nginx_ingress
+        name: envoy_gateway
         tasks_from: teardown
 
     - name: Run OpenBao teardown tasks

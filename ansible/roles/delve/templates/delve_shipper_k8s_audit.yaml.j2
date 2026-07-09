@@ -86,6 +86,13 @@ spec:
             - name: ingest-ca
               mountPath: {{ delve_shipper_ca_mount_path }}
               readOnly: true
+          resources:
+            requests:
+              cpu: {{ delve_shipper_resources_requests_cpu }}
+              memory: {{ delve_shipper_resources_requests_memory }}
+            limits:
+              cpu: {{ delve_shipper_resources_limits_cpu }}
+              memory: {{ delve_shipper_resources_limits_memory }}
       volumes:
         - name: k8s-audit
           hostPath:

@@ -19,7 +19,7 @@ Components and where they run:
 | OpenBao | `openbao` | `openbao` | Secrets (KV v2) and PKI root of trust; audit log |
 | cert-manager | `cert-manager` | `cert_manager` | Issues TLS certificates from OpenBao PKI via ClusterIssuers |
 | trust-manager | `cert-manager` | `trust_manager` | Distributes the OpenBao CA bundle to consumer namespaces |
-| ingress-nginx | `ingress-nginx` | `nginx_ingress` | Ingress controller (hostNetwork); HTTPS entry point |
+| Envoy Gateway | `envoy-gateway-system` | `envoy_gateway` | Gateway API edge; HTTPS entry point and trace-context trust boundary |
 | Vault Secrets Operator | `vault-secrets-operator-system` | `vso` | Syncs OpenBao secrets into Kubernetes Secrets |
 | Keycloak + PostgreSQL | `keycloak` | `keycloak` | OIDC identity provider (operator + Keycloak CR + Postgres StatefulSet) |
 | Headlamp | `headlamp` | `headlamp` | Kubernetes web UI, authenticated via Keycloak OIDC |
@@ -31,7 +31,7 @@ Components and where they run:
 
 ```
 env_guard → system_update → helm → k3s → openbao → cert_manager
-→ trust_manager → nginx_ingress → vso → keycloak → headlamp → readiness_check
+→ trust_manager → envoy_gateway → vso → keycloak → headlamp → readiness_check
 ```
 
 The ordering constraints that matter:
@@ -103,8 +103,8 @@ pki-root  ("Armory Root CA", ~10y)
 cert-manager exposes these as ClusterIssuers (`openbao-pki-internal`,
 `openbao-pki-external`). Certificates:
 
-- Ingress (`armory-tls` for Keycloak, Headlamp's ingress cert) are issued
-  from `openbao-pki-external`.
+- The consolidated edge certificate (`armory-tls`, all public hosts + node IP
+  SAN, in the gateway namespace) is issued from `openbao-pki-external`.
 - Internal service certs (Keycloak HTTPS on 8443, Postgres TLS, VSO
   kube-rbac-proxy) are issued from `openbao-pki-internal`.
 - OpenBao's own server certificate is self-managed by the `openbao` role
@@ -143,15 +143,24 @@ plain PostgreSQL StatefulSet provisioned by the `keycloak` role (not the
 operator). Realm and seed admin/group come from a `KeycloakRealmImport` CR;
 per-client config (e.g. the Headlamp client) is REST-managed by consumers.
 
-## Network and ingress
+## Network and edge
 
-- ingress-nginx runs with hostNetwork on the VM; ports 80/443.
+- Envoy Gateway (Gateway API) is the HTTPS entry point. k3s disables both
+  `traefik` and `servicelb`, so the Envoy Service is ClusterIP patched with
+  the node IP as an `externalIP`; kube-proxy binds 443 (and 80 under
+  `redirect-only`) on the node.
+- The edge is the trust boundary for W3C trace context: inbound
+  `traceparent`/`tracestate`/`baggage`/`b3` are stripped early on all
+  external routes and the gateway mints the root span
+  (see [decisions/0009](decisions/0009-envoy-gateway-edge.md)).
 - `ingress_http_policy` controls port 80: `redirect-only` (HTTP→HTTPS
-  redirect) or `disabled` (80/tcp closed in firewalld; the listener stays
-  bound but is unreachable externally).
+  redirect listener) or `disabled` (no HTTP listener; 80/tcp closed in
+  firewalld).
 - External hostnames (hosts-file or DNS on the workstation):
   `armory.local` (Keycloak) and `headlamp.armory.local` (Headlamp), both
-  HTTPS with `openbao-pki-external` certificates.
+  HTTPS behind the shared `openbao-pki-external` edge certificate. Routes are
+  per-workload `HTTPRoute`s in the owning namespaces; the gateway re-encrypts
+  to backends with `BackendTLSPolicy` validation.
 - Internal traffic uses service FQDNs (`<svc>.<ns>.svc.cluster.local`) with
   TLS and explicit CA bundles; see [security.md](security.md#tls) for the
   per-path matrix.

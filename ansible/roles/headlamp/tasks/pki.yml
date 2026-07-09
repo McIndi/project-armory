@@ -1,5 +1,7 @@
 ---
-# Provision cert-manager Certificate for the Headlamp ingress host.
+# Provision the Headlamp serving certificate. Edge TLS for the public host is
+# terminated at the Envoy gateway with the consolidated armory-tls cert; only
+# the internal (re-encrypt) serving cert is provisioned here.
 
 - name: Ensure Headlamp namespace exists
   kubernetes.core.k8s:
@@ -11,22 +13,6 @@
         name: "{{ headlamp_namespace }}"
     kubeconfig: "{{ headlamp_kubeconfig_path }}"
   when: not ansible_check_mode
-
-- name: Ensure Headlamp TLS certificate exists and is ready
-  ansible.builtin.import_role:
-    name: common
-    tasks_from: apply_certificate.yml
-  vars:
-    common_kubeconfig_path: "{{ headlamp_kubeconfig_path }}"
-    common_certificate_name: "{{ headlamp_tls_secret_name }}"
-    common_certificate_namespace: "{{ headlamp_namespace }}"
-    common_certificate_secret_name: "{{ headlamp_tls_secret_name }}"
-    common_certificate_issuer_name: "{{ headlamp_tls_issuer_name }}"
-    common_certificate_duration: "{{ headlamp_cert_duration }}"
-    common_certificate_renew_before: "{{ headlamp_cert_renew_before }}"
-    common_certificate_common_name: "{{ headlamp_ingress_host }}"
-    common_certificate_dns_names:
-      - "{{ headlamp_ingress_host }}"
 
 - name: Ensure Headlamp internal TLS certificate exists and is ready
   ansible.builtin.import_role:

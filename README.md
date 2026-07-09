@@ -3,7 +3,7 @@
 An Ansible-based reference architecture for a hardened, audit-ready platform
 on a single Fedora VM: k3s with OIDC authentication, OpenBao for secrets and
 PKI, Vault Secrets Operator, cert-manager and trust-manager for certificate
-issuance and CA distribution, ingress-nginx, Keycloak as the identity
+issuance and CA distribution, Envoy Gateway (Gateway API edge), Keycloak as the identity
 provider, and Headlamp as the cluster UI. All components are open source.
 It is built as a demonstration: one VM, one command, every credential
 generated and stored centrally, TLS on every path, and an audit trail for

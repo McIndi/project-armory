@@ -4,6 +4,16 @@
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
+# Runs here (after the Envoy gateway) rather than in the openbao role, which
+# executes before the Gateway API CRDs exist on a fresh cluster.
+- name: Expose OpenBao UI through the edge gateway
+  ansible.builtin.import_role:
+    name: openbao
+    tasks_from: route.yml
+  when:
+    - not ansible_check_mode
+    - openbao_ingress_enabled | default(openbao_ui_enabled | default(false)) | bool
+
 - name: Configure OpenBao OIDC integration with Keycloak
   ansible.builtin.import_tasks: oidc_config.yml
   when:

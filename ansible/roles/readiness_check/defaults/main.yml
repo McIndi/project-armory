@@ -7,7 +7,7 @@ readiness_check_k3s_enabled: true
 readiness_check_helm_enabled: true
 readiness_check_openbao_enabled: true
 readiness_check_vso_enabled: true
-readiness_check_nginx_enabled: true
+readiness_check_gateway_enabled: true
 readiness_check_keycloak_enabled: true
 readiness_check_headlamp_enabled: true
 
@@ -71,18 +71,24 @@ readiness_check_openbao_ui_expected_groups:
 readiness_check_vso_namespace: vault-secrets-operator-system
 readiness_check_vso_deployment_name: vault-secrets-operator-controller-manager
 
-# nginx ingress settings
-readiness_check_nginx_namespace: ingress-nginx
-readiness_check_nginx_controller_label: "app.kubernetes.io/name=ingress-nginx"
+# Edge gateway (Envoy Gateway) settings
+readiness_check_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
+readiness_check_gateway_name: "{{ edge_gateway_name | default('armory') }}"
+# The Envoy data-plane pods/Service carry generated names; select by labels.
+readiness_check_gateway_proxy_labels:
+  - "gateway.envoyproxy.io/owning-gateway-name={{ readiness_check_gateway_name }}"
+  - "gateway.envoyproxy.io/owning-gateway-namespace={{ readiness_check_gateway_namespace }}"
 readiness_check_certmanager_namespace: cert-manager
 readiness_check_openbao_external_clusterissuer_name: openbao-pki-external
 readiness_check_openbao_internal_clusterissuer_name: openbao-pki-internal
-readiness_check_ingress_tls_namespace: keycloak
+# The consolidated edge cert lives in the gateway namespace (listener
+# certificateRefs are same-namespace).
+readiness_check_ingress_tls_namespace: "{{ readiness_check_gateway_namespace }}"
 readiness_check_ingress_tls_certificate_name: armory-tls
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
 readiness_check_headlamp_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + readiness_check_public_domain, true) }}"
-readiness_check_ingress_probe_ip: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+readiness_check_ingress_probe_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
 readiness_check_ingress_http_port: 80
 readiness_check_ingress_https_port: 443
 readiness_check_ingress_http_probe_url: "http://{{ readiness_check_ingress_probe_ip }}:{{ readiness_check_ingress_http_port }}"
@@ -96,9 +102,28 @@ readiness_check_http_redirect_hosts:
   - "{{ readiness_check_public_domain }}"
   - "{{ readiness_check_headlamp_host }}"
 readiness_check_ingress_http_policy: "{{ ingress_http_policy | default('redirect-only') }}"
-# firewalld zone the nginx_ingress role manages the HTTP port in; used to verify
+# firewalld zone the envoy_gateway role manages the HTTP port in; used to verify
 # the 80/tcp closure when ingress_http_policy is 'disabled'.
-readiness_check_ingress_firewall_zone: "{{ nginx_ingress_firewall_zone | default('public') }}"
+readiness_check_ingress_firewall_zone: "{{ envoy_gateway_firewall_zone | default('public') }}"
+
+# ── Trace-context trust boundary verification ─────────────────────────────────
+# Deploys an ephemeral header-echo backend behind the gateway, sends a forged
+# W3C trace context through the edge, and asserts: (1) the forged context is
+# not propagated to the backend, (2) a fresh gateway-minted traceparent
+# arrives instead, (3) the inbound value was captured into the forensic
+# header. Resources are removed afterwards.
+readiness_check_trace_boundary_enabled: true
+readiness_check_trace_probe_host: "trace-probe.{{ readiness_check_public_domain }}"
+readiness_check_trace_probe_name: readiness-trace-probe
+readiness_check_trace_probe_image: mendhak/http-https-echo:latest
+readiness_check_trace_probe_port: 8080
+readiness_check_trace_probe_rollout_timeout_seconds: 120
+# Matches envoy_gateway role defaults (invisible across roles).
+readiness_check_tracing_enabled: "{{ envoy_gateway_tracing_enabled | default(true) }}"
+readiness_check_trace_forensic_header: "{{ envoy_gateway_trace_forensic_header | default('x-external-traceparent') }}"
+# Deliberately recognizable forged identifiers.
+readiness_check_trace_forged_trace_id: "11111111111111111111111111111111"
+readiness_check_trace_forged_traceparent: "00-{{ readiness_check_trace_forged_trace_id }}-2222222222222222-01"
 readiness_check_http_disabled_expected_errors:
   - connection refused
   - failed to connect
@@ -140,7 +165,9 @@ readiness_check_headlamp_namespace: headlamp
 readiness_check_headlamp_deployment_name: headlamp
 readiness_check_headlamp_url: "https://{{ readiness_check_headlamp_host }}"
 readiness_check_headlamp_host_header: "{{ readiness_check_headlamp_host }}"
-readiness_check_headlamp_tls_secret: headlamp-tls
+# Serving cert for the gateway→Headlamp re-encrypt hop (the per-workload edge
+# cert is gone; edge TLS terminates at the gateway with armory-tls).
+readiness_check_headlamp_tls_secret: headlamp-internal-tls
 readiness_check_headlamp_oidc_secret: headlamp-oidc
 readiness_check_headlamp_oidc_group_bindings: >-
   {{

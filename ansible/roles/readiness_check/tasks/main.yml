@@ -44,9 +44,15 @@
       ansible.builtin.include_tasks: check_vso.yml
       when: readiness_check_vso_enabled | default(true) | bool
 
-    - name: Check nginx ingress readiness
-      ansible.builtin.include_tasks: check_nginx.yml
-      when: readiness_check_nginx_enabled | default(true) | bool
+    - name: Check edge gateway readiness
+      ansible.builtin.include_tasks: check_gateway.yml
+      when: readiness_check_gateway_enabled | default(true) | bool
+
+    - name: Check trace-context trust boundary
+      ansible.builtin.include_tasks: check_trace_boundary.yml
+      when:
+        - readiness_check_gateway_enabled | default(true) | bool
+        - readiness_check_trace_boundary_enabled | default(true) | bool
 
     - name: Check Keycloak readiness
       ansible.builtin.include_tasks: check_keycloak.yml

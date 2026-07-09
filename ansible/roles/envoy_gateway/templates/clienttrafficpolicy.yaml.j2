@@ -1,0 +1,37 @@
+---
+# Trace-context trust boundary. Identity is minted at the boundary, never
+# accepted from outside — the same principle as AppRole/dynamic credentials
+# for non-human identity.
+#
+# earlyRequestHeaders runs before the HTTP connection manager makes its
+# tracing decision, so removing the propagation headers here forces Envoy to
+# start a fresh trace (the gateway span becomes the root) instead of joining
+# an attacker-controlled one. Applied at the Gateway (all listeners, all
+# routes) — uniform, no per-route exception list, which is what closes the
+# forgotten-unauthenticated-route failure mode on paths like the Keycloak
+# login endpoints.
+#
+# The inbound traceparent is copied to {{ envoy_gateway_trace_forensic_header }}
+# first (value never trusted, logged as span attribute external.traceparent
+# only). NOTE: intra-filter set/remove ordering is asserted empirically by the
+# readiness trace-boundary stage; if the copy arrives empty there, the strip
+# still holds — only the forensic link degrades.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: {{ envoy_gateway_gateway_name }}-trace-boundary
+  namespace: {{ envoy_gateway_namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ envoy_gateway_gateway_name }}
+  headers:
+    earlyRequestHeaders:
+      set:
+        - name: {{ envoy_gateway_trace_forensic_header }}
+          value: "%REQ(traceparent)%"
+      remove:
+{% for header in envoy_gateway_trace_strip_headers %}
+        - {{ header }}
+{% endfor %}
