@@ -2,6 +2,18 @@
 - name: Readiness-only validation for local Fedora VM
   hosts: all
   gather_facts: false
+  pre_tasks:
+    - name: Resolve canonical edge gateway IP
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: resolve_edge_gateway_ip.yml
+        apply:
+          tags:
+            - always
+            - edge_gateway_ip
+      tags:
+        - always
+        - edge_gateway_ip
   roles:
     - role: env_guard
       tags:

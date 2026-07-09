@@ -23,6 +23,32 @@ trust_manager_internal_ca_target_namespaces:
   - headlamp
   - delve
 
+# Edge gateway (Envoy Gateway) coordinates. Shared here because route-owning
+# roles (keycloak, headlamp, openbao, delve) reference the Gateway in their
+# HTTPRoute parentRefs, and readiness/common lookups resolve the generated
+# Envoy Service by owning-gateway labels.
+edge_gateway_namespace: envoy-gateway-system
+edge_gateway_name: armory
+edge_gateway_class_name: armory
+
+# Canonical edge bind/probe IP controls shared across gateway, route owners,
+# and readiness checks.
+# Precedence is resolved in common/tasks/resolve_edge_gateway_ip.yml:
+# 1) edge_gateway_ip (or ARMORY_EDGE_GATEWAY_IP)
+# 2) edge_gateway_interface (or ARMORY_EDGE_GATEWAY_INTERFACE)
+# 3) first auto-detected candidate IPv4
+# 4) ansible default route IPv4 fallback.
+edge_gateway_ip: "{{ lookup('ansible.builtin.env', 'ARMORY_EDGE_GATEWAY_IP') | default('', true) }}"
+edge_gateway_interface: "{{ lookup('ansible.builtin.env', 'ARMORY_EDGE_GATEWAY_INTERFACE') | default('', true) }}"
+edge_gateway_excluded_cidrs:
+  - 10.0.2.0/24
+edge_gateway_excluded_ifname_patterns:
+  - '^lo$'
+  - '^cni.*'
+  - '^flannel.*'
+  - '^docker.*'
+  - '^virbr.*'
+
 # Keycloak -> Postgres TLS rollout toggle (staged off by default for compatibility).
 keycloak_pg_tls_enabled: true
 

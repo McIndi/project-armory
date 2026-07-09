@@ -1,0 +1,122 @@
+---
+- name: Normalize explicit edge gateway IP override
+  ansible.builtin.set_fact:
+    _edge_gateway_ip_explicit: "{{ edge_gateway_ip | default('') | trim }}"
+    _edge_gateway_interface_explicit: "{{ edge_gateway_interface | default('') | trim }}"
+  changed_when: false
+
+- name: Gather network facts for edge IP auto-detection
+  ansible.builtin.setup:
+    gather_subset:
+      - '!all'
+      - network
+  when:
+    - _edge_gateway_ip_explicit | length == 0
+    - ansible_facts.interfaces is not defined
+
+- name: Resolve interface IP override candidate
+  ansible.builtin.set_fact:
+    _edge_gateway_interface_ip: >-
+      {{
+        (
+          ansible_facts[_edge_gateway_interface_explicit].ipv4.address
+          if (
+            _edge_gateway_interface_explicit | length > 0
+            and ansible_facts[_edge_gateway_interface_explicit] is defined
+            and ansible_facts[_edge_gateway_interface_explicit].active | default(false) | bool
+            and ansible_facts[_edge_gateway_interface_explicit].ipv4 is defined
+            and ansible_facts[_edge_gateway_interface_explicit].ipv4.address is defined
+          )
+          else ''
+        )
+      }}
+  changed_when: false
+
+- name: Validate explicit edge gateway interface can provide an active IPv4
+  ansible.builtin.assert:
+    that:
+      - _edge_gateway_interface_ip | length > 0
+    fail_msg: >-
+      edge_gateway_interface='{{ _edge_gateway_interface_explicit }}' does not
+      resolve to an active IPv4 address. Set edge_gateway_ip explicitly or pick
+      a different interface.
+  when:
+    - _edge_gateway_ip_explicit | length == 0
+    - _edge_gateway_interface_explicit | length > 0
+
+- name: Build candidate edge IP list from active interfaces
+  ansible.builtin.set_fact:
+    _edge_gateway_candidate_ips: >-
+      {{
+        (_edge_gateway_candidate_ips | default([])) + [_edge_gateway_if_ip]
+      }}
+  vars:
+    _edge_gateway_if_data: "{{ ansible_facts[item] | default({}) }}"
+    _edge_gateway_if_ip: >-
+      {{
+        _edge_gateway_if_data.ipv4.address
+        if (
+          _edge_gateway_if_data.ipv4 is defined
+          and _edge_gateway_if_data.ipv4.address is defined
+        )
+        else ''
+      }}
+    _edge_gateway_if_excluded_by_name: >-
+      {{
+        (edge_gateway_excluded_ifname_patterns | default([]) | length > 0)
+        and (item is match(edge_gateway_excluded_ifname_patterns | join('|')))
+      }}
+    _edge_gateway_if_excluded_by_cidr: >-
+      {{ _edge_gateway_if_ip | armory_ip_in_any_cidr(edge_gateway_excluded_cidrs | default([])) }}
+  loop: "{{ ansible_facts.interfaces | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - _edge_gateway_ip_explicit | length == 0
+    - _edge_gateway_interface_explicit | length == 0
+    - _edge_gateway_if_data.active | default(false) | bool
+    - _edge_gateway_if_ip | length > 0
+    - not _edge_gateway_if_excluded_by_name
+    - not _edge_gateway_if_excluded_by_cidr
+  changed_when: false
+
+- name: Resolve edge gateway IP with precedence
+  ansible.builtin.set_fact:
+    edge_gateway_ip_resolved: >-
+      {{
+        _edge_gateway_ip_explicit
+        if (_edge_gateway_ip_explicit | length > 0)
+        else (
+          _edge_gateway_interface_ip
+          if (_edge_gateway_interface_ip | length > 0)
+          else (
+            (_edge_gateway_candidate_ips | default([]) | first | default(''))
+            if ((_edge_gateway_candidate_ips | default([]) | length) > 0)
+            else (ansible_facts.default_ipv4.address | default('127.0.0.1'))
+          )
+        )
+      }}
+    edge_gateway_ip_resolution_source: >-
+      {{
+        'explicit_edge_gateway_ip'
+        if (_edge_gateway_ip_explicit | length > 0)
+        else (
+          'explicit_edge_gateway_interface'
+          if (_edge_gateway_interface_ip | length > 0)
+          else (
+            'auto_detected_candidate'
+            if ((_edge_gateway_candidate_ips | default([]) | length) > 0)
+            else 'default_ipv4_fallback'
+          )
+        )
+      }}
+  changed_when: false
+
+- name: Warn when edge IP resolution falls back to default route
+  ansible.builtin.debug:
+    msg: >-
+      edge_gateway_ip resolution fell back to ansible_facts.default_ipv4.address
+      ({{ edge_gateway_ip_resolved }}). Set edge_gateway_ip or
+      edge_gateway_interface for deterministic edge selection.
+    warn: true
+  when: edge_gateway_ip_resolution_source == 'default_ipv4_fallback'

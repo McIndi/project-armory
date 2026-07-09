@@ -1,0 +1,47 @@
+---
+# Mirror a CA certificate from a Secret key into a ConfigMap so a Gateway API
+# BackendTLSPolicy can reference it (caCertificateRefs only accept ConfigMaps).
+# For cert-manager Vault-issued serving certs the source is the serving
+# Secret's ca.crt (the pki-int issuing chain).
+#
+# Inputs:
+#   common_backend_ca_namespace       namespace of Secret and ConfigMap
+#   common_backend_ca_secret_name     source Secret holding the CA
+#   common_backend_ca_secret_key      key in the Secret (default ca.crt)
+#   common_backend_ca_configmap_name  target ConfigMap name
+
+- name: Read CA source Secret for backend validation ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ common_backend_ca_secret_name }}"
+    namespace: "{{ common_backend_ca_namespace }}"
+    kubeconfig: "{{ common_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+  register: _common_backend_ca_secret_info
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Assert CA material present in source Secret
+  ansible.builtin.assert:
+    that:
+      - (_common_backend_ca_secret_info.resources | default([]) | length) > 0
+      - (common_backend_ca_secret_key | default('ca.crt')) in ((_common_backend_ca_secret_info.resources | first).data | default({}))
+    fail_msg: >-
+      Secret {{ common_backend_ca_namespace }}/{{ common_backend_ca_secret_name }}
+      is missing key {{ common_backend_ca_secret_key | default('ca.crt') }};
+      cannot build BackendTLSPolicy CA ConfigMap.
+  when: not ansible_check_mode
+
+- name: Apply backend CA ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ common_backend_ca_configmap_name }}"
+        namespace: "{{ common_backend_ca_namespace }}"
+      data:
+        ca.crt: "{{ (_common_backend_ca_secret_info.resources | first).data[common_backend_ca_secret_key | default('ca.crt')] | b64decode }}"
+    kubeconfig: "{{ common_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+  when: not ansible_check_mode

@@ -26,6 +26,8 @@ not in a role's defaults — role defaults are invisible to other roles.
 | `ARMORY_PUBLIC_BASE_URL` | `https://armory.local` | Base URL consumed by OIDC redirect configuration |
 | `ARMORY_HEADLAMP_HOST` | `headlamp.armory.local` | Headlamp ingress hostname |
 | `ARMORY_OPENBAO_HOST` | `openbao.armory.local` | OpenBao UI ingress hostname |
+| `ARMORY_EDGE_GATEWAY_IP` | empty | Optional explicit edge bind/probe IP override |
+| `ARMORY_EDGE_GATEWAY_INTERFACE` | empty | Optional interface override when explicit edge IP is unset |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
 | `VSO_CHART_PATH` | `/vagrant/project-armory/charts/vso-hardened` | Local hardened VSO chart (preferred for the demo) |
 | `VSO_CHART_REPO` / `VSO_CHART_NAME` / `VSO_CHART_VERSION` | empty | Alternative: published hardened chart coordinates |
@@ -40,6 +42,10 @@ not in a role's defaults — role defaults are invisible to other roles.
 | `use_declarative_ca_distribution` | `true` | Consumers read CA from trust-manager target Secrets instead of per-role copies (cert-manager excepted) |
 | `trust_manager_internal_ca_bundle_name` / `..._target_secret_name` | `openbao-ca-bundle` | Bundle and target Secret naming |
 | `trust_manager_internal_ca_target_namespaces` | cert-manager, vso, keycloak, headlamp | Namespaces receiving the CA Secret |
+| `edge_gateway_ip` | empty (or `ARMORY_EDGE_GATEWAY_IP`) | Canonical edge IP override for gateway externalIP, host mappings, and readiness probes |
+| `edge_gateway_interface` | empty (or `ARMORY_EDGE_GATEWAY_INTERFACE`) | Interface override used when `edge_gateway_ip` is unset |
+| `edge_gateway_excluded_cidrs` | `10.0.2.0/24` | CIDRs excluded from automatic edge-IP candidate selection |
+| `edge_gateway_excluded_ifname_patterns` | `^lo$`, `^cni.*`, `^flannel.*`, `^docker.*`, `^virbr.*` | Interface name patterns excluded from automatic edge-IP candidate selection |
 | `keycloak_pg_tls_enabled` | `true` | Keycloak↔Postgres TLS with `sslmode=verify-full` |
 | `ingress_http_policy` | `disabled` | `redirect-only` (HTTP→HTTPS redirect) or `disabled` (close 80/tcp in firewalld) |
 | `openbao_ui_enabled` | `true` (development inventory) | Enables OpenBao UI ingress exposure and OIDC follow-on wiring |
@@ -47,6 +53,23 @@ not in a role's defaults — role defaults are invisible to other roles.
 These were staged-rollout toggles during the TLS build-out; all are now
 enabled. They remain toggles so a regression can be bisected by flipping one
 back.
+
+### Canonical edge IP resolution
+
+Playbooks resolve a single `edge_gateway_ip_resolved` value before role
+execution with this precedence:
+
+1. `edge_gateway_ip`
+2. `edge_gateway_interface`
+3. First auto-detected active IPv4 candidate not matching excluded
+   interface patterns/CIDRs
+4. `ansible_facts.default_ipv4.address` fallback
+
+One-off deterministic override example:
+
+```bash
+ansible-playbook playbooks/site.yml -e edge_gateway_ip=192.168.56.10
+```
 
 ## Notable role defaults
 
