@@ -27,6 +27,7 @@ Targeted re-runs (every role is tagged):
 ```bash
 ansible-playbook playbooks/site.yml --tags k3s
 ansible-playbook playbooks/site.yml --tags openbao
+ansible-playbook playbooks/openbao_unseal.yml               # unseal-only recovery
 ansible-playbook playbooks/site.yml --tags vso_install
 ansible-playbook playbooks/site.yml --tags keycloak_install
 ansible-playbook playbooks/site.yml --tags trust_manager
@@ -45,7 +46,10 @@ Runs automatically at the end of `site.yml` and on demand. Checks per
 component: deployment/pod health, TLS posture (HTTPS endpoints, plaintext
 rejection, certificate trust, `skipTLSVerify` off), VaultConnection CA
 material, OpenBao seal status and audit device, ingress HTTP policy
-conformance, and OIDC endpoints. Failures print a per-check table; a `warn`
+conformance, edge gateway status (Gateway Programmed, routes, edge cert), the
+trace-context trust boundary (forged external trace context is stripped, a
+fresh gateway trace is minted, the inbound value is captured in the forensic
+header), and OIDC endpoints. Failures print a per-check table; a `warn`
 is informational, a `fail` indicates the deployed state diverges from the
 configured policy.
 
@@ -66,6 +70,7 @@ same timestamp already exists, the script appends an index suffix.
 
 ```bash
 ansible-playbook --syntax-check playbooks/site.yml
+ansible-playbook --syntax-check playbooks/openbao_unseal.yml
 ansible-lint -c .ansible-lint playbooks/site.yml roles/   # config in ansible/.ansible-lint
 yamllint -c .yamllint .                                    # run from ansible/
 ```
@@ -213,7 +218,9 @@ The root token is reserved for bootstrap and emergencies. Two copies exist:
 
 Unsealing happens automatically on every playbook run (`openbao` role,
 `unseal.yml`); after any OpenBao pod restart, run
-`ansible-playbook playbooks/site.yml --tags openbao` to unseal and reconverge.
+`ansible-playbook playbooks/openbao_unseal.yml` to unseal only.
+Use `ansible-playbook playbooks/site.yml --tags openbao` when you also want
+OpenBao install/configuration reconciliation.
 
 ## Resource usage
 
@@ -249,7 +256,7 @@ vagrant destroy -f && vagrant up
   /vagrant/.env; set +a` and verify
   `test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"`.
 - **OpenBao tasks fail with connection errors**: pod restarted and is sealed.
-  Re-run `--tags openbao`.
+  Run `ansible-playbook playbooks/openbao_unseal.yml`.
 - **Readiness shows TLS trust failures**: usually a CA Secret missing in a
   consumer namespace. Check the trust-manager Bundle target Secrets
   (`openbao-ca-bundle`) and re-run `--tags trust_manager`.

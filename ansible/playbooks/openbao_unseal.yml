@@ -1,0 +1,22 @@
+---
+- name: OpenBao unseal-only recovery for local Fedora VM
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: env_guard
+      tags:
+        - always
+        - env_guard
+        - preflight
+  tasks:
+    - name: Run OpenBao unseal tasks only
+      ansible.builtin.include_role:
+        name: openbao
+        tasks_from: unseal.yml
+        apply:
+          tags:
+            - openbao
+            - openbao_unseal
+      tags:
+        - openbao
+        - openbao_unseal
