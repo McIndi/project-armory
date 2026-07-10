@@ -3,6 +3,13 @@
 # containerd. No registry: buildah builds -> OCI archive -> `k3s ctr images import`.
 # The base (ghcr.io/mcindi/delve) is still pulled from GHCR during the build.
 
+- name: Ensure Delve working directory exists
+  ansible.builtin.file:
+    path: "{{ delve_work_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
 - name: Check whether the delve-armory image is already imported
   ansible.builtin.command:
     cmd: "k3s ctr -n {{ delve_containerd_namespace }} images ls -q"
