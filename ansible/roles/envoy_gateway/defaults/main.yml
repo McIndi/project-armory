@@ -28,6 +28,19 @@ envoy_gateway_programmed_timeout_seconds: 300
 # Primary DNS name included in TLS certificates and route host rules.
 envoy_gateway_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 
+# Optional comma-separated extra SAN hostnames to append to the consolidated
+# edge certificate. Keep empty in Armory's .env.example; Garrison can override
+# it before invoking Armory's deploy path.
+envoy_gateway_extra_tls_sans: >-
+  {{
+    lookup('ansible.builtin.env', 'ARMORY_EDGE_EXTRA_SAN_HOSTS')
+    | default('', true)
+    | split(',')
+    | map('trim')
+    | reject('equalto', '')
+    | list
+  }}
+
 # Host VM IP. k3s runs with servicelb disabled, so the Envoy Service is
 # ClusterIP patched with this address as an externalIP — kube-proxy then
 # binds 443 (and 80 under redirect-only policy) on the node, replacing the
@@ -37,11 +50,15 @@ envoy_gateway_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | defau
 # All public hosts served by the gateway. One consolidated edge certificate
 # covers the apex and the per-workload subdomains; TLS now terminates only at
 # the Gateway listeners, so per-workload edge certs are gone.
-envoy_gateway_tls_sans:
-  - "{{ envoy_gateway_domain }}"
-  - "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + envoy_gateway_domain, true) }}"
-  - "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + envoy_gateway_domain, true) }}"
-  - "{{ lookup('ansible.builtin.env', 'ARMORY_DELVE_HOST') | default('delve.' + envoy_gateway_domain, true) }}"
+envoy_gateway_tls_sans: >-
+  {{
+    [
+      envoy_gateway_domain,
+      lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + envoy_gateway_domain, true),
+      lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + envoy_gateway_domain, true),
+      lookup('ansible.builtin.env', 'ARMORY_DELVE_HOST') | default('delve.' + envoy_gateway_domain, true)
+    ] + envoy_gateway_extra_tls_sans
+  }}
 
 # Edge TLS certificate (cert-manager, OpenBao external ClusterIssuer). The
 # secret must live in the Gateway's namespace: listener certificateRefs are

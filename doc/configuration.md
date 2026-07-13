@@ -26,6 +26,7 @@ not in a role's defaults — role defaults are invisible to other roles.
 | `ARMORY_PUBLIC_BASE_URL` | `https://armory.local` | Base URL consumed by OIDC redirect configuration |
 | `ARMORY_HEADLAMP_HOST` | `headlamp.armory.local` | Headlamp ingress hostname |
 | `ARMORY_OPENBAO_HOST` | `openbao.armory.local` | OpenBao UI ingress hostname |
+| `ARMORY_EDGE_EXTRA_SAN_HOSTS` | empty | Optional comma-separated extra DNS SANs appended to the consolidated edge certificate |
 | `ARMORY_EDGE_GATEWAY_IP` | empty | Optional explicit edge bind/probe IP override |
 | `ARMORY_EDGE_GATEWAY_INTERFACE` | empty | Optional interface override when explicit edge IP is unset |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
