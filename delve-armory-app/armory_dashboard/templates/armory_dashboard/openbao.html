@@ -1,0 +1,18 @@
+{% extends 'events/base.html' %}
+{% load query %}
+
+{% block title %}Armory OpenBao Audit{% endblock %}
+
+{% block content %}
+<h2>OpenBao Audit Searches</h2>
+
+<h4>Secret-path read frequency by identity</h4>
+{% query_table read_frequency %}
+
+<h4>Policy-denied requests</h4>
+{% query_table policy_denied %}
+{% endblock %}
+
+{% block js %}
+<script src="{% query_table_js %}"></script>
+{% endblock %}

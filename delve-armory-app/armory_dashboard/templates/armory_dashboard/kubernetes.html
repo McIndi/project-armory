@@ -1,0 +1,21 @@
+{% extends 'events/base.html' %}
+{% load query %}
+
+{% block title %}Armory Kubernetes Audit{% endblock %}
+
+{% block content %}
+<h2>Kubernetes Audit Searches</h2>
+
+<h4>Who's reading Kubernetes Secrets</h4>
+{% query_table secrets_reads %}
+
+<h4>Failed/denied API requests (HTTP >= 400), by identity</h4>
+{% query_table failed_by_identity %}
+
+<h4>Unusual API activity from non-node identities</h4>
+{% query_table unusual_non_node %}
+{% endblock %}
+
+{% block js %}
+<script src="{% query_table_js %}"></script>
+{% endblock %}

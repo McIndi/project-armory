@@ -18,6 +18,8 @@ DELVE_NAV_MENU = {
     **DELVE_NAV_MENU,
     'Armory Security': {
         'Overview': 'armory_overview',
+        'Kubernetes Audit': 'armory_kubernetes',
+        'OpenBao Audit': 'armory_openbao',
         'Failed Logins': 'armory_failed_logins',
     },
 }

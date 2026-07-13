@@ -7,5 +7,7 @@ from . import views
 
 urlpatterns = delve_urlpatterns + [
     path('armory/', views.overview, name='armory_overview'),
+    path('armory/kubernetes/', views.kubernetes, name='armory_kubernetes'),
+    path('armory/openbao/', views.openbao, name='armory_openbao'),
     path('armory/failed-logins/', views.failed_logins, name='armory_failed_logins'),
 ]
