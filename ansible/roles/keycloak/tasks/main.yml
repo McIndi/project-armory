@@ -4,6 +4,31 @@
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
+# Hard stop before anything cluster-scoped is touched. The manifest install path
+# server-side-applies the community Keycloak CRDs, which are cluster-scoped and
+# may already be owned by another tenant's OLM-managed operator. Overwriting them
+# can break that tenant's SSO, so refuse that path on a platform we do not own
+# end to end, however the vars were set.
+- name: Refuse to apply cluster-scoped Keycloak CRDs on a platform we do not own
+  ansible.builtin.assert:
+    that:
+      - >-
+        (target_platform | default('k3s') == 'k3s')
+        or (keycloak_operator_install_method | default('manifests') != 'manifests')
+    fail_msg: >-
+      keycloak_operator_install_method='manifests' applies the upstream community
+      Keycloak CRDs (cluster-scoped), but target_platform is
+      '{{ target_platform | default('k3s') }}'. On a shared cluster those CRDs are
+      likely owned by an OLM-managed operator that another tenant's Keycloak
+      depends on, and overwriting them can break their SSO. Set
+      keycloak_operator_install_method=olm to consume the operator the platform
+      already provides.
+    success_msg: >-
+      Keycloak operator install method
+      '{{ keycloak_operator_install_method | default('manifests') }}' is safe for
+      target_platform '{{ target_platform | default('k3s') }}'.
+  tags: [keycloak, keycloak_install, keycloak_oidc]
+
 - name: Deploy standalone Keycloak (Operator + PostgreSQL StatefulSet)
   tags: [keycloak, keycloak_install, keycloak_oidc]
   block:
@@ -338,6 +363,11 @@
         - keycloak_pg_tls_enabled | bool
 
     # ── Keycloak Operator: CRDs + operator Deployment ───────────────────────────
+    # These CRDs are CLUSTER-SCOPED. Applying them is only safe where armory owns
+    # the cluster outright. Where the platform already provides a Keycloak
+    # operator via OLM (keycloak_operator_install_method: olm), another tenant's
+    # Keycloak may depend on these exact CRDs — server-side-applying the upstream
+    # community copies over theirs can mutate the schema and break their SSO.
     - name: Install Keycloak CRDs (cluster-scoped, pinned version)
       ansible.builtin.command:
         cmd: "k3s kubectl apply --server-side -f {{ keycloak_k8s_resources_base_url }}/{{ item }}"
@@ -350,7 +380,9 @@
       changed_when: >-
         'configured' in (_keycloak_crd_apply.stdout | default('')) or
         'created' in (_keycloak_crd_apply.stdout | default(''))
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     - name: Wait for Keycloak CRDs to be established
       ansible.builtin.command:
@@ -373,7 +405,9 @@
         namespace: "{{ keycloak_namespace }}"
         name: "{{ keycloak_operator_deployment_name }}"
       register: _keycloak_operator_deployment
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     - name: Install Keycloak Operator into the Keycloak namespace
       ansible.builtin.command:
@@ -388,6 +422,7 @@
         'created' in (_keycloak_operator_apply.stdout | default(''))
       when:
         - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
         - >-
           (_keycloak_operator_deployment.resources | default([]) | length == 0) or
           (
@@ -424,7 +459,9 @@
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
       register: _keycloak_operator_patch
       changed_when: "'(no change)' not in (_keycloak_operator_patch.stdout | default(''))"
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     - name: Wait for Keycloak Operator deployment to be available
       ansible.builtin.command:
@@ -436,7 +473,9 @@
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
       register: _keycloak_operator_rollout
       changed_when: false
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     - name: Provision Keycloak internal service TLS certificate
       ansible.builtin.import_role:

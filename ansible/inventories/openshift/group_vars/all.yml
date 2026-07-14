@@ -100,6 +100,16 @@ armory_namespace_labels:
 keycloak_enabled: true
 keycloak_pg_tls_enabled: true
 
+# Consume the Keycloak operator the platform already provides via OLM, and
+# create ONLY our own namespaced Keycloak/KeycloakRealmImport CRs.
+#
+# The 'manifests' path (armory's k3s default) server-side-applies the upstream
+# COMMUNITY Keycloak CRDs. On this cluster those cluster-scoped CRDs are already
+# owned by OLM's Red Hat build of Keycloak operator, and CP4I's cs-keycloak
+# depends on them — overwriting them could break SSO for the whole Cloud Pak.
+# The keycloak role asserts on this, so it cannot be armed by accident.
+keycloak_operator_install_method: olm
+
 # Delve is DEFERRED on OpenShift. Its audit shippers read PVC host-directories
 # and the k3s API-server audit log, neither of which exists here — that feed
 # needs a redesign against OpenShift logging before the role can run.

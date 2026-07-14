@@ -7,8 +7,25 @@ keycloak_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3
 keycloak_work_dir: /opt/keycloak
 
 # ── Keycloak Operator + CRDs ────────────────────────────────────────────────────
+# How the Keycloak Operator gets installed.
+#
+#   manifests — apply the upstream community operator AND its CRDs from
+#               keycloak-k8s-resources. Correct only on a cluster armory owns
+#               outright, because the CRDs are CLUSTER-SCOPED.
+#   olm       — the cluster already provides a Keycloak operator and its CRDs
+#               via OLM. Armory installs NOTHING cluster-scoped and only creates
+#               its own namespaced Keycloak/KeycloakRealmImport CRs.
+#
+# DANGER: on a shared cluster, `manifests` server-side-applies community CRDs
+# over whatever already owns keycloaks.k8s.keycloak.org. If another tenant's
+# Keycloak (e.g. an OLM-managed Red Hat build) depends on those CRDs, this can
+# mutate their schema and break that tenant's SSO. Never set `manifests` on a
+# cluster you do not own end to end.
+keycloak_operator_install_method: manifests
+
 # Pin to a keycloak-k8s-resources tag (matches the Keycloak server version the
 # operator deploys). Operator, CRDs, and server image all track this tag.
+# Only consulted when keycloak_operator_install_method == 'manifests'.
 keycloak_operator_version: "26.5.2"
 keycloak_k8s_resources_base_url: "https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/{{ keycloak_operator_version }}/kubernetes"
 keycloak_operator_deployment_name: keycloak-operator
