@@ -206,6 +206,22 @@ delve_enabled: false
 # API server is not ours to reconfigure, and cluster login stays LDAP.
 k3s_audit_enabled: false
 
+# --- Registry ----------------------------------------------------------------
+# armory hosts its own OCI registry. Node pulls trust it for free: its Route is
+# fronted by the router's Let's Encrypt wildcard certificate, which RHCOS already
+# trusts, so nothing cluster-wide (image.config, node trust) is touched.
+#
+# It is authenticated: a Route publishes it on the cluster ingress, and an
+# anonymous registry there would let anyone push an image our own workloads run.
+registry_enabled: true
+registry_host: "{{ armory_registry_host }}"
+registry_storage_class: "{{ armory_storage_class }}"
+
+# Namespaces whose pods pull from it. Empty for now: delve is deferred, so its
+# namespace does not exist and a pull secret there would fail to apply. garrison
+# adds its own agentstack namespace when it lands.
+registry_pull_secret_namespaces: []
+
 # --- Readiness ---------------------------------------------------------------
 # Checks that probe the node or the k3s control plane have nothing to look at:
 # the nodes are RHCOS and not ours, and there is no k3s. Headlamp is not

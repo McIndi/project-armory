@@ -1,0 +1,82 @@
+---
+# An OCI registry that armory hosts itself, in its own namespace.
+#
+# Why not the cluster's internal registry: it is `Removed` on this cluster (the
+# vSphere default), and enabling it is a cluster-wide change affecting every
+# tenant. Why not an external registry: it would be an outside dependency for a
+# platform that is otherwise self-contained.
+#
+# The pull-trust problem, and why this works with NO cluster-wide change:
+# when a pod starts it is CRI-O ON THE NODE that pulls the image, and CRI-O
+# refuses a registry whose TLS it does not trust. There is no per-namespace way to
+# add trust to a node. But an OpenShift Route is fronted by the router, which
+# serves the cluster's Let's Encrypt wildcard certificate for the apps domain --
+# publicly trusted, and therefore already trusted by RHCOS. So a pull from
+# registry.<apps-domain> is trusted without touching image.config, node trust, or
+# anything else shared.
+
+registry_namespace: armory-registry
+registry_name: registry
+registry_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
+registry_image: "docker.io/library/registry:2"
+registry_replicas: 1
+
+# Registry's own listener. Not 443: a privileged port would need
+# NET_BIND_SERVICE, and the Route maps 443 to this anyway.
+registry_port: 5000
+
+# Public hostname. MUST sit under the apps domain, or the router will not have a
+# certificate for it and node pulls will fail with an x509 error.
+registry_host: "registry.{{ armory_apps_domain | default('apps.example.com') }}"
+
+# --- Storage -----------------------------------------------------------------
+registry_storage_class: "{{ armory_storage_class | default('') }}"
+registry_storage_size: 50Gi
+
+# --- Authentication ----------------------------------------------------------
+# The Route publishes this registry on the cluster's ingress, so it is reachable
+# by other tenants and possibly from outside. An unauthenticated registry there
+# would let anyone push images that our own workloads then run. Auth is not
+# optional.
+#
+# The password is generated once and kept in OpenBao, like every other armory
+# credential; the htpasswd file and the pull secret are derived from it.
+registry_auth_enabled: true
+registry_auth_realm: armory
+registry_username: armory
+registry_htpasswd_secret_name: registry-htpasswd
+registry_pull_secret_name: armory-registry-pull
+
+# Namespaces that need to pull images from this registry. A dockerconfigjson pull
+# secret is created in each.
+registry_pull_secret_namespaces: []
+
+registry_openbao_kv_mount: secret
+registry_openbao_path: registry/credentials
+registry_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+
+# --- TLS ---------------------------------------------------------------------
+# The registry serves HTTPS in the pod and the Route re-encrypts to it, so no leg
+# of the path is in the clear -- the same posture as every other armory workload.
+registry_tls_enabled: true
+registry_tls_secret_name: registry-tls
+registry_tls_certificate_name: registry-tls
+registry_tls_issuer_name: "{{ certmanager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
+registry_tls_issuer_kind: "{{ common_certificate_issuer_kind | default('ClusterIssuer') }}"
+registry_tls_duration: "8760h"
+registry_tls_renew_before: "720h"
+registry_tls_mount_path: /etc/registry/tls
+registry_tls_dns_names:
+  - "{{ registry_name }}.{{ registry_namespace }}.svc.cluster.local"
+  - "{{ registry_name }}.{{ registry_namespace }}.svc"
+
+registry_rollout_timeout_seconds: 300
+
+# Image layers are large. The router's default timeout (30s) will abort a push of
+# any real size partway through, which surfaces as a confusing EOF from podman.
+registry_route_timeout: 300s
+
+# Optional Route annotations, e.g. an IP allowlist:
+#   haproxy.router.openshift.io/ip_whitelist: "10.30.0.0/16"
+registry_route_annotations: {}

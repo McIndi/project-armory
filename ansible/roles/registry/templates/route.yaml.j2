@@ -1,0 +1,52 @@
+---
+# The registry's public Route.
+#
+# This is what makes node pulls work with no cluster-wide change. The pod that
+# runs an image does not pull it -- CRI-O on the NODE does, and CRI-O rejects a
+# registry whose TLS it does not trust. There is no per-namespace way to add a CA
+# to a node's trust store. But the router fronts this Route with the cluster's
+# Let's Encrypt wildcard certificate, which RHCOS already trusts, so pulls from
+# registry.<apps-domain> just work: no image.config edit, no node trust, nothing
+# shared touched.
+#
+# Deliberately NOT routed through the Envoy trace boundary, unlike every other
+# armory hostname. That boundary exists to make USER request attribution
+# unforgeable; image pulls are kubelet traffic, and pushing multi-gigabyte blob
+# uploads through Envoy would add nothing to the audit story while putting the
+# pull path at risk.
+#
+# reencrypt: the registry serves TLS in the pod, and the router verifies it
+# against the internal CA, so no leg is in the clear.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ registry_name }}
+  namespace: {{ registry_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ registry_name }}
+    app.kubernetes.io/part-of: armory
+  annotations:
+    # Image layers are large; the default router timeout will abort a push of any
+    # real size partway through.
+    haproxy.router.openshift.io/timeout: "{{ registry_route_timeout }}"
+{% for key, value in (registry_route_annotations | default({})).items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}
+spec:
+  host: {{ registry_host }}
+  to:
+    kind: Service
+    name: {{ registry_name }}
+    weight: 100
+  port:
+    targetPort: {{ registry_port }}
+  tls:
+{% if registry_tls_enabled | bool %}
+    termination: reencrypt
+    destinationCACertificate: |-
+{{ registry_route_destination_ca | indent(6, true) }}
+{% else %}
+    termination: edge
+{% endif %}
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

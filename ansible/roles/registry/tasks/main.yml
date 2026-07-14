@@ -1,0 +1,199 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Deploy the armory OCI registry
+  tags: [registry]
+  block:
+    - name: Ensure the registry namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ registry_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ registry_namespace }}"
+            labels: "{{ armory_namespace_labels | default({'app.kubernetes.io/part-of': 'armory'}) }}"
+      when: not ansible_check_mode
+
+    # ── Credentials: OpenBao is the source of truth, as for every other secret ──
+    - name: Ensure OpenBao provisioner token is available
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: load_openbao_provisioner_token.yml
+      when: registry_auth_enabled | bool
+
+    - name: Read current registry credentials from OpenBao
+      ansible.builtin.uri:
+        url: "{{ registry_openbao_api_addr }}/v1/{{ registry_openbao_kv_mount }}/data/{{ registry_openbao_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
+        status_code: [200, 404]
+      register: _registry_creds_current
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - registry_auth_enabled | bool
+        - not ansible_check_mode
+
+    # Generated once and then reused: regenerating on every run would invalidate
+    # the pull secrets already handed to running workloads.
+    - name: Build registry credentials (password generated once, then persisted)
+      ansible.builtin.set_fact:
+        _registry_password: >-
+          {{
+            (_registry_creds_current.json.data.data.password)
+            if ((_registry_creds_current.status | default(404)) == 200
+                and (_registry_creds_current.json.data.data.password | default('') | length) > 0)
+            else lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits')
+          }}
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - registry_auth_enabled | bool
+        - not ansible_check_mode
+
+    - name: Store registry credentials in OpenBao
+      ansible.builtin.uri:
+        url: "{{ registry_openbao_api_addr }}/v1/{{ registry_openbao_kv_mount }}/data/{{ registry_openbao_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_provisioner_token }}"
+        body_format: json
+        body:
+          data:
+            username: "{{ registry_username }}"
+            password: "{{ _registry_password }}"
+        status_code: [200, 204]
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - registry_auth_enabled | bool
+        - not ansible_check_mode
+        - (_registry_creds_current.status | default(404)) != 200
+
+    # The registry only accepts bcrypt in its htpasswd file; MD5/SHA are rejected
+    # outright and the registry will refuse every login.
+    - name: Render the htpasswd secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ registry_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ registry_htpasswd_secret_name }}"
+            namespace: "{{ registry_namespace }}"
+            labels:
+              app.kubernetes.io/name: "{{ registry_name }}"
+              app.kubernetes.io/part-of: armory
+          type: Opaque
+          stringData:
+            htpasswd: "{{ registry_username }}:{{ _registry_password | password_hash('bcrypt') }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - registry_auth_enabled | bool
+        - not ansible_check_mode
+
+    # ── TLS ───────────────────────────────────────────────────────────────────
+    - name: Provision the registry serving certificate
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: apply_certificate.yml
+      vars:
+        common_kubeconfig_path: "{{ registry_kubeconfig_path }}"
+        common_certificate_name: "{{ registry_tls_certificate_name }}"
+        common_certificate_namespace: "{{ registry_namespace }}"
+        common_certificate_secret_name: "{{ registry_tls_secret_name }}"
+        common_certificate_issuer_name: "{{ registry_tls_issuer_name }}"
+        common_certificate_issuer_kind: "{{ registry_tls_issuer_kind }}"
+        common_certificate_duration: "{{ registry_tls_duration }}"
+        common_certificate_renew_before: "{{ registry_tls_renew_before }}"
+        common_certificate_dns_names: "{{ registry_tls_dns_names }}"
+      when:
+        - registry_tls_enabled | bool
+        - not ansible_check_mode
+
+    # ── Workload ──────────────────────────────────────────────────────────────
+    - name: Apply the registry Deployment, Service, PVC and ServiceAccount
+      kubernetes.core.k8s:
+        kubeconfig: "{{ registry_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'deployment.yaml.j2') | from_yaml_all | list }}"
+      when: not ansible_check_mode
+
+    - name: Wait for the registry to become available
+      ansible.builtin.command:
+        cmd: >-
+          {{ kubectl_bin }} rollout status deployment/{{ registry_name }}
+          --namespace {{ registry_namespace }}
+          --timeout={{ registry_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ registry_kubeconfig_path }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    # ── Route ─────────────────────────────────────────────────────────────────
+    - name: Read the internal CA for the Route's backend verification
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ registry_kubeconfig_path }}"
+        kind: Secret
+        name: "{{ registry_tls_secret_name }}"
+        namespace: "{{ registry_namespace }}"
+      register: _registry_tls_secret
+      until: >-
+        (_registry_tls_secret.resources | default([]) | length > 0)
+        and ((_registry_tls_secret.resources[0].data['ca.crt'] | default('')) | length > 0)
+      retries: 30
+      delay: 2
+      when:
+        - registry_tls_enabled | bool
+        - not ansible_check_mode
+
+    - name: Set the registry Route destination CA fact
+      ansible.builtin.set_fact:
+        registry_route_destination_ca: >-
+          {{ _registry_tls_secret.resources[0].data['ca.crt'] | b64decode | trim }}
+      changed_when: false
+      when:
+        - registry_tls_enabled | bool
+        - not ansible_check_mode
+
+    - name: Apply the registry Route
+      kubernetes.core.k8s:
+        kubeconfig: "{{ registry_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'route.yaml.j2') | from_yaml_all | list }}"
+      when: not ansible_check_mode
+
+    # ── Pull secrets ──────────────────────────────────────────────────────────
+    # Each consuming namespace gets a dockerconfigjson so its pods can pull. The
+    # registry is authenticated, so without this every pull would 401.
+    - name: Create the registry pull secret in each consuming namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ registry_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ registry_pull_secret_name }}"
+            namespace: "{{ item }}"
+            labels:
+              app.kubernetes.io/part-of: armory
+          type: kubernetes.io/dockerconfigjson
+          stringData:
+            .dockerconfigjson: "{{ _registry_dockerconfig | to_json }}"
+      vars:
+        _registry_dockerconfig:
+          auths:
+            "{{ registry_host }}":
+              username: "{{ registry_username }}"
+              password: "{{ _registry_password }}"
+              auth: "{{ (registry_username ~ ':' ~ _registry_password) | b64encode }}"
+      loop: "{{ registry_pull_secret_namespaces }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - registry_auth_enabled | bool
+        - not ansible_check_mode

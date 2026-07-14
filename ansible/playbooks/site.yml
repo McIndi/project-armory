@@ -109,6 +109,16 @@
       tags:
         - envoy_proxy
         - edge
+    # An OCI registry armory hosts itself. The cluster's internal registry is
+    # Removed, and enabling it is a cluster-wide change; an external registry
+    # would be an outside dependency. Hosting our own works because its Route is
+    # fronted by the router's publicly-trusted wildcard certificate, which the
+    # nodes' container runtime already trusts -- so image pulls need no
+    # cluster-wide trust configuration at all.
+    - role: registry
+      when: registry_enabled | default(false) | bool
+      tags:
+        - registry
     # Headlamp existed to give cluster login via Keycloak, which required
     # reconfiguring the k3s API server's OIDC flags. On OpenShift cluster login
     # is LDAP (a shared, cluster-wide OAuth object we must not touch) and the
