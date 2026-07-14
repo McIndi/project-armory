@@ -1,0 +1,195 @@
+---
+# Keycloak server, deployed WITHOUT the Keycloak Operator.
+#
+# The k3s path (keycloak.yaml.j2) creates a `Keycloak` CR and lets the operator
+# render this Deployment for us. That is not available on a shared cluster: the
+# Keycloak CRDs are cluster-scoped and already owned by another tenant's
+# OLM-managed operator, whose Keycloak the whole Cloud Pak depends on. Rather
+# than co-own those CRDs — and inherit that tenant's upgrade cadence — this runs
+# the same server with no CRDs and no operator at all.
+#
+# Everything the CR configured is reproduced here as `KC_*` env vars, and the
+# Service deliberately keeps the exact name the operator would have given it
+# ({{ keycloak_cr_name }}-service), so every consumer's internal FQDN,
+# certificate SAN, and OpenBao policy keeps working untouched.
+#
+# No securityContext: the Keycloak image is built to run as an arbitrary
+# unprivileged UID, so OpenShift's default restricted-v2 SCC needs no help.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ keycloak_service_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/part-of: keycloak
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: keycloak
+  ports:
+    - name: https
+      port: {{ keycloak_service_https_port }}
+      targetPort: {{ keycloak_service_https_port }}
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ keycloak_cr_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/part-of: keycloak
+spec:
+  replicas: {{ keycloak_instances }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/part-of: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: {{ keycloak_image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+            # Imports the realm on first boot only; if the realm already exists
+            # Keycloak skips it. Ongoing realm configuration is applied over the
+            # admin REST API by this role's other tasks, exactly as on k3s.
+            - --import-realm
+          env:
+            # --- Database -----------------------------------------------------
+            - name: KC_DB
+              value: postgres
+{% if keycloak_pg_tls_enabled | bool %}
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://{{ keycloak_pg_service_fqdn }}:5432/{{ keycloak_db_name }}?sslmode={{ keycloak_pg_tls_verify_mode }}&sslrootcert={{ keycloak_pg_tls_ca_mount_path }}/{{ keycloak_pg_tls_ca_file_name }}"
+{% else %}
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://{{ keycloak_pg_host }}:5432/{{ keycloak_db_name }}?sslmode=disable"
+{% endif %}
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ keycloak_db_secret_name }}
+                  key: username
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ keycloak_db_secret_name }}
+                  key: password
+
+            # --- Bootstrap admin (master realm) -------------------------------
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ keycloak_bootstrap_admin_secret_name }}
+                  key: username
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ keycloak_bootstrap_admin_secret_name }}
+                  key: password
+
+            # --- HTTP / TLS ---------------------------------------------------
+            # HTTPS all the way to the pod: the edge Route re-encrypts rather
+            # than terminating in the clear, matching the k3s Envoy behaviour.
+            - name: KC_HTTP_ENABLED
+              value: "false"
+            - name: KC_HTTPS_PORT
+              value: "{{ keycloak_service_https_port }}"
+            - name: KC_HTTPS_CERTIFICATE_FILE
+              value: "{{ keycloak_tls_mount_path }}/tls.crt"
+            - name: KC_HTTPS_CERTIFICATE_KEY_FILE
+              value: "{{ keycloak_tls_mount_path }}/tls.key"
+
+            # --- Hostname / proxy ---------------------------------------------
+            # Keycloak mints issuer and redirect URLs from this, so it must be
+            # the PUBLIC URL clients reach, not the in-cluster Service name.
+            - name: KC_HOSTNAME
+              value: "{{ keycloak_public_base_url }}"
+            - name: KC_HOSTNAME_STRICT
+              value: "{{ (keycloak_hostname_strict | bool) | string | lower }}"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+
+            # --- Health (management interface, port 9000) ----------------------
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+
+            # --- Event logging -------------------------------------------------
+            - name: KC_SPI_EVENTS_LISTENER_JBOSS_LOGGING_SUCCESS_LEVEL
+              value: "{{ keycloak_events_jboss_logging_success_level }}"
+            - name: KC_SPI_EVENTS_LISTENER_JBOSS_LOGGING_ERROR_LEVEL
+              value: "{{ keycloak_events_jboss_logging_error_level }}"
+          ports:
+            - name: https
+              containerPort: {{ keycloak_service_https_port }}
+            - name: management
+              containerPort: {{ keycloak_management_port }}
+          volumeMounts:
+            - name: keycloak-tls
+              mountPath: {{ keycloak_tls_mount_path }}
+              readOnly: true
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+{% if keycloak_pg_tls_enabled | bool %}
+            - name: postgres-ca
+              mountPath: {{ keycloak_pg_tls_ca_mount_path }}
+              readOnly: true
+{% endif %}
+          # Health lives on the management interface, which inherits the HTTPS
+          # config from the main interface once KC_HTTPS_* is set.
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: {{ keycloak_management_port }}
+              scheme: HTTPS
+            periodSeconds: 5
+            failureThreshold: {{ keycloak_startup_probe_failure_threshold }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ keycloak_management_port }}
+              scheme: HTTPS
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: {{ keycloak_management_port }}
+              scheme: HTTPS
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: {{ keycloak_resources_requests_cpu }}
+              memory: {{ keycloak_resources_requests_memory }}
+            limits:
+              cpu: {{ keycloak_resources_limits_cpu }}
+              memory: {{ keycloak_resources_limits_memory }}
+      volumes:
+        # 0440: Kubernetes mounts these root-owned, and OpenShift runs the
+        # container with GID 0, so group-read is what makes the key readable
+        # without granting world access to it.
+        - name: keycloak-tls
+          secret:
+            secretName: {{ keycloak_internal_tls_secret_name }}
+            defaultMode: 0440
+        # A Secret, not a ConfigMap: the realm definition carries the realm
+        # admin's password in cleartext.
+        - name: realm-import
+          secret:
+            secretName: {{ keycloak_realm_import_secret_name }}
+            defaultMode: 0440
+{% if keycloak_pg_tls_enabled | bool %}
+        - name: postgres-ca
+          configMap:
+            name: {{ keycloak_pg_tls_ca_configmap_name }}
+{% endif %}

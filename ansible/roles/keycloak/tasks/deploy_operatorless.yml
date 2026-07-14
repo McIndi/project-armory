@@ -1,0 +1,59 @@
+---
+# Deploy Keycloak as a plain Deployment + Service, with no operator and no CRDs.
+#
+# Used where the Keycloak CRDs are cluster-scoped and owned by someone else (see
+# keycloak_operator_install_method). Produces the same Service name, the same
+# realm, and the same internal FQDN as the operator path, so nothing downstream
+# has to know which path ran.
+
+- name: Build the realm definition for import
+  # Reuses the EXISTING realmimport template and lifts out its .spec.realm body,
+  # rather than maintaining a second copy of the realm. The operator consumed
+  # that body from a CR; here Keycloak consumes the identical body as a JSON file
+  # via --import-realm, so the two paths cannot drift.
+  ansible.builtin.set_fact:
+    _keycloak_realm_json: >-
+      {{ (lookup('template', 'realmimport.yaml.j2') | from_yaml).spec.realm | to_json }}
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Stage the realm definition as a Secret
+  # A Secret, not a ConfigMap: the realm body embeds the realm admin's password
+  # in cleartext, and a ConfigMap would expose it to anyone with `get configmap`
+  # in this namespace.
+  kubernetes.core.k8s:
+    kubeconfig: "{{ keycloak_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ keycloak_realm_import_secret_name }}"
+        namespace: "{{ keycloak_namespace }}"
+        labels:
+          app.kubernetes.io/name: keycloak
+          app.kubernetes.io/part-of: keycloak
+      type: Opaque
+      stringData:
+        "{{ keycloak_realm }}-realm.json": "{{ _keycloak_realm_json }}"
+  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Apply the Keycloak Deployment and Service
+  kubernetes.core.k8s:
+    kubeconfig: "{{ keycloak_kubeconfig_path }}"
+    state: present
+    definition: "{{ lookup('template', 'keycloak-deployment.yaml.j2') | from_yaml_all | list }}"
+  when: not ansible_check_mode
+
+- name: Wait for the Keycloak Deployment to become available
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} rollout status deployment/{{ keycloak_cr_name }}
+      --namespace {{ keycloak_namespace }}
+      --timeout={{ keycloak_operator_rollout_timeout_seconds }}s
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _keycloak_deployment_rollout
+  changed_when: false
+  when: not ansible_check_mode

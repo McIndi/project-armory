@@ -1,0 +1,55 @@
+---
+# Public route for Keycloak.
+#
+# Both edges terminate TLS at the edge and RE-ENCRYPT to Keycloak's HTTPS
+# listener (KC_HTTP_ENABLED=false), verifying the backend against the internal
+# CA rather than trusting it blindly. Only the object model differs:
+#
+#   httproute — Gateway API HTTPRoute + BackendTLSPolicy (Envoy Gateway, k3s)
+#   route     — OpenShift Route, termination: reencrypt
+#
+# The k3s HTTPRoute is applied elsewhere in this role; this file adds the Route.
+
+- name: Expose Keycloak through an OpenShift Route
+  when:
+    - edge_kind | default('httproute') == 'route'
+    - not ansible_check_mode
+  block:
+    # A Route carries the backend CA inline (destinationCACertificate) rather
+    # than referencing a ConfigMap the way BackendTLSPolicy does.
+    - name: Read the internal CA for the Route's backend verification
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"
+        kind: Secret
+        name: "{{ keycloak_internal_tls_secret_name }}"
+        namespace: "{{ keycloak_namespace }}"
+      register: _keycloak_route_ca_secret
+      until: >-
+        (_keycloak_route_ca_secret.resources | default([]) | length > 0)
+        and ((_keycloak_route_ca_secret.resources[0].data['ca.crt'] | default('')) | length > 0)
+      retries: 30
+      delay: 2
+
+    - name: Set the Keycloak Route destination CA fact
+      ansible.builtin.set_fact:
+        keycloak_route_destination_ca: >-
+          {{ _keycloak_route_ca_secret.resources[0].data['ca.crt'] | b64decode | trim }}
+      changed_when: false
+
+    - name: Assert the Keycloak Route destination CA is PEM
+      ansible.builtin.assert:
+        that:
+          - "'BEGIN CERTIFICATE' in keycloak_route_destination_ca"
+        fail_msg: >-
+          Secret '{{ keycloak_internal_tls_secret_name }}' in namespace
+          '{{ keycloak_namespace }}' has no PEM CA in ca.crt; the Route cannot
+          verify the Keycloak backend without it.
+
+    # The Route host must equal the host in keycloak_public_base_url: Keycloak
+    # mints its issuer and redirect URLs from that value, so a mismatch shows up
+    # later as invalid_redirect_uri / issuer-mismatch failures in every client.
+    - name: Apply the Keycloak Route
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'route.yaml.j2') | from_yaml_all | list }}"
+        kubeconfig: "{{ keycloak_kubeconfig_path }}"

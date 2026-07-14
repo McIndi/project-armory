@@ -139,15 +139,32 @@ armory_namespace_labels:
 keycloak_enabled: true
 keycloak_pg_tls_enabled: true
 
-# Consume the Keycloak operator the platform already provides via OLM, and
-# create ONLY our own namespaced Keycloak/KeycloakRealmImport CRs.
+# Run Keycloak as a plain Deployment: no operator, no CRDs.
 #
 # The 'manifests' path (armory's k3s default) server-side-applies the upstream
 # COMMUNITY Keycloak CRDs. On this cluster those cluster-scoped CRDs are already
 # owned by OLM's Red Hat build of Keycloak operator, and CP4I's cs-keycloak
 # depends on them — overwriting them could break SSO for the whole Cloud Pak.
 # The keycloak role asserts on this, so it cannot be armed by accident.
-keycloak_operator_install_method: olm
+#
+# Installing a SECOND rhbk-operator scoped to our namespace was possible
+# (it supports OwnNamespace), but it would CO-OWN those same cluster-scoped CRDs.
+# CP4I's subscription auto-upgrades on channel stable-v26, so their operator
+# moves the CRDs underneath us on their schedule — and a pinned older CSV of ours
+# could equally block THEIR upgrades. Owning no CRDs at all severs that coupling
+# in both directions.
+keycloak_operator_install_method: none
+keycloak_workload_kind: deployment
+
+# Keycloak mints its issuer and redirect URLs from this, so it must be the public
+# Route URL. The Route host is derived from it; a mismatch surfaces later as
+# invalid_redirect_uri / issuer-mismatch errors in every OIDC client.
+keycloak_public_base_url: "https://{{ armory_keycloak_host }}"
+
+# The operator mounts the Postgres CA truststore at a path of its own choosing.
+# Operator-less, we pick the path — it stays under conf/truststores so Keycloak
+# still picks the CA up automatically.
+keycloak_pg_tls_ca_mount_path: /opt/keycloak/conf/truststores/postgres-ca
 
 # Delve is DEFERRED on OpenShift. Its audit shippers read PVC host-directories
 # and the k3s API-server audit log, neither of which exists here — that feed

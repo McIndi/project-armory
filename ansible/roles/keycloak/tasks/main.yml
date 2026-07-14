@@ -21,8 +21,8 @@
       '{{ target_platform | default('k3s') }}'. On a shared cluster those CRDs are
       likely owned by an OLM-managed operator that another tenant's Keycloak
       depends on, and overwriting them can break their SSO. Set
-      keycloak_operator_install_method=olm to consume the operator the platform
-      already provides.
+      keycloak_operator_install_method=none to run Keycloak as a plain Deployment
+      instead, touching no CRDs at all.
     success_msg: >-
       Keycloak operator install method
       '{{ keycloak_operator_install_method | default('manifests') }}' is safe for
@@ -497,13 +497,31 @@
       when:
         - not ansible_check_mode
 
+    # ── Server: operator-less ───────────────────────────────────────────────────
+    # Where the Keycloak CRDs belong to another tenant, run the server as a plain
+    # Deployment instead of a Keycloak CR. Produces the same Service name and the
+    # same realm, so everything downstream is unaffected.
+    - name: Deploy Keycloak without the operator
+      ansible.builtin.include_tasks: deploy_operatorless.yml
+      when:
+        - keycloak_operator_install_method | default('manifests') != 'manifests'
+        - not ansible_check_mode
+
+    - name: Expose Keycloak through the edge
+      ansible.builtin.include_tasks: route.yml
+      when:
+        - edge_kind | default('httproute') == 'route'
+        - not ansible_check_mode
+
     # ── Keycloak custom resource ────────────────────────────────────────────────
     - name: Apply Keycloak custom resource
       kubernetes.core.k8s:
         kubeconfig: "{{ keycloak_kubeconfig_path }}"
         state: present
         definition: "{{ lookup('template', 'keycloak.yaml.j2') | from_yaml_all | list }}"
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     - name: Wait for Keycloak custom resource to become Ready
       block:
@@ -568,16 +586,23 @@
             KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
           register: _keycloak_cr_ready
           changed_when: false
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     # ── Realm import ────────────────────────────────────────────────────────────
+    # Operator path only. Without the operator the same realm body is imported by
+    # Keycloak itself at first boot (--import-realm), from the Secret staged in
+    # deploy_operatorless.yml.
     - name: Apply Keycloak realm import
       kubernetes.core.k8s:
         kubeconfig: "{{ keycloak_kubeconfig_path }}"
         state: present
         definition: "{{ lookup('template', 'realmimport.yaml.j2') | from_yaml_all | list }}"
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     - name: Wait for Keycloak realm import to complete
       ansible.builtin.command:
@@ -590,15 +615,20 @@
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
       register: _keycloak_realm_done
       changed_when: false
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - keycloak_operator_install_method | default('manifests') == 'manifests'
 
     # Gate realm reconciliation on a settled StatefulSet: on a fresh deploy the
     # first VSO DB-secret sync (placeholder → real creds) rolls keycloak-0 once,
     # and the admin-REST calls below fail with connection-refused if they race it.
-    - name: Wait for Keycloak StatefulSet rollout before realm reconciliation
+    # The operator renders a StatefulSet; the operator-less path a Deployment.
+    # The race this guards against is the same either way, so the workload kind
+    # is a variable rather than the task being duplicated.
+    - name: Wait for Keycloak rollout before realm reconciliation
       ansible.builtin.command:
         cmd: >-
-          {{ kubectl_bin }} rollout status statefulset/{{ keycloak_cr_name }}
+          {{ kubectl_bin }} rollout status {{ keycloak_workload_kind }}/{{ keycloak_cr_name }}
           --namespace {{ keycloak_namespace }}
           --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
       environment:
