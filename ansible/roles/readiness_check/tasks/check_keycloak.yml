@@ -344,7 +344,7 @@
 
 - name: Check PostgreSQL server TLS setting inside Postgres pod
   ansible.builtin.command: >-
-    k3s kubectl exec statefulset/{{ readiness_check_keycloak_pg_statefulset_name }}
+    {{ kubectl_bin }} exec statefulset/{{ readiness_check_keycloak_pg_statefulset_name }}
     -n {{ readiness_check_keycloak_namespace }}
     -- sh -ec "psql -U '{{ readiness_check_keycloak_db_username }}' -d '{{ readiness_check_keycloak_db_name }}' -tAc 'SHOW ssl;'"
   environment:

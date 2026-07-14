@@ -21,7 +21,7 @@
 - name: Get Keycloak admin password from admin secret
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get secret {{ openbao_oidc_keycloak_admin_secret_name }}
+      {{ kubectl_bin }} get secret {{ openbao_oidc_keycloak_admin_secret_name }}
       -n {{ openbao_oidc_keycloak_namespace }}
       -o jsonpath={.data.{{ openbao_oidc_keycloak_admin_password_key }}}
   environment:
@@ -38,7 +38,7 @@
 - name: Get Keycloak admin username from admin secret
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get secret {{ openbao_oidc_keycloak_admin_secret_name }}
+      {{ kubectl_bin }} get secret {{ openbao_oidc_keycloak_admin_secret_name }}
       -n {{ openbao_oidc_keycloak_namespace }}
       -o jsonpath={.data.username}
   environment:
@@ -361,7 +361,7 @@
 - name: Patch OpenBao StatefulSet with OIDC issuer hostAlias
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl patch statefulset {{ openbao_oidc_release_name }}
+      {{ kubectl_bin }} patch statefulset {{ openbao_oidc_release_name }}
       --namespace {{ openbao_oidc_namespace }}
       --type=strategic
       --patch
@@ -391,7 +391,7 @@
 - name: Recreate OpenBao pod to apply hostAlias (StatefulSet uses OnDelete)
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl delete pod
+      {{ kubectl_bin }} delete pod
       --selector app.kubernetes.io/name=openbao
       --namespace {{ openbao_oidc_namespace }}
       --ignore-not-found=true
@@ -404,7 +404,7 @@
 - name: Wait for OpenBao pod to be recreated after hostAlias patch
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get pod
+      {{ kubectl_bin }} get pod
       --selector app.kubernetes.io/name=openbao
       --namespace {{ openbao_oidc_namespace }}
       -o name
@@ -420,7 +420,7 @@
 - name: Wait for OpenBao pod phase Running after hostAlias patch
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl wait pod
+      {{ kubectl_bin }} wait pod
       --for=jsonpath='{.status.phase}'=Running
       --selector app.kubernetes.io/name=openbao
       --namespace {{ openbao_oidc_namespace }}

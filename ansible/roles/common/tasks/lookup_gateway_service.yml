@@ -13,7 +13,7 @@
     label_selectors:
       - "gateway.envoyproxy.io/owning-gateway-name={{ edge_gateway_name | default('armory') }}"
       - "gateway.envoyproxy.io/owning-gateway-namespace={{ edge_gateway_namespace | default('envoy-gateway-system') }}"
-    kubeconfig: "{{ common_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+    kubeconfig: "{{ common_kubeconfig_path | default('{{ common_kubeconfig_path }}') }}"
   register: _common_gateway_svc_info
   changed_when: false
   failed_when: false

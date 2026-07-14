@@ -24,7 +24,7 @@
 - name: Wait for cert-manager Certificate to become Ready
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl wait
+      {{ kubectl_bin }} wait
       --namespace {{ common_certificate_namespace }}
       --for=condition=Ready
       certificate/{{ common_certificate_name }}

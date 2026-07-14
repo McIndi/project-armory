@@ -16,7 +16,7 @@
     kind: Secret
     name: "{{ common_backend_ca_secret_name }}"
     namespace: "{{ common_backend_ca_namespace }}"
-    kubeconfig: "{{ common_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+    kubeconfig: "{{ common_kubeconfig_path | default('{{ common_kubeconfig_path }}') }}"
   register: _common_backend_ca_secret_info
   changed_when: false
   when: not ansible_check_mode
@@ -43,5 +43,5 @@
         namespace: "{{ common_backend_ca_namespace }}"
       data:
         ca.crt: "{{ (_common_backend_ca_secret_info.resources | first).data[common_backend_ca_secret_key | default('ca.crt')] | b64decode }}"
-    kubeconfig: "{{ common_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+    kubeconfig: "{{ common_kubeconfig_path | default('{{ common_kubeconfig_path }}') }}"
   when: not ansible_check_mode

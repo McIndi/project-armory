@@ -7,6 +7,9 @@
 # installation.
 certmanager_install_enabled: true
 
+# Kubeconfig used for all cluster access from this role.
+certmanager_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
 # Working directory for rendered Helm values files.
 certmanager_tofu_work_dir: /opt/cert-manager
 

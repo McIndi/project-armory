@@ -54,7 +54,7 @@
     # exist; consumers created later are covered by the controller's watch.
     - name: List existing target namespaces for Bundle sync verification
       ansible.builtin.command:
-        cmd: k3s kubectl get namespace -o jsonpath='{.items[*].metadata.name}'
+        cmd: "{{ kubectl_bin }} get namespace -o jsonpath='{.items[*].metadata.name}'"
       environment:
         KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"
       register: _trust_manager_existing_namespaces
@@ -64,7 +64,7 @@
     - name: Wait for internal CA Bundle target secret in existing namespaces
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl get secret {{ trust_manager_internal_ca_target_secret_name }}
+          {{ kubectl_bin }} get secret {{ trust_manager_internal_ca_target_secret_name }}
           -n {{ item }}
       environment:
         KUBECONFIG: "{{ trust_manager_kubeconfig_path }}"

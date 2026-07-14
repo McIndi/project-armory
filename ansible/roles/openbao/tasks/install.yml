@@ -7,7 +7,7 @@
       kind: Namespace
       metadata:
         name: "{{ openbao_namespace }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
   when: not ansible_check_mode
 
 - name: Ensure OpenBao TLS artifact directory exists
@@ -181,7 +181,7 @@
       data:
         tls.crt: "{{ _openbao_tls_secret_files.results[0].content }}"
         tls.key: "{{ _openbao_tls_secret_files.results[1].content }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
   register: _openbao_tls_secret_apply
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
   when:
@@ -207,7 +207,7 @@
         namespace: "{{ openbao_namespace }}"
       data:
         ca.crt: "{{ _openbao_ca_secret_file.content }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -231,18 +231,18 @@
     chart_version: "{{ openbao_chart_version if (openbao_chart_version | length > 0) else omit }}"
     wait: true
     wait_timeout: 300s
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
   register: _openbao_helm_apply_result
   when: not ansible_check_mode
 
 - name: Read OpenBao service ClusterIP for host-local access
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get service {{ openbao_release_name }}
+      {{ kubectl_bin }} get service {{ openbao_release_name }}
       --namespace {{ openbao_namespace }}
       -o jsonpath='{.spec.clusterIP}'
   environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    KUBECONFIG: "{{ openbao_kubeconfig_path }}"
   register: _openbao_service_cluster_ip
   changed_when: false
   until: (_openbao_service_cluster_ip.stdout | trim | length) > 0
@@ -292,13 +292,13 @@
 - name: Recreate OpenBao pod after Helm apply
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl delete pod
+      {{ kubectl_bin }} delete pod
       --selector app.kubernetes.io/name=openbao
       --namespace {{ openbao_namespace }}
       --ignore-not-found=true
       --wait=true
   environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    KUBECONFIG: "{{ openbao_kubeconfig_path }}"
   changed_when: true
   when:
     - not ansible_check_mode
@@ -321,7 +321,7 @@
         - kind: ServiceAccount
           name: openbao
           namespace: "{{ openbao_namespace }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
   when: not ansible_check_mode
 
 - name: Wait for OpenBao pod to be ready
@@ -329,12 +329,12 @@
     - name: Wait for OpenBao pod to be created
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl get pod
+          {{ kubectl_bin }} get pod
           --selector app.kubernetes.io/name=openbao
           --namespace {{ openbao_namespace }}
           -o name
       environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+        KUBECONFIG: "{{ openbao_kubeconfig_path }}"
       register: _openbao_pod_names
       changed_when: false
       until: (_openbao_pod_names.stdout | trim) != ''
@@ -344,13 +344,13 @@
     - name: Wait for OpenBao pod phase Running
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl wait pod
+          {{ kubectl_bin }} wait pod
           --for=jsonpath='{.status.phase}'=Running
           --selector app.kubernetes.io/name=openbao
           --namespace {{ openbao_namespace }}
           --timeout={{ openbao_startup_wait_timeout }}
       environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+        KUBECONFIG: "{{ openbao_kubeconfig_path }}"
       register: _openbao_wait_running
       changed_when: false
 

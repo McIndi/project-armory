@@ -27,19 +27,19 @@
         chart_version: "{{ certmanager_chart_version if (certmanager_chart_version | length > 0) else omit }}"
         wait: true
         wait_timeout: "{{ (certmanager_tofu_timeout_seconds | int) }}s"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kubeconfig: "{{ certmanager_kubeconfig_path }}"
       register: _certmanager_helm_apply_result
       when: not ansible_check_mode
 
     - name: Wait for cert-manager webhook to be ready
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl wait deployment cert-manager-webhook
+          {{ kubectl_bin }} wait deployment cert-manager-webhook
           --for=condition=Available
           --namespace {{ certmanager_namespace }}
           --timeout=120s
       environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+        KUBECONFIG: "{{ certmanager_kubeconfig_path }}"
       register: _certmanager_wait_result
       changed_when: false
       when: not ansible_check_mode

@@ -1,4 +1,7 @@
 ---
+# Kubeconfig used for all cluster access from this role.
+openbao_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
 # Base directory used by this role for generated files and local state.
 openbao_work_dir: /opt/openbao
 

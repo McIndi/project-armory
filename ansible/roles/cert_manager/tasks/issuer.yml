@@ -6,7 +6,7 @@
         name: common
         tasks_from: copy_openbao_ca_secret.yml
       vars:
-        common_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+        common_kubeconfig_path: "{{ certmanager_kubeconfig_path }}"
         common_ca_secret_name: "{{ certmanager_openbao_ca_secret_name }}"
         common_ca_source_namespace: "{{ openbao_namespace | default('openbao') }}"
         common_ca_target_namespace: "{{ certmanager_namespace }}"
@@ -15,18 +15,18 @@
       kubernetes.core.k8s:
         state: present
         definition: "{{ lookup('template', 'cluster-issuer.yaml.j2') | from_yaml_all | list }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kubeconfig: "{{ certmanager_kubeconfig_path }}"
       register: _cluster_issuer_result
       when: not ansible_check_mode
 
     - name: Wait for OpenBao PKI ClusterIssuer readiness
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl wait clusterissuer {{ item.name }}
+          {{ kubectl_bin }} wait clusterissuer {{ item.name }}
           --for=condition=Ready
           --timeout=180s
       environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+        KUBECONFIG: "{{ certmanager_kubeconfig_path }}"
       loop: "{{ certmanager_openbao_cluster_issuers }}"
       loop_control:
         label: "{{ item.name }}"

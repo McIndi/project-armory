@@ -34,7 +34,7 @@
 - name: Read bootstrap-admin credentials for rotator setup
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get secret {{ keycloak_bootstrap_admin_secret_name }}
+      {{ kubectl_bin }} get secret {{ keycloak_bootstrap_admin_secret_name }}
       -n {{ keycloak_namespace }} -o jsonpath={.data.{{ item }}}
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"

@@ -237,7 +237,7 @@
     - name: Wait for keycloak-db-secret to be synced by VSO
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl get secret {{ keycloak_db_secret_name }}
+          {{ kubectl_bin }} get secret {{ keycloak_db_secret_name }}
           --namespace {{ keycloak_namespace }}
       environment:
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
@@ -280,7 +280,7 @@
     - name: Wait for PostgreSQL StatefulSet rollout
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl rollout status statefulset/{{ keycloak_pg_service }}
+          {{ kubectl_bin }} rollout status statefulset/{{ keycloak_pg_service }}
           --namespace {{ keycloak_namespace }}
           --timeout={{ keycloak_pg_rollout_timeout_seconds }}s
       environment:
@@ -370,7 +370,7 @@
     # community copies over theirs can mutate the schema and break their SSO.
     - name: Install Keycloak CRDs (cluster-scoped, pinned version)
       ansible.builtin.command:
-        cmd: "k3s kubectl apply --server-side -f {{ keycloak_k8s_resources_base_url }}/{{ item }}"
+        cmd: "{{ kubectl_bin }} apply --server-side -f {{ keycloak_k8s_resources_base_url }}/{{ item }}"
       environment:
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
       loop:
@@ -387,7 +387,7 @@
     - name: Wait for Keycloak CRDs to be established
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl wait --for=condition=Established
+          {{ kubectl_bin }} wait --for=condition=Established
           crd/{{ item }} --timeout=120s
       environment:
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
@@ -412,7 +412,7 @@
     - name: Install Keycloak Operator into the Keycloak namespace
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl apply -n {{ keycloak_namespace }}
+          {{ kubectl_bin }} apply -n {{ keycloak_namespace }}
           -f {{ keycloak_k8s_resources_base_url }}/kubernetes.yml
       environment:
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
@@ -438,7 +438,7 @@
     - name: Patch Keycloak Operator startup probe and CPU for slow-JVM hosts
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl patch deployment {{ keycloak_operator_deployment_name }}
+          {{ kubectl_bin }} patch deployment {{ keycloak_operator_deployment_name }}
           --namespace {{ keycloak_namespace }}
           --type=strategic
           --patch
@@ -466,7 +466,7 @@
     - name: Wait for Keycloak Operator deployment to be available
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl rollout status deployment/{{ keycloak_operator_deployment_name }}
+          {{ kubectl_bin }} rollout status deployment/{{ keycloak_operator_deployment_name }}
           --namespace {{ keycloak_namespace }}
           --timeout={{ keycloak_operator_rollout_timeout_seconds }}s
       environment:
@@ -506,7 +506,7 @@
         - name: Wait for Keycloak custom resource to become Ready (initial)
           ansible.builtin.command:
             cmd: >-
-              k3s kubectl wait --for=condition=Ready
+              {{ kubectl_bin }} wait --for=condition=Ready
               keycloak/{{ keycloak_cr_name }}
               --namespace {{ keycloak_namespace }}
               --timeout={{ keycloak_ready_timeout_seconds }}s
@@ -518,7 +518,7 @@
         - name: Read Keycloak StatefulSet rollout revisions
           ansible.builtin.command:
             cmd: >-
-              k3s kubectl get statefulset/{{ keycloak_cr_name }}
+              {{ kubectl_bin }} get statefulset/{{ keycloak_cr_name }}
               --namespace {{ keycloak_namespace }}
               -o jsonpath='{.status.currentRevision} {.status.updateRevision}'
           environment:
@@ -529,7 +529,7 @@
         - name: Force restart Keycloak StatefulSet when its revision is stale
           ansible.builtin.command:
             cmd: >-
-              k3s kubectl rollout restart statefulset/{{ keycloak_cr_name }}
+              {{ kubectl_bin }} rollout restart statefulset/{{ keycloak_cr_name }}
               --namespace {{ keycloak_namespace }}
           environment:
             KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
@@ -544,7 +544,7 @@
         - name: Wait for Keycloak StatefulSet rollout after forced restart
           ansible.builtin.command:
             cmd: >-
-              k3s kubectl rollout status statefulset/{{ keycloak_cr_name }}
+              {{ kubectl_bin }} rollout status statefulset/{{ keycloak_cr_name }}
               --namespace {{ keycloak_namespace }}
               --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
           environment:
@@ -556,7 +556,7 @@
         - name: Wait for Keycloak custom resource to become Ready (recovery)
           ansible.builtin.command:
             cmd: >-
-              k3s kubectl wait --for=condition=Ready
+              {{ kubectl_bin }} wait --for=condition=Ready
               keycloak/{{ keycloak_cr_name }}
               --namespace {{ keycloak_namespace }}
               --timeout={{ keycloak_ready_timeout_seconds }}s
@@ -578,7 +578,7 @@
     - name: Wait for Keycloak realm import to complete
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl wait --for=condition=Done
+          {{ kubectl_bin }} wait --for=condition=Done
           keycloakrealmimport/{{ keycloak_realm }}-realm
           --namespace {{ keycloak_namespace }}
           --timeout={{ keycloak_ready_timeout_seconds }}s
@@ -594,7 +594,7 @@
     - name: Wait for Keycloak StatefulSet rollout before realm reconciliation
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl rollout status statefulset/{{ keycloak_cr_name }}
+          {{ kubectl_bin }} rollout status statefulset/{{ keycloak_cr_name }}
           --namespace {{ keycloak_namespace }}
           --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
       environment:

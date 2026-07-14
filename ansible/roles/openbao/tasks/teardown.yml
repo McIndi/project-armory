@@ -14,7 +14,7 @@
       helm uninstall {{ openbao_release_name }}
       --namespace {{ openbao_namespace }}
       --ignore-not-found
-      --kubeconfig /etc/rancher/k3s/k3s.yaml
+      --kubeconfig {{ openbao_kubeconfig_path }}
   register: _openbao_helm_uninstall
   changed_when: (_openbao_helm_uninstall.rc | default(1)) == 0
   failed_when: false

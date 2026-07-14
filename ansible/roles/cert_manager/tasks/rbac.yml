@@ -15,7 +15,7 @@
               resources: ["serviceaccounts/token"]
               resourceNames: ["{{ certmanager_release_name }}"]
               verbs: ["create"]
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kubeconfig: "{{ certmanager_kubeconfig_path }}"
       when: not ansible_check_mode
 
     - name: Apply RoleBinding for cert-manager TokenRequest Role
@@ -35,5 +35,5 @@
             - kind: ServiceAccount
               name: "{{ certmanager_release_name }}"
               namespace: "{{ certmanager_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        kubeconfig: "{{ certmanager_kubeconfig_path }}"
       when: not ansible_check_mode

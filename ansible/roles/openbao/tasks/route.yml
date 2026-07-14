@@ -9,7 +9,7 @@
     name: common
     tasks_from: apply_backend_ca_configmap.yml
   vars:
-    common_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    common_kubeconfig_path: "{{ openbao_kubeconfig_path }}"
     common_backend_ca_namespace: "{{ openbao_namespace }}"
     common_backend_ca_secret_name: "{{ openbao_tls_ca_secret_name }}"
     common_backend_ca_configmap_name: "{{ openbao_backend_ca_configmap }}"
@@ -18,5 +18,5 @@
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'httproute.yaml.j2') | from_yaml_all | list }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
   when: not ansible_check_mode

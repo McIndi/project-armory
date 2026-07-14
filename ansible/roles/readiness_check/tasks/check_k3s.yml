@@ -46,7 +46,7 @@
 
 - name: Check kube-apiserver accessibility
   ansible.builtin.command: >-
-    k3s kubectl cluster-info
+    {{ kubectl_bin }} cluster-info
   environment:
     KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
   register: _rc_k3s_apiserver

@@ -109,7 +109,7 @@
     - name: Wait for VSO kube-rbac-proxy TLS Secret
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl get secret {{ vso_kube_rbac_proxy_tls_secret_name }}
+          {{ kubectl_bin }} get secret {{ vso_kube_rbac_proxy_tls_secret_name }}
           --namespace {{ vso_namespace }}
       environment:
         KUBECONFIG: "{{ vso_kubeconfig_path }}"

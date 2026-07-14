@@ -293,7 +293,7 @@
     - name: Get k3s cluster CA certificate
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl get configmap kube-root-ca.crt
+          {{ kubectl_bin }} get configmap kube-root-ca.crt
           -n kube-public
           -o jsonpath={.data.ca\\.crt}
       register: _k3s_ca_cert
@@ -303,7 +303,7 @@
     - name: Create bound service account token for OpenBao token review
       ansible.builtin.command:
         cmd: >-
-          k3s kubectl create token openbao
+          {{ kubectl_bin }} create token openbao
           --namespace {{ openbao_namespace }}
           --duration 87600h
       register: _openbao_sa_token

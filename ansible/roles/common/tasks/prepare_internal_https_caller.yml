@@ -26,7 +26,7 @@
 - name: Get service ClusterIP for internal HTTPS caller DNS override
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl get svc {{ common_internal_https_service_name }}
+      {{ kubectl_bin }} get svc {{ common_internal_https_service_name }}
       -n {{ common_internal_https_service_namespace }} -o jsonpath={.spec.clusterIP}
   environment:
     KUBECONFIG: "{{ common_internal_https_kubeconfig_path }}"

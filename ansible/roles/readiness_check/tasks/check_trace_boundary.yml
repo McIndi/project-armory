@@ -67,7 +67,7 @@
 - name: Wait for trace probe rollout
   ansible.builtin.command:
     cmd: >-
-      k3s kubectl rollout status deployment/{{ readiness_check_trace_probe_name }}
+      {{ kubectl_bin }} rollout status deployment/{{ readiness_check_trace_probe_name }}
       --namespace {{ readiness_check_gateway_namespace }}
       --timeout={{ readiness_check_trace_probe_rollout_timeout_seconds }}s
   environment:

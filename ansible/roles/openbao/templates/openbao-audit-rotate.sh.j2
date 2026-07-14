@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Managed by Ansible - do not edit manually
 set -euo pipefail
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+export KUBECONFIG={{ openbao_kubeconfig_path }}
 ts=$(date +%Y%m%d%H%M%S)
 # Rotate the live audit file, then SIGHUP the *bao* process so its `file` audit
 # device closes the old inode and reopens at the configured path.
@@ -15,7 +15,7 @@ ts=$(date +%Y%m%d%H%M%S)
 # The `mv` is guarded with `-f` so this also self-heals an already-broken state
 # (no live audit.log because a previous rotation renamed it but never reopened):
 # with nothing to rename we still HUP, and bao recreates audit.log at the path.
-k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- sh -c '
+{{ kubectl_bin }} exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- sh -c '
   set -e
   audit_log="{{ openbao_audit_log_path }}"
   [ -f "$audit_log" ] && mv "$audit_log" "$audit_log.$1"
@@ -29,5 +29,5 @@ k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name 
   exit 1
 ' _ "${ts}"
 # Prune: keep newest {{ openbao_audit_rotate_keep }} rotated files.
-k3s kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
+{{ kubectl_bin }} exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
   sh -c "ls -1t {{ openbao_audit_log_path }}.* 2>/dev/null | tail -n +{{ openbao_audit_rotate_keep | int + 1 }} | xargs -r rm --"
