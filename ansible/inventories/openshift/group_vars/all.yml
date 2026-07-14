@@ -72,6 +72,7 @@ vso_enabled: true
 armory_storage_class: ocs-storagecluster-ceph-rbd
 keycloak_pg_storage_class: "{{ armory_storage_class }}"
 delve_pg_storage_class: "{{ armory_storage_class }}"
+openbao_storage_class: "{{ armory_storage_class }}"
 
 # --- Pod security (SCC) ------------------------------------------------------
 # OpenShift's default restricted-v2 SCC assigns a random UID from the namespace
@@ -93,6 +94,14 @@ keycloak_pg_manifest_template: postgres-openshift.yaml.j2
 # posture and avoids the capability entirely.
 openbao_disable_mlock: true
 
+# The OpenBao chart pins a non-root UID (100) and fsGroup (1000), which
+# restricted-v2 rejects (it demands a UID from the namespace's range). nonroot-v2
+# permits any NON-ROOT UID and any fsGroup — the least-privileged SCC that fits,
+# and notably not `anyuid`, which would also permit root. Bound to OpenBao's
+# ServiceAccount alone via a namespaced RoleBinding, so nothing cluster-scoped is
+# created and no other workload is affected.
+openbao_scc_name: nonroot-v2
+
 # --- Edge --------------------------------------------------------------------
 # Traffic enters via OpenShift Routes. The router serves a Let's Encrypt
 # wildcard cert for *.apps.<domain>, which RHCOS nodes trust out of the box —
@@ -102,6 +111,12 @@ armory_apps_domain: apps.example.com
 armory_keycloak_host: "keycloak.{{ armory_apps_domain }}"
 armory_openbao_host: "openbao.{{ armory_apps_domain }}"
 armory_registry_host: "registry.{{ armory_apps_domain }}"
+
+# Route hostnames must sit under the apps domain so the router serves them with
+# its Let's Encrypt wildcard certificate — that is what makes them trusted with
+# no certificate work of our own, and (for the registry) trusted by the nodes'
+# container runtime for image pulls.
+openbao_ingress_host: "{{ armory_openbao_host }}"
 
 # There is no node IP to bind and no LoadBalancer (no MetalLB, vSphere platform),
 # so the k3s edge-IP autodetection is meaningless here.

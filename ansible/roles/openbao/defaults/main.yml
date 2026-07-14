@@ -16,6 +16,19 @@ openbao_disable_mlock: false
 openbao_storage_class: ""
 openbao_data_storage_size: 1Gi
 
+# ServiceAccount the chart creates for the OpenBao server. Must match the
+# serviceAccount.name rendered into values.yaml.j2.
+openbao_service_account_name: openbao
+
+# SecurityContextConstraint to grant that ServiceAccount (OpenShift only).
+#
+# The chart pins a non-root UID (100) and fsGroup (1000), which OpenShift's
+# default restricted-v2 SCC rejects because it requires a UID from the
+# namespace's assigned range. nonroot-v2 permits any non-root UID and any
+# fsGroup while still forbidding root — the least-privileged SCC that fits.
+# Empty disables the binding entirely (k3s has no SCCs).
+openbao_scc_name: ""
+
 # Base directory used by this role for generated files and local state.
 openbao_work_dir: /opt/openbao
 

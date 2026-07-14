@@ -1,0 +1,46 @@
+---
+# OpenBao UI/API route, OpenShift edge.
+#
+# The k3s equivalent is httproute.yaml.j2: a Gateway API HTTPRoute plus a
+# BackendTLSPolicy, where Envoy terminates edge TLS and RE-ENCRYPTS to OpenBao's
+# HTTPS listener, verifying the backend against the OpenBao server CA. An
+# OpenShift Route with `termination: reencrypt` expresses the same shape:
+#
+#   client --TLS--> router --TLS--> openbao:8200
+#
+#   * frontend TLS is the router's wildcard certificate for the apps domain, so
+#     nothing has to be issued or mounted here.
+#   * destinationCACertificate is the OpenBao server CA, so the router verifies
+#     the backend leg rather than trusting it blindly.
+#
+# Note this exposes the OpenBao API as well as the UI — they are the same
+# listener on :8200. That is also true on k3s, so it is not new exposure, but it
+# is why openbao_api_addr can point here from an off-cluster controller.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: openbao-ui
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/part-of: armory
+{% if openbao_route_annotations | default({}) | length > 0 %}
+  annotations:
+{% for key, value in (openbao_route_annotations | default({})).items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+spec:
+  host: {{ openbao_ingress_host }}
+  to:
+    kind: Service
+    name: {{ openbao_release_name }}
+    weight: 100
+  port:
+    targetPort: 8200
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+    destinationCACertificate: |-
+{{ openbao_route_destination_ca | indent(6, true) }}
+  wildcardPolicy: None

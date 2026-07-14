@@ -219,6 +219,28 @@
     mode: "0644"
   register: _openbao_values_rendered
 
+# The chart runs OpenBao as a fixed non-root UID (100, fsGroup 1000). OpenShift's
+# default restricted-v2 SCC requires a UID from the namespace's assigned range and
+# so would reject that pod. Grant the OpenBao ServiceAccount the least-privileged
+# SCC that permits it: nonroot-v2 allows any non-root UID and any fsGroup, while
+# still forbidding root — unlike anyuid, which would permit it.
+#
+# The binding is a namespaced RoleBinding against a pre-existing cluster SCC, so
+# nothing cluster-scoped is created and no other workload gains anything. It is
+# applied before the release because RBAC subjects need not exist yet.
+- name: Allow the OpenBao ServiceAccount to run under a non-root SCC
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: bind_scc.yml
+  vars:
+    common_scc_name: "{{ openbao_scc_name }}"
+    common_scc_service_account: "{{ openbao_service_account_name }}"
+    common_scc_namespace: "{{ openbao_namespace }}"
+    common_scc_kubeconfig_path: "{{ openbao_kubeconfig_path }}"
+  when:
+    - (openbao_scc_name | default('') | trim | length) > 0
+    - not ansible_check_mode
+
 - name: Deploy OpenBao via Helm
   kubernetes.core.helm:
     release_name: "{{ openbao_release_name }}"

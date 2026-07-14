@@ -1,0 +1,50 @@
+---
+# Grant one ServiceAccount permission to use one SecurityContextConstraint.
+#
+# OpenShift publishes a ClusterRole per SCC (`system:openshift:scc:<name>`), and
+# granting it is an ordinary RBAC bind. Doing that with a RoleBinding — not a
+# ClusterRoleBinding — keeps the grant confined to a single ServiceAccount in a
+# single namespace, so it cannot widen anyone else's privileges. The SCC itself
+# is a pre-existing cluster object; nothing cluster-scoped is created here.
+#
+# Prefer this over minting a custom SCC, and prefer the least-privileged SCC that
+# works. In particular, prefer `nonroot-v2` (any non-root UID) over `anyuid`,
+# which also permits running as root.
+#
+# Inputs:
+#   common_scc_name              SCC to grant, e.g. nonroot-v2
+#   common_scc_service_account   ServiceAccount to grant it to
+#   common_scc_namespace         Namespace of that ServiceAccount
+#   common_scc_kubeconfig_path
+
+- name: Assert SCC binding inputs
+  ansible.builtin.assert:
+    that:
+      - (common_scc_name | default('') | trim | length) > 0
+      - (common_scc_service_account | default('') | trim | length) > 0
+      - (common_scc_namespace | default('') | trim | length) > 0
+      - (common_scc_kubeconfig_path | default('') | trim | length) > 0
+    fail_msg: Missing required inputs for the common SCC binding helper.
+  when: not ansible_check_mode
+
+- name: Grant the ServiceAccount use of the SCC
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ common_scc_kubeconfig_path }}"
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: "{{ common_scc_service_account }}-scc-{{ common_scc_name }}"
+        namespace: "{{ common_scc_namespace }}"
+        labels:
+          app.kubernetes.io/part-of: armory
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: "system:openshift:scc:{{ common_scc_name }}"
+      subjects:
+        - kind: ServiceAccount
+          name: "{{ common_scc_service_account }}"
+          namespace: "{{ common_scc_namespace }}"
+  when: not ansible_check_mode
