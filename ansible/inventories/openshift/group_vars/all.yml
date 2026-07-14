@@ -139,6 +139,15 @@ envoy_proxy_upstreams:
     host: "{{ armory_openbao_host }}"
     service_fqdn: openbao.openbao.svc.cluster.local
     port: 8200
+  # The readiness trace probe. expose: false — it gets a virtual host so it can be
+  # tested THROUGH the boundary, but no Route, so it is never published on the
+  # apps domain. Plain HTTP: it is a throwaway echo server, not a real backend.
+  - name: trace-probe
+    host: "{{ readiness_check_trace_probe_host }}"
+    service_fqdn: "readiness-trace-probe.{{ envoy_proxy_namespace | default('armory-edge') }}.svc.cluster.local"
+    port: 8080
+    tls: false
+    expose: false
 
 # There is no node IP to bind and no LoadBalancer (no MetalLB, vSphere platform),
 # so the k3s edge-IP autodetection is meaningless here.
@@ -196,3 +205,26 @@ delve_enabled: false
 # The k3s API-server audit feed required kube-apiserver flags. On OpenShift the
 # API server is not ours to reconfigure, and cluster login stays LDAP.
 k3s_audit_enabled: false
+
+# --- Readiness ---------------------------------------------------------------
+# Checks that probe the node or the k3s control plane have nothing to look at:
+# the nodes are RHCOS and not ours, and there is no k3s. Headlamp is not
+# deployed. Everything else still runs.
+readiness_check_host_enabled: false
+readiness_check_k3s_enabled: false
+readiness_check_headlamp_enabled: false
+# check_gateway inspects Envoy Gateway's Gateway/GatewayClass objects, which do
+# not exist here. The trace-boundary check below is what actually proves the edge
+# works, and it is far more informative than a "the Gateway is Programmed" probe.
+readiness_check_gateway_enabled: false
+
+readiness_check_keycloak_enabled: true
+
+# The trace-boundary check is the ONLY thing that empirically proves the Envoy
+# early-header-mutation ordering is right. A route-level mutation would produce
+# correct-looking backend headers while having silently joined the client's
+# forged trace; only the "mints fresh trace" assertion catches that. Keep it on.
+readiness_check_trace_boundary_enabled: true
+readiness_check_tracing_enabled: "{{ envoy_proxy_tracing_enabled | default(true) }}"
+readiness_check_trace_forensic_header: "{{ envoy_proxy_trace_forensic_header | default('x-external-traceparent') }}"
+readiness_check_public_domain: "{{ armory_apps_domain }}"

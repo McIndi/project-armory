@@ -48,10 +48,21 @@
       ansible.builtin.include_tasks: check_gateway.yml
       when: readiness_check_gateway_enabled | default(true) | bool
 
-    - name: Check trace-context trust boundary
+    # The trace boundary is the same policy on both edges; only how the probe
+    # reaches it differs (Gateway API HTTPRoute vs a tunnel to the in-namespace
+    # Envoy). Whichever edge is in play, this is the check that would catch the
+    # boundary silently not working.
+    - name: Check trace-context trust boundary (Gateway API edge)
       ansible.builtin.include_tasks: check_trace_boundary.yml
       when:
+        - edge_kind | default('httproute') == 'httproute'
         - readiness_check_gateway_enabled | default(true) | bool
+        - readiness_check_trace_boundary_enabled | default(true) | bool
+
+    - name: Check trace-context trust boundary (Envoy edge)
+      ansible.builtin.include_tasks: check_trace_boundary_envoy.yml
+      when:
+        - edge_kind | default('httproute') == 'route_envoy'
         - readiness_check_trace_boundary_enabled | default(true) | bool
 
     - name: Check Keycloak readiness

@@ -108,6 +108,7 @@ data:
         - name: {{ up.name }}
           type: STRICT_DNS
           connect_timeout: 5s
+{% if up.tls | default(true) %}
           # Re-encrypt to the backend and VERIFY it, rather than trusting the pod
           # network. The SAN is pinned to the Service FQDN, which is the name in
           # the certificate the OpenBao PKI issued.
@@ -122,6 +123,7 @@ data:
                   match_typed_subject_alt_names:
                     - san_type: DNS
                       matcher: { exact: {{ up.service_fqdn }} }
+{% endif %}
           load_assignment:
             cluster_name: {{ up.name }}
             endpoints:

@@ -97,11 +97,25 @@ envoy_proxy_route_annotations: {}
 #     host: keycloak.apps.example.com
 #     service_fqdn: keycloak-service.keycloak.svc.cluster.local
 #     port: 8443
+#     tls: true       # re-encrypt and verify the backend (default)
+#     expose: true    # also publish an OpenShift Route (default)
+#
+# expose: false gives an upstream a virtual host but NO Route — reachable only
+# from inside the cluster. The readiness trace probe uses this: it needs to pass
+# through Envoy to be tested, but must not be published on the apps domain.
 envoy_proxy_upstreams: []
 
+# Hostnames Envoy actually publishes: every upstream except those explicitly
+# marked expose: false.
+envoy_proxy_exposed_hosts: >-
+  {{ (envoy_proxy_upstreams | rejectattr('expose', 'defined') | map(attribute='host') | list)
+     + (envoy_proxy_upstreams | selectattr('expose', 'defined') | selectattr('expose')
+        | map(attribute='host') | list) }}
+
 # SANs on Envoy's serving certificate: its Service FQDN (what the router dials)
-# plus every public hostname it fronts.
+# plus every PUBLISHED hostname it fronts. Unexposed upstreams are omitted —
+# nothing outside the cluster ever presents those names.
 envoy_proxy_tls_dns_names: >-
   {{ [envoy_proxy_name + '.' + envoy_proxy_namespace + '.svc.cluster.local',
       envoy_proxy_name + '.' + envoy_proxy_namespace + '.svc']
-     + (envoy_proxy_upstreams | map(attribute='host') | list) }}
+     + envoy_proxy_exposed_hosts }}

@@ -12,7 +12,7 @@
 # reencrypt: the router terminates the client's TLS with its Let's Encrypt
 # wildcard certificate for the apps domain, then re-encrypts to Envoy and
 # verifies it against the internal CA -- so no leg of the path is in the clear.
-{% for up in envoy_proxy_upstreams %}
+{% for up in envoy_proxy_upstreams if up.expose | default(true) %}
 {% if not loop.first %}
 ---
 {% endif %}

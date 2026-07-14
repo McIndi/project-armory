@@ -1,0 +1,219 @@
+---
+# Trace-boundary check, OpenShift edge.
+#
+# Identical intent to check_trace_boundary.yml (the Gateway API version): stand up
+# an ephemeral header-echo backend behind the edge, push a FORGED W3C trace
+# context through it, and reconcile what the backend actually received against
+# policy:
+#   1. strip   — the forged traceparent/tracestate/baggage never reach the backend
+#   2. mint    — a fresh, edge-minted traceparent arrives instead (different
+#                trace-id), so internal propagation still works
+#   3. capture — the inbound value was copied into the forensic header BEFORE the
+#                strip (warn-level: degrades forensics, not the boundary)
+#
+# This is the check that empirically proves the early-header-mutation ordering in
+# the Envoy config. Nothing else does: a route-level mutation would produce
+# correct-looking backend headers while silently having joined the client's trace,
+# and only (2) would catch it.
+#
+# The probe is reached by port-forwarding to Envoy rather than through a Route:
+# it must pass through Envoy to be tested, but it must not be published on the
+# apps domain. Its virtual host is declared in envoy_proxy_upstreams with
+# expose: false, so Envoy routes it while no Route exists.
+
+- name: Apply trace probe echo backend
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+    definition:
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: "{{ readiness_check_trace_probe_name }}"
+          namespace: "{{ readiness_check_edge_namespace }}"
+          labels:
+            app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+            spec:
+              containers:
+                - name: echo
+                  image: "{{ readiness_check_trace_probe_image }}"
+                  ports:
+                    - containerPort: "{{ readiness_check_trace_probe_port | int }}"
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: "{{ readiness_check_trace_probe_name }}"
+          namespace: "{{ readiness_check_edge_namespace }}"
+        spec:
+          selector:
+            app.kubernetes.io/name: "{{ readiness_check_trace_probe_name }}"
+          ports:
+            - port: "{{ readiness_check_trace_probe_port | int }}"
+              targetPort: "{{ readiness_check_trace_probe_port | int }}"
+
+- name: Wait for trace probe rollout
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} rollout status deployment/{{ readiness_check_trace_probe_name }}
+      --namespace {{ readiness_check_edge_namespace }}
+      --timeout={{ readiness_check_trace_probe_rollout_timeout_seconds }}s
+  environment:
+    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
+  register: _rc_trace_probe_rollout
+  changed_when: false
+  failed_when: false
+
+# Reach Envoy from the off-cluster controller. The probe hostname is aliased to
+# loopback so the request carries the right Host/SNI and lands on the probe's
+# virtual host, exactly as a real client's would.
+- name: Open a tunnel to the edge Envoy
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} port-forward
+      --address 127.0.0.1
+      --namespace {{ readiness_check_edge_namespace }}
+      svc/{{ readiness_check_edge_service_name }}
+      {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
+  environment:
+    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
+  async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
+  poll: 0
+  changed_when: true
+  when: readiness_check_edge_probe_via_port_forward | bool
+
+- name: Wait for the edge tunnel to accept connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ readiness_check_edge_probe_port | int }}"
+    timeout: "{{ common_port_forward_ready_timeout_seconds | default(30) }}"
+  when: readiness_check_edge_probe_via_port_forward | bool
+
+- name: Ensure the trace probe host resolves to the edge locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_trace_probe_host | regex_escape }}\s*$'
+    line: "{{ readiness_check_edge_probe_ip }} {{ readiness_check_trace_probe_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Send forged trace context through the edge
+  ansible.builtin.uri:
+    url: "https://{{ readiness_check_trace_probe_host }}:{{ readiness_check_edge_probe_port }}/"
+    method: GET
+    headers:
+      traceparent: "{{ readiness_check_trace_forged_traceparent }}"
+      tracestate: "armory=forged"
+      baggage: "attacker=payload"
+    # Envoy serves an internal-CA certificate whose SAN is its Service FQDN, not
+    # the probe hostname. The boundary, not the certificate, is under test here.
+    validate_certs: false
+    return_content: true
+    timeout: "{{ readiness_check_connect_timeout }}"
+    status_code: [200]
+  register: _rc_trace_probe_response
+  changed_when: false
+  failed_when: false
+  retries: "{{ readiness_check_connect_retries }}"
+  delay: 3
+  until: (_rc_trace_probe_response.status | default(0)) == 200
+
+- name: Extract backend-received headers from echo response
+  ansible.builtin.set_fact:
+    _rc_trace_probe_headers: "{{ (_rc_trace_probe_response.json | default({})).headers | default({}) }}"
+    _rc_trace_probe_ok: "{{ (_rc_trace_probe_response.status | default(0)) == 200 }}"
+  changed_when: false
+
+- name: Add trace strip check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'trace boundary',
+        'check_name': 'External trace context not propagated to backend',
+        'status': (
+          'pass' if (
+            _rc_trace_probe_ok and
+            readiness_check_trace_forged_trace_id not in (_rc_trace_probe_headers.traceparent | default('')) and
+            (_rc_trace_probe_headers.tracestate | default('') | length) == 0 and
+            (_rc_trace_probe_headers.baggage | default('') | length) == 0
+          ) else 'fail'
+        ),
+        'detail': 'backend traceparent=' + (_rc_trace_probe_headers.traceparent | default('(none)'))
+          + ' tracestate=' + (_rc_trace_probe_headers.tracestate | default('(none)'))
+          + ' baggage=' + (_rc_trace_probe_headers.baggage | default('(none)')),
+        'error': '' if _rc_trace_probe_ok else ('probe HTTP status ' + (_rc_trace_probe_response.status | default(0) | string))
+      }] }}
+  changed_when: false
+
+# The check that would catch an early-vs-route mutation mistake: if the mutation
+# ran too late, Envoy would have JOINED the forged trace and the backend would
+# carry the attacker's trace-id in a well-formed traceparent.
+- name: Add fresh trace mint check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'trace boundary',
+        'check_name': 'Edge mints fresh trace toward backend',
+        'status': (
+          'pass' if (
+            _rc_trace_probe_ok and
+            (_rc_trace_probe_headers.traceparent | default('')) is match('^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$') and
+            readiness_check_trace_forged_trace_id not in (_rc_trace_probe_headers.traceparent | default(''))
+          ) else 'fail'
+        ),
+        'detail': 'backend traceparent=' + (_rc_trace_probe_headers.traceparent | default('(none)')),
+        'error': '' if _rc_trace_probe_ok else 'probe request failed'
+      }] }}
+  changed_when: false
+  when: readiness_check_tracing_enabled | bool
+
+# warn, not fail: losing the forensic copy degrades attribution but does not
+# breach the boundary. This is also what proves %REQ(traceparent)% actually
+# expands inside the early header mutation rather than being written literally.
+- name: Add forensic capture check to results
+  ansible.builtin.set_fact:
+    _readiness_results: >-
+      {{ _readiness_results + [{
+        'component': 'trace boundary',
+        'check_name': 'Inbound traceparent captured in forensic header',
+        'status': (
+          'pass' if (
+            _rc_trace_probe_ok and
+            (_rc_trace_probe_headers[readiness_check_trace_forensic_header] | default('')) == readiness_check_trace_forged_traceparent
+          ) else 'warn'
+        ),
+        'detail': readiness_check_trace_forensic_header + '=' + (_rc_trace_probe_headers[readiness_check_trace_forensic_header] | default('(none)')),
+        'error': ''
+      }] }}
+  changed_when: false
+
+- name: Remove trace probe hosts entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_trace_probe_host | regex_escape }}\s*$'
+    state: absent
+  become: true
+
+- name: Remove trace probe resources
+  kubernetes.core.k8s:
+    state: absent
+    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    name: "{{ readiness_check_trace_probe_name }}"
+    namespace: "{{ readiness_check_edge_namespace }}"
+  loop:
+    - {api_version: v1, kind: Service}
+    - {api_version: apps/v1, kind: Deployment}
+  loop_control:
+    label: "{{ item.kind }}"
