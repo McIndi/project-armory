@@ -235,31 +235,19 @@
   register: _openbao_helm_apply_result
   when: not ansible_check_mode
 
-- name: Read OpenBao service ClusterIP for host-local access
-  ansible.builtin.command:
-    cmd: >-
-      {{ kubectl_bin }} get service {{ openbao_release_name }}
-      --namespace {{ openbao_namespace }}
-      -o jsonpath='{.spec.clusterIP}'
-  environment:
-    KUBECONFIG: "{{ openbao_kubeconfig_path }}"
-  register: _openbao_service_cluster_ip
-  changed_when: false
-  until: (_openbao_service_cluster_ip.stdout | trim | length) > 0
-  retries: 30
-  delay: 2
-  when: not ansible_check_mode
-
-- name: Ensure OpenBao service DNS resolves locally on the VM host
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^\S+\s+{{ openbao_tls_server_name | regex_escape }}\s*$'
-    line: "{{ _openbao_service_cluster_ip.stdout | trim }} {{ openbao_tls_server_name }}"
-    owner: root
-    group: root
-    mode: "0644"
-  become: true
-  register: _openbao_hosts_result
+# Every later task in this role (and the keycloak/delve roles) talks to OpenBao
+# over HTTPS at openbao_tls_server_name — its INTERNAL FQDN, which is the name in
+# the server certificate's SAN. Make that name resolve from the controller
+# without changing the name itself, so TLS validation is untouched.
+- name: Make the OpenBao service reachable from the controller
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: prepare_internal_https_caller_dns.yml
+  vars:
+    common_internal_https_dns_kubeconfig_path: "{{ openbao_kubeconfig_path }}"
+    common_internal_https_dns_service_name: "{{ openbao_release_name }}"
+    common_internal_https_dns_service_namespace: "{{ openbao_namespace }}"
+    common_internal_https_dns_fqdn: "{{ openbao_tls_server_name }}"
   when: not ansible_check_mode
 
 # The gateway Service carries the node address as an externalIP, so the

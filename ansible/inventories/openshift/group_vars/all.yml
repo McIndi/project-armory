@@ -45,9 +45,10 @@ internal_https_caller_mode: port_forward
 # create our own issuers/certificates.
 certmanager_install_enabled: false
 certmanager_namespace: cert-manager
-# Our issuer must be namespaced, NOT a ClusterIssuer: cluster-scoped names can
-# collide with other tenants.
+# Our issuer must be namespaced, NOT a ClusterIssuer: ClusterIssuer names are
+# cluster-scoped and can collide with another tenant's.
 certmanager_issuer_scope: namespaced
+common_certificate_issuer_kind: Issuer
 
 # trust-manager: its CRD ships with the cert-manager operator but NO controller
 # is deployed, and adding a cluster-wide controller is out of scope. Every

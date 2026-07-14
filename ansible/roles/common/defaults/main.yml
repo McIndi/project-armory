@@ -14,6 +14,27 @@ armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | defaul
 # Shared kubeconfig path for common kubectl-based helper tasks.
 common_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 
+# How the Ansible controller reaches an in-cluster HTTPS service.
+#   cluster_ip   — controller is a cluster node (k3s): route straight to the
+#                  Service ClusterIP.
+#   port_forward — controller is outside the cluster (OpenShift): ClusterIPs are
+#                  unroutable and *.svc.cluster.local does not resolve, so tunnel
+#                  in with `port-forward` and alias the FQDN to loopback. The
+#                  FQDN is preserved so TLS SNI/SAN validation is unaffected.
+internal_https_caller_mode: cluster_ip
+
+# Lifetime of a fire-and-forget port-forward tunnel. Must comfortably outlast the
+# longest play, since the tunnel has to stay up for every task that follows the
+# one that opened it.
+common_port_forward_ttl_seconds: 7200
+
+# How long to wait for a freshly opened tunnel to accept connections.
+common_port_forward_ready_timeout_seconds: 30
+
+# Whether stop_port_forwards.yml also removes the loopback aliases it added to
+# /etc/hosts. Turn off to keep them for manual debugging after a run.
+common_port_forward_clear_hosts: true
+
 # Shared cert-manager issuer defaults for common certificate helper task.
 common_certificate_issuer_kind: ClusterIssuer
 common_certificate_issuer_group: cert-manager.io

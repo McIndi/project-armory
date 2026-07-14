@@ -1,0 +1,32 @@
+---
+# Reap the `kubectl port-forward` tunnels opened by
+# common/tasks/prepare_internal_https_caller.yml when the controller runs
+# outside the cluster.
+#
+# They are started fire-and-forget (async/poll:0) so they survive the task that
+# opens them and stay up for the rest of the play. Without this they would also
+# survive the play, leaving processes holding ports 8200/8443 on the controller
+# and silently serving a NEXT run against a stale pod.
+#
+# Best-effort by design: a missing tunnel is not an error.
+
+- name: Reap port-forward tunnels opened for internal HTTPS callers
+  ansible.builtin.command:
+    cmd: pkill -f "port-forward --address 127.0.0.1"
+  register: _common_port_forward_reap
+  changed_when: _common_port_forward_reap.rc == 0
+  failed_when: false
+  when:
+    - internal_https_caller_mode | default('cluster_ip') == 'port_forward'
+    - not ansible_check_mode
+
+- name: Drop the loopback aliases added for internal HTTPS callers
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.0\.1\s+\S+\.svc\.cluster\.local\s*$'
+    state: absent
+  become: true
+  when:
+    - internal_https_caller_mode | default('cluster_ip') == 'port_forward'
+    - common_port_forward_clear_hosts | default(true) | bool
+    - not ansible_check_mode

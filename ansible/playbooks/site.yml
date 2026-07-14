@@ -117,3 +117,19 @@
         - readiness_check
         - post_deploy
       when: not ansible_check_mode
+  post_tasks:
+    # Where the controller runs outside the cluster it reaches in-cluster HTTPS
+    # services through fire-and-forget `port-forward` tunnels, which would
+    # otherwise outlive the play — holding ports on the controller and silently
+    # serving the NEXT run against a pod that no longer exists.
+    - name: Reap port-forward tunnels opened for internal HTTPS callers
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: stop_port_forwards.yml
+        apply:
+          tags:
+            - always
+            - port_forward_cleanup
+      tags:
+        - always
+        - port_forward_cleanup
