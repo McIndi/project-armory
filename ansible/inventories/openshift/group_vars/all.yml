@@ -16,9 +16,18 @@
 # on a managed cluster.
 target_platform: openshift
 
-# Edge implementation. k3s uses Gateway API HTTPRoutes behind Envoy Gateway;
-# OpenShift uses native Routes (see "Edge" below).
-edge_kind: route
+# Edge implementation.
+#
+#   httproute   — Gateway API HTTPRoute behind Envoy Gateway (k3s).
+#   route       — an OpenShift Route straight to each workload. Simple, but there
+#                 is NO trace boundary: the router is HAProxy, which cannot mint
+#                 or strip W3C trace context.
+#   route_envoy — Route -> in-namespace Envoy -> workload. Restores the trace
+#                 boundary that Envoy Gateway provided on k3s.
+#
+# route_envoy, because armory's audit story depends on the edge minting a trusted
+# traceparent and stripping any the client supplied. See the envoy_proxy role.
+edge_kind: route_envoy
 
 # --- Control-host / cluster access -------------------------------------------
 # On k3s the Ansible controller WAS a cluster node. Here it is an external
@@ -117,6 +126,19 @@ armory_registry_host: "registry.{{ armory_apps_domain }}"
 # no certificate work of our own, and (for the registry) trusted by the nodes'
 # container runtime for image pulls.
 openbao_ingress_host: "{{ armory_openbao_host }}"
+
+# Every public hostname terminates on Envoy, never straight on the workload.
+# A hostname routed directly to its backend would bypass the trace boundary, and
+# nothing would report the gap — the audit trail would just quietly be wrong.
+envoy_proxy_upstreams:
+  - name: keycloak
+    host: "{{ armory_keycloak_host }}"
+    service_fqdn: "{{ keycloak_service_name | default('keycloak-service') }}.{{ keycloak_namespace }}.svc.cluster.local"
+    port: 8443
+  - name: openbao
+    host: "{{ armory_openbao_host }}"
+    service_fqdn: openbao.openbao.svc.cluster.local
+    port: 8200
 
 # There is no node IP to bind and no LoadBalancer (no MetalLB, vSphere platform),
 # so the k3s edge-IP autodetection is meaningless here.

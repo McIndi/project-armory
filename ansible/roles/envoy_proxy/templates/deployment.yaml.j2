@@ -1,0 +1,116 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ envoy_proxy_name }}
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_name }}
+    app.kubernetes.io/part-of: armory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ envoy_proxy_name }}
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_name }}
+    app.kubernetes.io/part-of: armory
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ envoy_proxy_name }}
+  ports:
+    - name: https
+      port: {{ envoy_proxy_listen_port }}
+      targetPort: {{ envoy_proxy_listen_port }}
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ envoy_proxy_name }}
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_name }}
+    app.kubernetes.io/part-of: armory
+spec:
+  replicas: {{ envoy_proxy_replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ envoy_proxy_name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ envoy_proxy_name }}
+        app.kubernetes.io/part-of: armory
+      annotations:
+        # Roll the pods when the config changes. Envoy reads envoy.yaml once at
+        # boot, so without this a config edit would sit in the ConfigMap doing
+        # nothing until something else happened to restart the pod.
+        armory.io/envoy-config-hash: "{{ _envoy_proxy_config_hash | default('unset') }}"
+    spec:
+      serviceAccountName: {{ envoy_proxy_name }}
+      # No securityContext: the upstream Envoy image runs as a non-root UID and
+      # tolerates an arbitrary one, so restricted-v2 needs no help. Note the
+      # listener is on 8443, NOT 443 -- binding a privileged port would require
+      # NET_BIND_SERVICE, and there is no reason to: the Route maps 443 to this.
+      containers:
+        - name: envoy
+          image: {{ envoy_proxy_image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config-path
+            - /etc/envoy/envoy.yaml
+            - --service-cluster
+            - {{ envoy_proxy_tracing_service_name }}
+          ports:
+            - name: https
+              containerPort: {{ envoy_proxy_listen_port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/envoy
+              readOnly: true
+            - name: tls
+              mountPath: {{ envoy_proxy_tls_mount_path }}
+              readOnly: true
+            - name: ca
+              mountPath: {{ envoy_proxy_ca_mount_path }}
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              # Envoy's admin listener is bound to loopback, but the kubelet probe
+              # runs inside the pod's network namespace, so this still reaches it.
+              path: /ready
+              port: 9901
+              host: 127.0.0.1
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 9901
+              host: 127.0.0.1
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: {{ envoy_proxy_name }}-config
+        - name: tls
+          secret:
+            secretName: {{ envoy_proxy_tls_secret_name }}
+            defaultMode: 0440
+        - name: ca
+          secret:
+            secretName: {{ envoy_proxy_ca_secret_name }}
+            defaultMode: 0444

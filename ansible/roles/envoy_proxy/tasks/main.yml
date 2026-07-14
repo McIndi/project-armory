@@ -1,0 +1,144 @@
+---
+- name: Resolve ARMORY_LOG_NOLOG flag
+  ansible.builtin.set_fact:
+    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+  changed_when: false
+
+- name: Deploy the in-namespace Envoy trace boundary
+  tags: [envoy_proxy, edge]
+  block:
+    - name: Assert at least one upstream is configured
+      ansible.builtin.assert:
+        that:
+          - (envoy_proxy_upstreams | default([]) | length) > 0
+        fail_msg: >-
+          envoy_proxy_upstreams is empty, so Envoy would accept no hostnames and
+          no Routes would be created — the edge would be silently unreachable.
+
+    - name: Ensure the edge namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ envoy_proxy_namespace }}"
+            labels: "{{ armory_namespace_labels | default({'app.kubernetes.io/part-of': 'armory'}) }}"
+      when: not ansible_check_mode
+
+    # Verifies the UPSTREAM leg (Keycloak, OpenBao). Both are issued by the same
+    # OpenBao PKI internal CA, so one bundle covers them.
+    - name: Mirror the OpenBao CA into the edge namespace
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: copy_openbao_ca_secret.yml
+      vars:
+        common_kubeconfig_path: "{{ envoy_proxy_kubeconfig_path }}"
+        common_ca_secret_name: "{{ envoy_proxy_ca_secret_name }}"
+        common_ca_source_namespace: "{{ envoy_proxy_ca_source_namespace }}"
+        common_ca_target_namespace: "{{ envoy_proxy_namespace }}"
+
+    # Serving certificate for the router's re-encrypt leg. Issued by the same
+    # internal CA, so the Route can verify Envoy with the CA it already trusts.
+    - name: Provision the Envoy serving certificate
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: apply_certificate.yml
+      vars:
+        common_kubeconfig_path: "{{ envoy_proxy_kubeconfig_path }}"
+        common_certificate_name: "{{ envoy_proxy_tls_certificate_name }}"
+        common_certificate_namespace: "{{ envoy_proxy_namespace }}"
+        common_certificate_secret_name: "{{ envoy_proxy_tls_secret_name }}"
+        common_certificate_issuer_name: "{{ envoy_proxy_tls_issuer_name }}"
+        common_certificate_issuer_kind: "{{ envoy_proxy_tls_issuer_kind }}"
+        common_certificate_duration: "{{ envoy_proxy_tls_duration }}"
+        common_certificate_renew_before: "{{ envoy_proxy_tls_renew_before }}"
+        common_certificate_dns_names: "{{ envoy_proxy_tls_dns_names }}"
+      when: not ansible_check_mode
+
+    - name: Apply the OTel collector for edge traces
+      kubernetes.core.k8s:
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'otel-collector.yaml.j2') | from_yaml_all | list }}"
+      when:
+        - envoy_proxy_otel_enabled | bool
+        - not ansible_check_mode
+
+    - name: Render the Envoy configuration
+      ansible.builtin.set_fact:
+        _envoy_proxy_config: "{{ lookup('template', 'envoy-config.yaml.j2') | from_yaml }}"
+      changed_when: false
+
+    # Envoy reads envoy.yaml once, at boot. Without rolling the pods on a config
+    # change, an edited ConfigMap would sit there inert until something unrelated
+    # restarted the pod — so hash the config into the pod template.
+    - name: Compute the Envoy config hash
+      ansible.builtin.set_fact:
+        _envoy_proxy_config_hash: "{{ _envoy_proxy_config.data['envoy.yaml'] | hash('sha1') }}"
+      changed_when: false
+
+    - name: Apply the Envoy configuration
+      kubernetes.core.k8s:
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+        state: present
+        definition: "{{ _envoy_proxy_config }}"
+      when: not ansible_check_mode
+
+    - name: Apply the Envoy Deployment, Service and ServiceAccount
+      kubernetes.core.k8s:
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'deployment.yaml.j2') | from_yaml_all | list }}"
+      when: not ansible_check_mode
+
+    - name: Wait for Envoy to become available
+      ansible.builtin.command:
+        cmd: >-
+          {{ kubectl_bin }} rollout status deployment/{{ envoy_proxy_name }}
+          --namespace {{ envoy_proxy_namespace }}
+          --timeout={{ envoy_proxy_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ envoy_proxy_kubeconfig_path }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    # ── Routes ────────────────────────────────────────────────────────────────
+    - name: Read the internal CA for the Routes' backend verification
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+        kind: Secret
+        name: "{{ envoy_proxy_tls_secret_name }}"
+        namespace: "{{ envoy_proxy_namespace }}"
+      register: _envoy_proxy_tls_secret
+      until: >-
+        (_envoy_proxy_tls_secret.resources | default([]) | length > 0)
+        and ((_envoy_proxy_tls_secret.resources[0].data['ca.crt'] | default('')) | length > 0)
+      retries: 30
+      delay: 2
+      when: not ansible_check_mode
+
+    - name: Set the Route destination CA fact
+      ansible.builtin.set_fact:
+        envoy_proxy_route_destination_ca: >-
+          {{ _envoy_proxy_tls_secret.resources[0].data['ca.crt'] | b64decode | trim }}
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert the Route destination CA is PEM
+      ansible.builtin.assert:
+        that:
+          - "'BEGIN CERTIFICATE' in envoy_proxy_route_destination_ca"
+        fail_msg: >-
+          Secret '{{ envoy_proxy_tls_secret_name }}' in namespace
+          '{{ envoy_proxy_namespace }}' has no PEM CA in ca.crt; the Routes cannot
+          verify the Envoy backend without it.
+      when: not ansible_check_mode
+
+    - name: Apply the edge Routes
+      kubernetes.core.k8s:
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'routes.yaml.j2') | from_yaml_all | list }}"
+      when: not ansible_check_mode

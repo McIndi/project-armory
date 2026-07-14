@@ -1,0 +1,47 @@
+---
+# One OpenShift Route per public hostname, every one of them terminating on this
+# Envoy rather than on the workload.
+#
+# That is what makes Envoy a genuine chokepoint: if any hostname routed straight
+# to its backend, requests could reach the workload without passing the trace
+# boundary, and the audit trail would have a hole in it that nothing would report.
+#
+# Routes must reference a Service in their OWN namespace, which is why they live
+# here in the edge namespace rather than alongside each workload.
+#
+# reencrypt: the router terminates the client's TLS with its Let's Encrypt
+# wildcard certificate for the apps domain, then re-encrypts to Envoy and
+# verifies it against the internal CA -- so no leg of the path is in the clear.
+{% for up in envoy_proxy_upstreams %}
+{% if not loop.first %}
+---
+{% endif %}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ up.name }}
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_name }}
+    app.kubernetes.io/part-of: armory
+{% if envoy_proxy_route_annotations | default({}) | length > 0 %}
+  annotations:
+{% for key, value in (envoy_proxy_route_annotations | default({})).items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+spec:
+  host: {{ up.host }}
+  to:
+    kind: Service
+    name: {{ envoy_proxy_name }}
+    weight: 100
+  port:
+    targetPort: {{ envoy_proxy_listen_port }}
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+    destinationCACertificate: |-
+{{ envoy_proxy_route_destination_ca | indent(6, true) }}
+  wildcardPolicy: None
+{% endfor %}

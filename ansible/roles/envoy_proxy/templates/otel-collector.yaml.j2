@@ -1,0 +1,96 @@
+---
+# Minimal OTLP collector for the edge spans.
+#
+# Debug exporter only: spans -- including the external.traceparent forensic
+# attribute carrying the untrusted inbound trace ID -- land in this pod's log,
+# which is what the readiness trace-boundary stage greps to prove the boundary is
+# actually working. Swap the exporter when a real trace store joins the stack.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ envoy_proxy_otel_name }}-config
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_otel_name }}
+    app.kubernetes.io/part-of: armory
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:{{ envoy_proxy_otel_grpc_port }}
+    processors:
+      batch: {}
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ envoy_proxy_otel_name }}
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_otel_name }}
+    app.kubernetes.io/part-of: armory
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ envoy_proxy_otel_name }}
+  ports:
+    - name: otlp-grpc
+      port: {{ envoy_proxy_otel_grpc_port }}
+      targetPort: {{ envoy_proxy_otel_grpc_port }}
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ envoy_proxy_otel_name }}
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_otel_name }}
+    app.kubernetes.io/part-of: armory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ envoy_proxy_otel_name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ envoy_proxy_otel_name }}
+        app.kubernetes.io/part-of: armory
+    spec:
+      # No securityContext: the collector image runs unprivileged and tolerates
+      # an arbitrary UID, so restricted-v2 needs no help.
+      containers:
+        - name: otel-collector
+          image: {{ envoy_proxy_otel_image }}
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/config.yaml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ envoy_proxy_otel_grpc_port }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: {{ envoy_proxy_otel_name }}-config

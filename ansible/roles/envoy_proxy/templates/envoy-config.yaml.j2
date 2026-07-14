@@ -1,0 +1,155 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ envoy_proxy_name }}-config
+  namespace: {{ envoy_proxy_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ envoy_proxy_name }}
+    app.kubernetes.io/part-of: armory
+data:
+  envoy.yaml: |
+    admin:
+      # Loopback only: the admin interface exposes /quitquitquit and full config
+      # dumps, so it must never be reachable from the pod network.
+      address:
+        socket_address: { address: 127.0.0.1, port_value: 9901 }
+
+    static_resources:
+      listeners:
+        - name: https
+          address:
+            socket_address: { address: 0.0.0.0, port_value: {{ envoy_proxy_listen_port }} }
+          filter_chains:
+            - transport_socket:
+                name: envoy.transport_sockets.tls
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                  common_tls_context:
+                    tls_certificates:
+                      - certificate_chain: { filename: {{ envoy_proxy_tls_mount_path }}/tls.crt }
+                        private_key: { filename: {{ envoy_proxy_tls_mount_path }}/tls.key }
+              filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: armory_edge
+                    # The OpenShift router is the only thing that talks to us, and
+                    # it sets X-Forwarded-For. Trust exactly one hop so the client
+                    # IP is real and cannot be spoofed by an extra XFF entry.
+                    use_remote_address: true
+                    xff_num_trusted_hops: 1
+
+{% if envoy_proxy_tracing_enabled | bool %}
+                    # ── TRACE BOUNDARY ──────────────────────────────────────────
+                    # Runs BEFORE the tracing decision, which is the whole point.
+                    # Route-level header mutation would run in the router filter at
+                    # the end of the chain -- after the HCM had already read the
+                    # client's traceparent and joined their trace. The backend
+                    # headers would look correct while the boundary was silently
+                    # broken, letting a caller forge trace IDs into the audit trail.
+                    #
+                    # Mutations apply in order: copy traceparent into the forensic
+                    # header FIRST, then strip the inbound trace headers, so Envoy
+                    # sees none and starts a fresh trace rooted at the edge span.
+                    early_header_mutation_extensions:
+                      - name: envoy.http.early_header_mutation.header_mutation
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.http.early_header_mutation.header_mutation.v3.HeaderMutation
+                          mutations:
+                            - append:
+                                header:
+                                  key: {{ envoy_proxy_trace_forensic_header }}
+                                  value: "%REQ(traceparent)%"
+                                append_action: OVERWRITE_IF_EXISTS_OR_ADD
+{% for header in envoy_proxy_trace_strip_headers %}
+                            - remove: {{ header }}
+{% endfor %}
+
+                    tracing:
+                      provider:
+                        name: envoy.tracers.opentelemetry
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+                          service_name: {{ envoy_proxy_tracing_service_name }}
+                          grpc_service:
+                            envoy_grpc: { cluster_name: {{ envoy_proxy_otel_name }} }
+                            timeout: 1s
+                      random_sampling:
+                        value: {{ envoy_proxy_tracing_sampling_rate }}
+                      # The untrusted inbound traceparent, recorded as a span
+                      # attribute for forensics. Never used to join a trace.
+                      custom_tags:
+                        - tag: external.traceparent
+                          request_header:
+                            name: {{ envoy_proxy_trace_forensic_header }}
+{% endif %}
+
+                    route_config:
+                      name: armory
+                      virtual_hosts:
+{% for up in envoy_proxy_upstreams %}
+                        - name: {{ up.name }}
+                          domains: ["{{ up.host }}", "{{ up.host }}:*"]
+                          routes:
+                            - match: { prefix: "/" }
+                              route:
+                                cluster: {{ up.name }}
+                                timeout: {{ up.timeout | default('60s') }}
+{% endfor %}
+
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+      clusters:
+{% for up in envoy_proxy_upstreams %}
+        - name: {{ up.name }}
+          type: STRICT_DNS
+          connect_timeout: 5s
+          # Re-encrypt to the backend and VERIFY it, rather than trusting the pod
+          # network. The SAN is pinned to the Service FQDN, which is the name in
+          # the certificate the OpenBao PKI issued.
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              sni: {{ up.service_fqdn }}
+              common_tls_context:
+                validation_context:
+                  trusted_ca: { filename: {{ envoy_proxy_ca_mount_path }}/ca.crt }
+                  match_typed_subject_alt_names:
+                    - san_type: DNS
+                      matcher: { exact: {{ up.service_fqdn }} }
+          load_assignment:
+            cluster_name: {{ up.name }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: {{ up.service_fqdn }}
+                          port_value: {{ up.port }}
+{% endfor %}
+{% if envoy_proxy_tracing_enabled | bool %}
+        - name: {{ envoy_proxy_otel_name }}
+          type: STRICT_DNS
+          connect_timeout: 1s
+          # OTLP is gRPC, which needs HTTP/2. Plaintext: this hop never leaves the
+          # namespace, and spans carry no secrets.
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: {{ envoy_proxy_otel_name }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: {{ envoy_proxy_otel_name }}.{{ envoy_proxy_namespace }}.svc.cluster.local
+                          port_value: {{ envoy_proxy_otel_grpc_port }}
+{% endif %}

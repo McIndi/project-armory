@@ -96,6 +96,19 @@
         - openbao
         - keycloak
       when: keycloak_enabled | default(false) | bool
+    # The OpenShift edge. A Route alone cannot replace Envoy Gateway: the router
+    # is HAProxy, which has no notion of W3C trace context and so can neither mint
+    # one nor strip a forged one. Traffic therefore enters via a Route and lands
+    # on an in-namespace Envoy that restores the trace boundary.
+    #
+    # Runs late on purpose: it needs a serving certificate from the OpenBao PKI
+    # issuer (cert_manager + openbao), and its upstream Services (Keycloak,
+    # OpenBao) should already exist so Envoy's clusters resolve on first boot.
+    - role: envoy_proxy
+      when: edge_kind | default('httproute') == 'route_envoy'
+      tags:
+        - envoy_proxy
+        - edge
     # Headlamp existed to give cluster login via Keycloak, which required
     # reconfiguring the k3s API server's OIDC flags. On OpenShift cluster login
     # is LDAP (a shared, cluster-wide OAuth object we must not touch) and the
