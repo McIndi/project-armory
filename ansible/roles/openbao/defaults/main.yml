@@ -2,6 +2,20 @@
 # Kubeconfig used for all cluster access from this role.
 openbao_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 
+# Disable OpenBao's mlock of its in-memory secret store.
+#
+# mlock keeps secrets out of swap and requires the IPC_LOCK capability. Leave
+# this false where OpenBao can hold that capability. Set it true on platforms
+# that strip IPC_LOCK (e.g. OpenShift's restricted-v2 SCC), where granting it
+# would mean minting a custom SCC carrying a privileged capability — Kubernetes
+# nodes run with swap disabled, so mlock protects against nothing there.
+openbao_disable_mlock: false
+
+# StorageClass for the OpenBao data and audit PVCs.
+# Empty uses the cluster default (k3s: local-path).
+openbao_storage_class: ""
+openbao_data_storage_size: 1Gi
+
 # Base directory used by this role for generated files and local state.
 openbao_work_dir: /opt/openbao
 

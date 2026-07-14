@@ -7,6 +7,16 @@ server:
     enabled: true
     config: |
       ui = {{ openbao_ui_enabled | bool | lower }}
+{% if openbao_disable_mlock | bool %}
+
+      # mlock keeps the in-memory secret store out of swap, and needs the
+      # IPC_LOCK capability. Where the platform strips that capability (e.g.
+      # OpenShift's restricted-v2 SCC), granting it would mean a custom SCC
+      # carrying a privileged capability. Kubernetes nodes run with swap
+      # disabled, so mlock protects against nothing here — disabling it is the
+      # standard posture and avoids the capability entirely.
+      disable_mlock = true
+{% endif %}
 
       listener "tcp" {
         tls_disable     = {{ 0 if (openbao_tls_enabled | bool) else 1 }}
@@ -48,13 +58,19 @@ server:
 
   dataStorage:
     enabled: true
-    size: 1Gi
+    size: {{ openbao_data_storage_size }}
+{% if (openbao_storage_class | default('') | trim) | length > 0 %}
+    storageClass: {{ openbao_storage_class }}
+{% endif %}
 
 {% if openbao_audit_enabled | bool %}
   auditStorage:
     enabled: true
     size: {{ openbao_audit_storage_size }}
     mountPath: {{ openbao_audit_mount_path }}
+{% if (openbao_storage_class | default('') | trim) | length > 0 %}
+    storageClass: {{ openbao_storage_class }}
+{% endif %}
 {% endif %}
 
   readinessProbe:

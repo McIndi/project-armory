@@ -79,8 +79,8 @@ readiness_check_gateway_proxy_labels:
   - "gateway.envoyproxy.io/owning-gateway-name={{ readiness_check_gateway_name }}"
   - "gateway.envoyproxy.io/owning-gateway-namespace={{ readiness_check_gateway_namespace }}"
 readiness_check_certmanager_namespace: cert-manager
-readiness_check_openbao_external_clusterissuer_name: openbao-pki-external
-readiness_check_openbao_internal_clusterissuer_name: openbao-pki-internal
+readiness_check_openbao_external_clusterissuer_name: "{{ certmanager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
+readiness_check_openbao_internal_clusterissuer_name: "{{ certmanager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
 # The consolidated edge cert lives in the gateway namespace (listener
 # certificateRefs are same-namespace).
 readiness_check_ingress_tls_namespace: "{{ readiness_check_gateway_namespace }}"
