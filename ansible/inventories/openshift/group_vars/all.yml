@@ -1,0 +1,110 @@
+---
+# OpenShift inventory overlay.
+#
+# Target: shared IBM Cloud Pak for Integration cluster (OCP 4.20 on vSphere).
+# The cluster is MULTI-TENANT and we are cluster-admin, so the guiding rule is:
+# stay inside our own namespaces and never mutate a cluster-wide singleton that
+# other tenants depend on. Every override below exists to honour that rule.
+#
+# Deltas from inventories/development are grouped and justified. Roles are NOT
+# forked for OpenShift — they are steered from here, so that role task files
+# stay mergeable with `main`.
+
+# --- Platform selector -------------------------------------------------------
+# Consumed by playbooks/site.yml to gate node-owning roles (k3s, kernel_tuning,
+# system_update, host_dependencies, headlamp, envoy_gateway) that have no target
+# on a managed cluster.
+target_platform: openshift
+
+# Edge implementation. k3s uses Gateway API HTTPRoutes behind Envoy Gateway;
+# OpenShift uses native Routes (see "Edge" below).
+edge_kind: route
+
+# --- Control-host / cluster access -------------------------------------------
+# On k3s the Ansible controller WAS a cluster node. Here it is an external
+# workstation, so all cluster access goes through a kubeconfig + `oc`.
+armory_kubeconfig_path: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(ansible_env.HOME + '/.kube/config', true) }}"
+# Roles still reference the legacy `k3s_kubeconfig_path` name. Aliasing it here
+# means zero role edits (and therefore zero merge conflicts) for kubeconfig.
+k3s_kubeconfig_path: "{{ armory_kubeconfig_path }}"
+
+# Cluster CLI. k3s bundles kubectl behind `k3s kubectl`; OpenShift uses `oc`.
+# Roles shell out via this var instead of hardcoding the binary.
+kubectl_bin: oc
+
+# The controller is OUTSIDE the cluster network, so it cannot reach a ClusterIP
+# or resolve *.svc.cluster.local. common/tasks/prepare_internal_https_caller.yml
+# therefore tunnels with `oc port-forward` and aliases the internal FQDN to
+# loopback, which keeps the TLS SAN (and every *_api_addr) unchanged.
+internal_https_caller_mode: port_forward
+
+# --- Components the cluster already provides: DO NOT INSTALL -----------------
+# cert-manager is installed cluster-wide (openshift-cert-manager-operator
+# v1.20.0) and its CRDs are cluster-scoped singletons. A second install would
+# fight the existing controller and break other tenants. We reuse it and only
+# create our own issuers/certificates.
+certmanager_install_enabled: false
+certmanager_namespace: cert-manager
+# Our issuer must be namespaced, NOT a ClusterIssuer: cluster-scoped names can
+# collide with other tenants.
+certmanager_issuer_scope: namespaced
+
+# trust-manager: its CRD ships with the cert-manager operator but NO controller
+# is deployed, and adding a cluster-wide controller is out of scope. Every
+# consumer role already implements an imperative CA-copy fallback, so we take
+# that path instead of introducing a cluster-scoped Bundle controller.
+trust_manager_enabled: false
+use_declarative_ca_distribution: false
+
+# Vault Secrets Operator is NOT present on the cluster (no secrets.hashicorp.com
+# CRDs), so armory still installs it. Its CRDs are unique and unused by other
+# tenants, so this adds no collision risk.
+vso_enabled: true
+
+# --- Storage -----------------------------------------------------------------
+# k3s's local-path provisioner does not exist here. The cluster default is ODF
+# Ceph RBD (RWO block), which is what the databases want.
+# `ocs-storagecluster-cephfs` is available if anything ever needs RWX.
+armory_storage_class: ocs-storagecluster-ceph-rbd
+keycloak_pg_storage_class: "{{ armory_storage_class }}"
+delve_pg_storage_class: "{{ armory_storage_class }}"
+
+# --- Edge --------------------------------------------------------------------
+# Traffic enters via OpenShift Routes. The router serves a Let's Encrypt
+# wildcard cert for *.apps.<domain>, which RHCOS nodes trust out of the box —
+# that is what lets us front an in-namespace registry without any cluster-wide
+# trust configuration.
+armory_apps_domain: apps.example.com
+armory_keycloak_host: "keycloak.{{ armory_apps_domain }}"
+armory_openbao_host: "openbao.{{ armory_apps_domain }}"
+armory_registry_host: "registry.{{ armory_apps_domain }}"
+
+# There is no node IP to bind and no LoadBalancer (no MetalLB, vSphere platform),
+# so the k3s edge-IP autodetection is meaningless here.
+edge_gateway_ip_resolution_enabled: false
+
+ingress_http_policy: disabled
+openbao_ui_enabled: true
+
+# --- Namespaces --------------------------------------------------------------
+# Confirmed unused on this cluster, so the existing names are kept (renaming
+# would ripple into OpenBao's in-cluster FQDN, which is baked into TLS SANs).
+# Ownership is signalled with labels rather than a name prefix.
+keycloak_namespace: keycloak
+openbao_namespace: openbao
+armory_namespace_labels:
+  app.kubernetes.io/part-of: armory
+  armory.io/owner: cbressette
+
+# --- Enabled components ------------------------------------------------------
+keycloak_enabled: true
+keycloak_pg_tls_enabled: true
+
+# Delve is DEFERRED on OpenShift. Its audit shippers read PVC host-directories
+# and the k3s API-server audit log, neither of which exists here — that feed
+# needs a redesign against OpenShift logging before the role can run.
+delve_enabled: false
+
+# The k3s API-server audit feed required kube-apiserver flags. On OpenShift the
+# API server is not ours to reconfigure, and cluster login stays LDAP.
+k3s_audit_enabled: false

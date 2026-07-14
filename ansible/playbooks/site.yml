@@ -3,6 +3,9 @@
   hosts: all
   gather_facts: true
   pre_tasks:
+    # Autodetects the node IP the Envoy Gateway edge binds. Meaningless on a
+    # managed cluster, where traffic enters via a Route and there is no node we
+    # own — the OpenShift inventory turns this off.
     - name: Resolve canonical edge gateway IP
       ansible.builtin.include_role:
         name: common
@@ -11,6 +14,7 @@
           tags:
             - always
             - edge_gateway_ip
+      when: edge_gateway_ip_resolution_enabled | default(true) | bool
       tags:
         - always
         - edge_gateway_ip
@@ -20,14 +24,21 @@
         - always
         - env_guard
         - preflight
+    # The roles below own the NODE (tune the kernel, patch packages, install the
+    # cluster). On OpenShift the nodes are RHCOS and managed by the platform —
+    # we have no root on them and no cluster to install — so they are gated off
+    # rather than deleted, keeping this file mergeable with `main`.
     - role: kernel_tuning
+      when: target_platform | default('k3s') == 'k3s'
       tags:
         - kernel_tuning
     - role: host_dependencies
+      when: target_platform | default('k3s') == 'k3s'
       tags:
         - host_dependencies
         - host_prereqs
     - role: system_update
+      when: target_platform | default('k3s') == 'k3s'
       tags:
         - system_update
         - dnf_update
@@ -36,6 +47,7 @@
         - helm
         - helm_install
     - role: k3s
+      when: target_platform | default('k3s') == 'k3s'
       tags:
         - k3s
 
@@ -60,7 +72,13 @@
         - trust_manager
         - trust_manager_install
       when: trust_manager_enabled | default(false) | bool
+    # Envoy Gateway is a Gateway API implementation. OpenShift 4.20 ships and
+    # actively manages the Gateway API CRDs via its Cluster Ingress Operator, so
+    # installing a second controller risks a tug-of-war with a core platform
+    # operator. On OpenShift the edge is a Route, and the trace-boundary Envoy is
+    # reintroduced as a plain in-namespace Deployment (see the envoy_proxy role).
     - role: envoy_gateway
+      when: target_platform | default('k3s') == 'k3s'
       tags:
         - envoy_gateway
     - role: vso
@@ -78,7 +96,12 @@
         - openbao
         - keycloak
       when: keycloak_enabled | default(false) | bool
+    # Headlamp existed to give cluster login via Keycloak, which required
+    # reconfiguring the k3s API server's OIDC flags. On OpenShift cluster login
+    # is LDAP (a shared, cluster-wide OAuth object we must not touch) and the
+    # platform ships its own console, so Headlamp has no remaining role.
     - role: headlamp
+      when: target_platform | default('k3s') == 'k3s'
       tags:
         - headlamp
         - headlamp_install

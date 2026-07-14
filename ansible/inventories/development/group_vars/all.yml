@@ -1,6 +1,27 @@
 ---
 # Global overrides for the development inventory.
 
+# --- Platform selector -------------------------------------------------------
+# Explicit here so the k3s assumptions this inventory carries are stated rather
+# than implied. The OpenShift inventory overrides these; roles are steered by
+# them instead of being forked per platform.
+target_platform: k3s
+edge_kind: httproute
+
+# k3s bundles kubectl; roles shell out through this rather than hardcoding it.
+kubectl_bin: "k3s kubectl"
+
+# The controller IS a cluster node here, so it can reach a Service ClusterIP
+# directly once the internal FQDN is aliased in /etc/hosts.
+internal_https_caller_mode: cluster_ip
+
+# The Envoy Gateway edge binds a node IP, which must be autodetected.
+edge_gateway_ip_resolution_enabled: true
+
+# armory owns the full stack on k3s: it installs cert-manager itself.
+certmanager_install_enabled: true
+vso_enabled: true
+
 # Cut over to the standalone Keycloak (Operator + Postgres StatefulSet) role.
 # Must live here (group_vars/all), NOT in the keycloak role defaults, so that
 # consumer roles (headlamp, k3s, readiness_check) — which cannot see the keycloak

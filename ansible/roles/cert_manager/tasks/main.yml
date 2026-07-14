@@ -6,8 +6,13 @@
 
 - name: Run cert-manager orchestration with diagnostics
   block:
+    # Skipped where the cluster already provides cert-manager (OpenShift ships
+    # it via openshift-cert-manager-operator). Its CRDs are cluster-scoped
+    # singletons, so a second install would contend with the existing controller
+    # and affect every other tenant. We reuse it and provision issuers only.
     - name: cert-manager installation
       ansible.builtin.import_tasks: install.yml
+      when: certmanager_install_enabled | default(true) | bool
       tags: [cert_manager, cert_manager_install]
 
     - name: cert-manager TokenRequest RBAC
