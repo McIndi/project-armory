@@ -1,6 +1,21 @@
 ---
+# Admin-events pruning runs on a schedule: a systemd timer on the k3s node, or an
+# in-cluster CronJob on OpenShift where there is no node of ours. Both `kubectl
+# exec` into the Postgres pod and run the same DELETE.
+- name: Apply the Keycloak admin-events prune CronJob
+  kubernetes.core.k8s:
+    kubeconfig: "{{ keycloak_kubeconfig_path }}"
+    state: present
+    definition: "{{ lookup('template', 'admin-events-prune-cronjob.yaml.j2') | from_yaml_all | list }}"
+  when:
+    - keycloak_admin_events_prune_enabled | bool
+    - armory_scheduler_kind | default('host_timer') == 'cronjob'
+    - not ansible_check_mode
+
 - name: Configure Keycloak admin-events prune timer
-  when: keycloak_admin_events_prune_enabled | bool
+  when:
+    - keycloak_admin_events_prune_enabled | bool
+    - armory_scheduler_kind | default('host_timer') == 'host_timer'
   block:
     - name: Ensure Keycloak work directory exists
       ansible.builtin.file:

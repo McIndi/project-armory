@@ -1,8 +1,24 @@
 ---
+# Audit-log rotation runs on a schedule. Where that schedule lives depends on the
+# platform: a systemd timer on the k3s node, or an in-cluster CronJob on
+# OpenShift, where there is no node of ours to schedule on. The rotation logic is
+# identical either way — both `kubectl exec` into the OpenBao pod.
+- name: Apply the OpenBao audit rotation CronJob
+  kubernetes.core.k8s:
+    kubeconfig: "{{ openbao_kubeconfig_path }}"
+    state: present
+    definition: "{{ lookup('template', 'audit-rotate-cronjob.yaml.j2') | from_yaml_all | list }}"
+  when:
+    - openbao_audit_enabled | bool
+    - openbao_audit_rotate_enabled | bool
+    - armory_scheduler_kind | default('host_timer') == 'cronjob'
+    - not ansible_check_mode
+
 - name: Configure OpenBao audit log rotation timer
   when:
     - openbao_audit_enabled | bool
     - openbao_audit_rotate_enabled | bool
+    - armory_scheduler_kind | default('host_timer') == 'host_timer'
   block:
     - name: Install OpenBao audit rotation script
       ansible.builtin.template:

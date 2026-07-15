@@ -41,6 +41,15 @@ k3s_kubeconfig_path: "{{ armory_kubeconfig_path }}"
 # Roles shell out via this var instead of hardcoding the binary.
 kubectl_bin: oc
 
+# Scheduled maintenance runs as in-cluster CronJobs: there is no node of ours to
+# host a systemd timer on. The CronJobs exec into the target pod exactly as the
+# host scripts did, via a ServiceAccount granted pods/exec in that namespace.
+armory_scheduler_kind: cronjob
+
+# The realm-admin rotator CronJob pins runAsUser: 1000 on k3s. Empty here so
+# restricted-v2 assigns the pod a UID from the namespace range instead.
+keycloak_rotator_run_as_user: ""
+
 # The controller is OUTSIDE the cluster network, so it cannot reach a ClusterIP
 # or resolve *.svc.cluster.local. common/tasks/prepare_internal_https_caller.yml
 # therefore tunnels with `oc port-forward` and aliases the internal FQDN to

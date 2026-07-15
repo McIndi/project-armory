@@ -105,7 +105,11 @@ spec:
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
-            runAsUser: 1000
+{% if keycloak_rotator_run_as_user is defined and (keycloak_rotator_run_as_user | string | length) > 0 %}
+            # Pinned on k3s. OMITTED on OpenShift: restricted-v2 assigns a UID
+            # from the namespace range and rejects a fixed one outside it.
+            runAsUser: {{ keycloak_rotator_run_as_user }}
+{% endif %}
             seccompProfile:
               type: RuntimeDefault
           containers:

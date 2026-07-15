@@ -155,11 +155,20 @@ keycloak_admin_events_details_enabled: true
 keycloak_events_jboss_logging_success_level: info
 keycloak_events_jboss_logging_error_level: warn
 
-# Admin events have no server-side expiration; a host systemd timer prunes the
-# admin_event_entity table by age. Mirrors the OpenBao audit-rotate timer pattern.
+# Admin events have no server-side expiration; a scheduled job prunes the
+# admin_event_entity table by age. Delivered as a host systemd timer or an
+# in-cluster CronJob, selected by armory_scheduler_kind. Mirrors the OpenBao
+# audit-rotate pattern.
 keycloak_admin_events_prune_enabled: true
-keycloak_admin_events_prune_on_calendar: weekly
 keycloak_admin_events_prune_keep_days: 90
+
+# host_timer form: systemd OnCalendar expression.
+keycloak_admin_events_prune_on_calendar: weekly
+
+# cronjob form: cron schedule, exec SA, and a kubectl-capable image.
+keycloak_admin_events_prune_cron_schedule: "23 3 * * 0"
+keycloak_admin_events_prune_sa_name: keycloak-admin-events-prune
+keycloak_admin_events_prune_image: "docker.io/bitnami/kubectl:1.33"
 
 # ── PostgreSQL StatefulSet (single-node backing store) ───────────────────────────
 keycloak_postgresql_enabled: true
@@ -231,6 +240,9 @@ keycloak_realm_admin_rotation_enabled: true
 keycloak_realm_admin_rotation_schedule: "0 3 1 * *"
 keycloak_realm_admin_rotation_password_length: 24
 keycloak_rotator_image: "python:3.12-slim"
+# Pin the rotator pod's UID on k3s. Set empty on OpenShift so restricted-v2 can
+# assign a UID from the namespace range (a fixed one outside it is rejected).
+keycloak_rotator_run_as_user: 1000
 keycloak_rotator_cron_name: keycloak-realm-admin-rotate
 keycloak_rotator_client_id: realm-admin-rotator
 

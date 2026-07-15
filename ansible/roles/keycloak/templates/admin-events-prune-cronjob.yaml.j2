@@ -1,0 +1,121 @@
+---
+# Keycloak admin-events pruning, in-cluster.
+#
+# The k3s path is a systemd timer on the node that runs `kubectl exec` into the
+# Postgres pod and deletes old rows. On OpenShift there is no node to schedule
+# on, so the same exec runs from a CronJob whose ServiceAccount is granted
+# pods/exec in this namespace. The DELETE is unchanged; only the scheduler moves.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ keycloak_admin_events_prune_sa_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/name: keycloak-admin-events-prune
+    app.kubernetes.io/part-of: armory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ keycloak_admin_events_prune_sa_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ keycloak_admin_events_prune_sa_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ keycloak_admin_events_prune_sa_name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ keycloak_admin_events_prune_sa_name }}
+    namespace: {{ keycloak_namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ keycloak_admin_events_prune_sa_name }}-script
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+data:
+  prune.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # kubectl authenticates via the mounted ServiceAccount token and in-cluster
+    # config. The DB credentials come from the Postgres container's own env, so
+    # they are never passed on the command line. admin_event_time is epoch ms.
+    #
+    # The env var names differ by image: the official postgres image sets
+    # POSTGRES_*, the OpenShift-native sclorg image sets POSTGRESQL_*. Fall back
+    # between them so this works whichever Postgres manifest was rendered.
+    kubectl exec -n {{ keycloak_namespace }} statefulset/{{ keycloak_pg_service }} -- \
+      sh -c 'PGPASSWORD="${POSTGRESQL_PASSWORD:-$POSTGRES_PASSWORD}" \
+        psql -U "${POSTGRESQL_USER:-$POSTGRES_USER}" -d "${POSTGRESQL_DATABASE:-$POSTGRES_DB}" -tAc \
+        "DELETE FROM admin_event_entity WHERE admin_event_time < (EXTRACT(EPOCH FROM now()) - {{ keycloak_admin_events_prune_keep_days | int * 86400 }}) * 1000;"'
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ keycloak_admin_events_prune_sa_name }}
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/name: keycloak-admin-events-prune
+    app.kubernetes.io/part-of: armory
+spec:
+  schedule: "{{ keycloak_admin_events_prune_cron_schedule }}"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          serviceAccountName: {{ keycloak_admin_events_prune_sa_name }}
+          restartPolicy: Never
+          # No runAsUser: OpenShift assigns a UID from the namespace range.
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: prune
+              image: {{ keycloak_admin_events_prune_image }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/script/prune.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: {{ keycloak_admin_events_prune_sa_name }}-script

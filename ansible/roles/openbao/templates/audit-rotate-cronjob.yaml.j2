@@ -1,0 +1,141 @@
+---
+# OpenBao audit-log rotation, in-cluster.
+#
+# The k3s path is a systemd timer on the node that runs `kubectl exec` into the
+# OpenBao pod. On OpenShift there is no node to schedule on, so the same exec
+# logic runs from a CronJob whose ServiceAccount is granted pods/exec in this
+# namespace. The rotation itself is unchanged: it happens INSIDE the OpenBao pod
+# (move the live audit file, SIGHUP bao so its file audit device reopens, prune
+# old files), because only the pod can touch its own filesystem and process.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ openbao_audit_rotate_sa_name }}
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/name: openbao-audit-rotate
+    app.kubernetes.io/part-of: armory
+---
+# Scoped to exactly what rotation needs: find the OpenBao pod and exec into it.
+# Namespaced Role, so it grants nothing outside this namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ openbao_audit_rotate_sa_name }}
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ openbao_audit_rotate_sa_name }}
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ openbao_audit_rotate_sa_name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ openbao_audit_rotate_sa_name }}
+    namespace: {{ openbao_namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ openbao_audit_rotate_sa_name }}-script
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+data:
+  rotate.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ts=$(date +%Y%m%d%H%M%S)
+    # kubectl in this container authenticates via the mounted ServiceAccount
+    # token and in-cluster config -- no KUBECONFIG needed.
+    #
+    # Rotate the live audit file, then SIGHUP the bao process so its file audit
+    # device closes the old inode and reopens at the configured path. PID 1 is the
+    # config-templating wrapper, not bao (bao is a grandchild), and the kernel
+    # ignores default-action signals to PID 1, so we locate bao via /proc/*/comm.
+    # The mv is guarded so this self-heals an already-rotated-but-not-reopened
+    # state: with nothing to rename we still HUP and bao recreates the file.
+    kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- sh -c '
+      set -e
+      audit_log="{{ openbao_audit_log_path }}"
+      [ -f "$audit_log" ] && mv "$audit_log" "$audit_log.$1"
+      for p in /proc/[0-9]*; do
+        if [ "$(cat "$p/comm" 2>/dev/null)" = "bao" ]; then
+          kill -HUP "${p#/proc/}"
+          exit 0
+        fi
+      done
+      echo "ERROR: bao process not found in pod; audit log not reopened" >&2
+      exit 1
+    ' _ "${ts}"
+    # Prune: keep newest {{ openbao_audit_rotate_keep }} rotated files.
+    kubectl exec -n {{ openbao_namespace }} statefulset/{{ openbao_release_name }} -- \
+      sh -c "ls -1t {{ openbao_audit_log_path }}.* 2>/dev/null | tail -n +{{ openbao_audit_rotate_keep | int + 1 }} | xargs -r rm --"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ openbao_audit_rotate_sa_name }}
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/name: openbao-audit-rotate
+    app.kubernetes.io/part-of: armory
+spec:
+  schedule: "{{ openbao_audit_rotate_cron_schedule }}"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          serviceAccountName: {{ openbao_audit_rotate_sa_name }}
+          restartPolicy: Never
+          # No runAsUser: OpenShift assigns a UID from the namespace range.
+          # Pinning one would get the pod rejected by restricted-v2.
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate
+              image: {{ openbao_audit_rotate_image }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/script/rotate.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: {{ openbao_audit_rotate_sa_name }}-script
