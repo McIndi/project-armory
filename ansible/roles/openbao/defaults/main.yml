@@ -39,6 +39,20 @@ openbao_init_keys_file: "{{ openbao_work_dir }}/init-keys.yml"
 # Vault password file used to encrypt/decrypt local vaulted artifacts.
 openbao_vault_pass_file: "{{ openbao_work_dir }}/.vault-pass"
 
+# Owner/group for the local state files (work dir, vault-pass, init-keys). root
+# where the controller is a cluster node run as root (k3s). On a workstation
+# controller the connection user cannot chown to root, so set these to that user.
+openbao_file_owner: root
+openbao_file_group: root
+
+# Break-glass persistence. When true, mirror the vault-pass and vault-encrypted
+# init-keys into a cluster Secret so they survive loss of the controller, and
+# restore them from it when the controller lacks a local copy. Read the tradeoff
+# in break_glass_mirror.yml before enabling: it places root-equivalent material
+# in a namespace Secret. Off by default (k3s persists the files on its own node).
+openbao_break_glass_k8s_secret_enabled: false
+openbao_break_glass_secret_name: openbao-break-glass
+
 # Kubernetes namespace where OpenBao is deployed.
 openbao_namespace: openbao
 

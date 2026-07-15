@@ -125,6 +125,22 @@ openbao_disable_mlock: true
 # created and no other workload is affected.
 openbao_scc_name: nonroot-v2
 
+# --- Break-glass / local state -----------------------------------------------
+# The controller here is the ocp-garrison workstation, not a cluster node, so
+# local state cannot be root-owned or live under /opt. Put it in the connection
+# user's home, owned by that user.
+openbao_work_dir: "{{ ansible_env.HOME }}/.armory/openbao"
+openbao_file_owner: "{{ ansible_user_id }}"
+openbao_file_group: "{{ ansible_user_id }}"
+
+# The workstation is rebuildable (`vagrant destroy`), and the break-glass files
+# are the ONLY way to unseal OpenBao — losing them strands a running OpenBao
+# permanently. Mirror them into a namespace Secret so they survive, and restore
+# from it on a rebuilt controller. This widens custody of the root token to
+# namespace-Secret readers (see break_glass_mirror.yml); it is a deliberate
+# tradeoff, and it does NOT address unseal-on-restart (that needs auto-unseal).
+openbao_break_glass_k8s_secret_enabled: true
+
 # --- Edge --------------------------------------------------------------------
 # Traffic enters via OpenShift Routes. The router serves a Let's Encrypt
 # wildcard cert for *.apps.<domain>, which RHCOS nodes trust out of the box —

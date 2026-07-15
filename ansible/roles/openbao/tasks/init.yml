@@ -29,13 +29,13 @@
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
 
-    - name: Write vault password file (root-only, stays on VM)
+    - name: Write vault password file (owner-only read)
       ansible.builtin.copy:
         dest: "{{ openbao_vault_pass_file }}"
         content: "{{ _openbao_vault_pass_gen.stdout | trim }}\n"
         mode: "0400"
-        owner: root
-        group: root
+        owner: "{{ openbao_file_owner }}"
+        group: "{{ openbao_file_group }}"
       register: _openbao_vault_pass_file_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when:
@@ -77,8 +77,8 @@
           {% endfor %}
           root_token: {{ openbao_root_token }}
         mode: "0400"
-        owner: root
-        group: root
+        owner: "{{ openbao_file_owner }}"
+        group: "{{ openbao_file_group }}"
       register: _openbao_plain_keys_file_result
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when:

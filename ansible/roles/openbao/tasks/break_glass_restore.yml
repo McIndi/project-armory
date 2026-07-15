@@ -1,0 +1,62 @@
+---
+# Restore the OpenBao break-glass files from the cluster Secret when the
+# controller does not have them locally.
+#
+# The break-glass files (the ansible-vault password, and the vault-encrypted
+# unseal keys + root token) are the ONLY way to unseal OpenBao. On a controller
+# that persists them (the k3s node) this never runs. On an ephemeral controller
+# (a workstation that can be rebuilt) they would otherwise be lost, and a rebuilt
+# controller could never unseal a running OpenBao. Mirroring them into a Secret
+# (break_glass_mirror.yml) lets us pull them back here.
+#
+# Only fires when the files are ACTUALLY MISSING, so it never overwrites a good
+# local copy with a stale Secret.
+
+- name: Restore OpenBao break-glass material from the cluster Secret
+  when:
+    - openbao_break_glass_k8s_secret_enabled | default(false) | bool
+    - not ansible_check_mode
+  block:
+    - name: Check for a local break-glass password file
+      ansible.builtin.stat:
+        path: "{{ openbao_vault_pass_file }}"
+      register: _openbao_bg_local_pass
+
+    - name: Read the break-glass Secret from the cluster
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ openbao_kubeconfig_path }}"
+        kind: Secret
+        name: "{{ openbao_break_glass_secret_name }}"
+        namespace: "{{ openbao_namespace }}"
+      register: _openbao_bg_secret
+      when: not _openbao_bg_local_pass.stat.exists
+
+    - name: Restore break-glass files from the Secret
+      ansible.builtin.copy:
+        dest: "{{ item.dest }}"
+        content: "{{ item.content | b64decode }}"
+        mode: "0400"
+        owner: "{{ openbao_file_owner }}"
+        group: "{{ openbao_file_group }}"
+      loop:
+        - dest: "{{ openbao_vault_pass_file }}"
+          content: "{{ (_openbao_bg_secret.resources[0].data['vault-pass']) }}"
+        - dest: "{{ openbao_init_keys_file }}"
+          content: "{{ (_openbao_bg_secret.resources[0].data['init-keys.yml']) }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - not _openbao_bg_local_pass.stat.exists
+        - (_openbao_bg_secret.resources | default([]) | length) > 0
+        - (_openbao_bg_secret.resources[0].data['vault-pass'] | default('')) | length > 0
+
+    - name: Report when nothing could be restored
+      ansible.builtin.debug:
+        msg: >-
+          No local break-glass files and no usable
+          '{{ openbao_break_glass_secret_name }}' Secret. If OpenBao is already
+          initialized and sealed, it cannot be unsealed until these are supplied.
+      when:
+        - not _openbao_bg_local_pass.stat.exists
+        - (_openbao_bg_secret.resources | default([]) | length) == 0

@@ -1,0 +1,71 @@
+---
+# Mirror the OpenBao break-glass files into a cluster Secret.
+#
+# WHY this exists: on an ephemeral controller (a workstation that can be rebuilt),
+# the local break-glass files are the only copy of the unseal keys and root
+# token. Losing the controller would make a running OpenBao permanently
+# un-unsealable. Holding a copy in the cluster (etcd, encrypted at rest, gated by
+# namespace RBAC) survives that.
+#
+# THE TRADEOFF, stated plainly: anyone who can read Secrets in the OpenBao
+# namespace can now obtain the root token. That is a real widening of custody --
+# it is roughly the same trust boundary as the k3s setup, where the files sat on
+# the OpenBao host, but it is a deliberate choice, not a free win. Set
+# openbao_break_glass_k8s_secret_enabled=false to keep the keys off the cluster,
+# and take responsibility for backing up the local files another way.
+#
+# This does NOT solve unseal-on-restart: OpenBao still comes up sealed after any
+# pod reschedule and is unsealed by re-running this role. Durable auto-unseal
+# (transit/KMS) is a separate decision.
+
+- name: Mirror OpenBao break-glass material into the cluster Secret
+  when:
+    - openbao_break_glass_k8s_secret_enabled | default(false) | bool
+    - not ansible_check_mode
+  block:
+    - name: Check the local break-glass files exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ openbao_vault_pass_file }}"
+        - "{{ openbao_init_keys_file }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _openbao_bg_files
+
+    - name: Read the local break-glass files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ openbao_vault_pass_file }}"
+        - "{{ openbao_init_keys_file }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _openbao_bg_slurp
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2
+
+    - name: Write the break-glass Secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ openbao_kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ openbao_break_glass_secret_name }}"
+            namespace: "{{ openbao_namespace }}"
+            labels:
+              app.kubernetes.io/name: openbao
+              app.kubernetes.io/part-of: armory
+            annotations:
+              armory.io/description: >-
+                OpenBao break-glass: ansible-vault password and the
+                vault-encrypted unseal keys + root token. Restricted to
+                namespace-admin reads. Handle as root-equivalent.
+          type: Opaque
+          data:
+            vault-pass: "{{ _openbao_bg_slurp.results[0].content }}"
+            init-keys.yml: "{{ _openbao_bg_slurp.results[1].content }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when: _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2

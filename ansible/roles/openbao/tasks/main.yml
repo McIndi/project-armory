@@ -20,17 +20,30 @@
         path: "{{ openbao_work_dir }}"
         state: directory
         mode: "0750"
-        owner: root
-        group: root
+        owner: "{{ openbao_file_owner }}"
+        group: "{{ openbao_file_group }}"
       register: _openbao_work_dir_result
 
     - name: OpenBao installation
       ansible.builtin.import_tasks: install.yml
       tags: [openbao, openbao_install]
 
+    # On a controller that does not persist the break-glass files (an ephemeral
+    # workstation), restore them from the cluster Secret before init/unseal need
+    # them. No-ops on k3s and on first deploy, where the Secret does not exist.
+    - name: OpenBao break-glass restore
+      ansible.builtin.import_tasks: break_glass_restore.yml
+      tags: [openbao, openbao_break_glass]
+
     - name: OpenBao initialization
       ansible.builtin.import_tasks: init.yml
       tags: [openbao, openbao_init]
+
+    # Mirror the break-glass files into a cluster Secret so they survive loss of
+    # the controller. Runs after init has (re)created them.
+    - name: OpenBao break-glass mirror
+      ansible.builtin.import_tasks: break_glass_mirror.yml
+      tags: [openbao, openbao_break_glass]
 
     - name: OpenBao unseal
       ansible.builtin.import_tasks: unseal.yml
