@@ -74,6 +74,11 @@ use_declarative_ca_distribution: false
 # tenants, so this adds no collision risk.
 vso_enabled: true
 
+# Helm is already on the ocp-garrison workstation (installed by its Vagrantfile),
+# and the controller runs as a non-root user, so armory does not dnf-install it.
+# The helm-diff plugin is still installed by the role (it runs as the user).
+helm_package_install_enabled: false
+
 # --- Storage -----------------------------------------------------------------
 # k3s's local-path provisioner does not exist here. The cluster default is ODF
 # Ceph RBD (RWO block), which is what the databases want.

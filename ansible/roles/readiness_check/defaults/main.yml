@@ -146,6 +146,11 @@ readiness_check_http_disabled_expected_errors:
 readiness_check_keycloak_namespace: keycloak
 readiness_check_keycloak_cr_name: keycloak
 readiness_check_keycloak_service_name: keycloak-service
+
+# Where the DB-TLS check reads the JDBC URL. statefulset -> the Keycloak CR's
+# spec.db.url (operator path); deployment -> the KC_DB_URL env on the Deployment
+# (operator-less path). Mirrors keycloak_workload_kind.
+readiness_check_keycloak_workload_kind: "{{ keycloak_workload_kind | default('statefulset') }}"
 readiness_check_keycloak_realm: armory
 readiness_check_keycloak_url: "{{ readiness_check_public_base_url }}/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
 readiness_check_keycloak_readiness_timeout: 30
