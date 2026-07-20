@@ -63,13 +63,13 @@ internal_https_caller_mode: port_forward
 # create our own issuers/certificates.
 certmanager_install_enabled: false
 certmanager_namespace: cert-manager
-# The issuers stay ClusterIssuers. They are consumed by Certificates in five
-# namespaces (keycloak, openbao, vso, delve, envoy); making them namespaced would
-# mean replicating an Issuer AND its OpenBao vault-auth wiring into every one of
-# them. A ClusterIssuer is a config object that grants nobody anything — its only
-# cluster-scoped risk is a NAME collision, so the fix is simply to own the name.
-certmanager_openbao_internal_clusterissuer_name: armory-openbao-pki-internal
-certmanager_openbao_external_clusterissuer_name: armory-openbao-pki-external
+# The issuers stay ClusterIssuers. They are consumed by Certificates in several
+# namespaces; making them namespaced would mean replicating an Issuer AND its
+# OpenBao vault-auth wiring into each. A ClusterIssuer is a config object that
+# grants nobody anything — its only cluster-scoped risk is a NAME collision.
+# tex26-* per the naming agreed with the cluster owner.
+certmanager_openbao_internal_clusterissuer_name: tex26-openbao-pki-internal
+certmanager_openbao_external_clusterissuer_name: tex26-openbao-pki-external
 
 # trust-manager: its CRD ships with the cert-manager operator but NO controller
 # is deployed, and adding a cluster-wide controller is out of scope. Every
@@ -167,14 +167,14 @@ envoy_proxy_upstreams:
     port: 8443
   - name: openbao
     host: "{{ armory_openbao_host }}"
-    service_fqdn: openbao.openbao.svc.cluster.local
+    service_fqdn: "{{ openbao_tls_server_name }}"
     port: 8200
   # The readiness trace probe. expose: false — it gets a virtual host so it can be
   # tested THROUGH the boundary, but no Route, so it is never published on the
   # apps domain. Plain HTTP: it is a throwaway echo server, not a real backend.
   - name: trace-probe
     host: "{{ readiness_check_trace_probe_host }}"
-    service_fqdn: "readiness-trace-probe.{{ envoy_proxy_namespace | default('armory-edge') }}.svc.cluster.local"
+    service_fqdn: "readiness-trace-probe.{{ envoy_proxy_namespace }}.svc.cluster.local"
     port: 8080
     tls: false
     expose: false
@@ -187,14 +187,37 @@ ingress_http_policy: disabled
 openbao_ui_enabled: true
 
 # --- Namespaces --------------------------------------------------------------
-# Confirmed unused on this cluster, so the existing names are kept (renaming
-# would ripple into OpenBao's in-cluster FQDN, which is baked into TLS SANs).
-# Ownership is signalled with labels rather than a name prefix.
-keycloak_namespace: keycloak
-openbao_namespace: openbao
+# The tex26-* scheme agreed with the cluster owner. Naming is ours to choose; a
+# consistent prefix keeps our footprint obvious alongside the CP4I stack.
+#
+# Renaming the OpenBao namespace moves its in-cluster FQDN, which is baked into
+# the server certificate's SANs and referenced by every consumer role. Those all
+# resolve through openbao_tls_server_name, so it is set here (group_vars are
+# visible to every role, unlike another role's defaults) and cascades.
+keycloak_namespace: tex26-oidc
+openbao_namespace: tex26-vault
+envoy_proxy_namespace: tex26-gateway
+registry_namespace: tex26-oci-registry
+
 armory_namespace_labels:
   app.kubernetes.io/part-of: armory
   armory.io/owner: cbressette
+
+# OpenBao's internal identity follows its namespace. Set all three explicitly:
+# consumer roles fall back to a hardcoded openbao.openbao FQDN when these are
+# undefined, which would no longer resolve.
+openbao_tls_server_name: "openbao.{{ openbao_namespace }}.svc.cluster.local"
+openbao_api_addr: "https://{{ openbao_tls_server_name }}:8200"
+openbao_cluster_addr: "https://{{ openbao_tls_server_name }}:8200"
+
+# The server certificate must carry the new name, or every TLS check fails.
+openbao_tls_sans:
+  - "DNS:openbao"
+  - "DNS:openbao.{{ openbao_namespace }}"
+  - "DNS:openbao.{{ openbao_namespace }}.svc"
+  - "DNS:{{ openbao_tls_server_name }}"
+  - "DNS:localhost"
+  - "IP:127.0.0.1"
 
 # --- Enabled components ------------------------------------------------------
 keycloak_enabled: true
@@ -265,6 +288,11 @@ readiness_check_headlamp_enabled: false
 readiness_check_gateway_enabled: false
 
 readiness_check_keycloak_enabled: true
+
+# These two carry hardcoded defaults with no fallback through the shared vars, so
+# the namespace rename has to be repeated here or the checks probe the old names.
+readiness_check_keycloak_namespace: "{{ keycloak_namespace }}"
+readiness_check_openbao_addr: "{{ openbao_api_addr }}"
 
 # The trace-boundary check is the ONLY thing that empirically proves the Envoy
 # early-header-mutation ordering is right. A route-level mutation would produce
