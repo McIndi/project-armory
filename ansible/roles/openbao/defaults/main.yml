@@ -53,6 +53,21 @@ openbao_file_group: root
 openbao_break_glass_k8s_secret_enabled: false
 openbao_break_glass_secret_name: openbao-break-glass
 
+# In-cluster unseal watcher. OpenBao comes up sealed after every restart and
+# only unseals when shards are submitted — by default, on a playbook run. Where
+# the platform reschedules pods routinely, that means an outage lasting until
+# someone notices. The watcher submits the shards itself.
+#
+# Requires openbao_break_glass_k8s_secret_enabled (it reads the shards from that
+# Secret) and trades some of the "sealed at rest" property for availability;
+# see unseal-watcher.yaml.j2. Off by default.
+openbao_unseal_watcher_enabled: false
+openbao_unseal_watcher_name: openbao-unseal-watcher
+openbao_unseal_watcher_image: "python:3.12-slim"
+openbao_unseal_watcher_replicas: 1
+openbao_unseal_watcher_interval_seconds: 15
+openbao_unseal_watcher_rollout_timeout_seconds: 180
+
 # Kubernetes namespace where OpenBao is deployed.
 openbao_namespace: openbao
 

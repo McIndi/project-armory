@@ -1,0 +1,51 @@
+---
+# Deploy the in-cluster unseal watcher. See unseal-watcher.yaml.j2 for what it
+# does and the tradeoff it makes.
+
+- name: Deploy the OpenBao unseal watcher
+  when:
+    - openbao_unseal_watcher_enabled | default(false) | bool
+    - not ansible_check_mode
+  block:
+    # The watcher reads its shards from the break-glass Secret. Without the
+    # mirror it would start, find nothing, and log an error every interval —
+    # fail loudly here instead of shipping something quietly broken.
+    - name: Assert the break-glass mirror is enabled
+      ansible.builtin.assert:
+        that:
+          - openbao_break_glass_k8s_secret_enabled | default(false) | bool
+        fail_msg: >-
+          openbao_unseal_watcher_enabled requires
+          openbao_break_glass_k8s_secret_enabled: the watcher reads its unseal
+          shards from the '{{ openbao_break_glass_secret_name }}' Secret, which
+          only the break-glass mirror writes.
+
+    - name: Render the unseal watcher manifests
+      ansible.builtin.set_fact:
+        _openbao_unseal_watcher_manifests: "{{ lookup('template', 'unseal-watcher.yaml.j2') | from_yaml_all | list }}"
+      changed_when: false
+
+    # The script is mounted from a ConfigMap and read once at start, so a change
+    # to it would otherwise sit inert until something else restarted the pod.
+    - name: Compute the watcher script hash
+      ansible.builtin.set_fact:
+        _openbao_unseal_watcher_script_hash: >-
+          {{ (_openbao_unseal_watcher_manifests
+              | selectattr('kind', 'eq', 'ConfigMap') | first).data['watch.py'] | hash('sha1') }}
+      changed_when: false
+
+    - name: Apply the unseal watcher
+      kubernetes.core.k8s:
+        kubeconfig: "{{ openbao_kubeconfig_path }}"
+        state: present
+        definition: "{{ lookup('template', 'unseal-watcher.yaml.j2') | from_yaml_all | list }}"
+
+    - name: Wait for the unseal watcher to become available
+      ansible.builtin.command:
+        cmd: >-
+          {{ kubectl_bin }} rollout status deployment/{{ openbao_unseal_watcher_name }}
+          --namespace {{ openbao_namespace }}
+          --timeout={{ openbao_unseal_watcher_rollout_timeout_seconds }}s
+      environment:
+        KUBECONFIG: "{{ openbao_kubeconfig_path }}"
+      changed_when: false

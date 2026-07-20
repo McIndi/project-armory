@@ -141,6 +141,17 @@ openbao_file_group: "{{ ansible_user_id }}"
 # tradeoff, and it does NOT address unseal-on-restart (that needs auto-unseal).
 openbao_break_glass_k8s_secret_enabled: true
 
+# OpenBao comes up sealed after every restart, and this cluster reschedules pods
+# routinely (node drains, updates) — each one would otherwise stall Keycloak,
+# certificate issuance and secret delivery until someone re-ran the playbook.
+# The watcher submits the shards itself, within seconds.
+#
+# It spends part of the "sealed at rest" property to buy that: the shards become
+# machine-readable. That is not new exposure — the break-glass Secret already
+# holds the encrypted keys and their password together, so reading it was always
+# enough to unseal.
+openbao_unseal_watcher_enabled: true
+
 # --- Edge --------------------------------------------------------------------
 # Traffic enters via OpenShift Routes. The router serves a Let's Encrypt
 # wildcard cert for *.apps.<domain>, which RHCOS nodes trust out of the box —

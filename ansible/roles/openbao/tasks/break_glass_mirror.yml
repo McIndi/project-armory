@@ -45,6 +45,25 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2
 
+    # The unseal watcher needs the shards directly: decrypting in-cluster would
+    # mean shipping ansible-vault into the container for no security gain, since
+    # the password sits in this very Secret alongside the ciphertext. Extracting
+    # them here keeps the watcher a tiny script and adds no exposure — anyone who
+    # could read this Secret could already decrypt it.
+    - name: Extract the unseal shards for the watcher
+      ansible.builtin.command:
+        cmd: >-
+          ansible-vault decrypt
+          --vault-password-file {{ openbao_vault_pass_file }}
+          --output -
+          {{ openbao_init_keys_file }}
+      register: _openbao_bg_decrypted
+      changed_when: false
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      when:
+        - openbao_unseal_watcher_enabled | default(false) | bool
+        - _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2
+
     - name: Write the break-glass Secret
       kubernetes.core.k8s:
         kubeconfig: "{{ openbao_kubeconfig_path }}"
@@ -60,12 +79,24 @@
               app.kubernetes.io/part-of: armory
             annotations:
               armory.io/description: >-
-                OpenBao break-glass: ansible-vault password and the
-                vault-encrypted unseal keys + root token. Restricted to
-                namespace-admin reads. Handle as root-equivalent.
+                OpenBao break-glass: ansible-vault password, the vault-encrypted
+                unseal keys + root token, and (when the unseal watcher is on) the
+                bare unseal shards. Restricted to namespace-admin reads. Handle
+                as root-equivalent.
           type: Opaque
-          data:
-            vault-pass: "{{ _openbao_bg_slurp.results[0].content }}"
-            init-keys.yml: "{{ _openbao_bg_slurp.results[1].content }}"
+          data: >-
+            {{
+              {
+                'vault-pass': _openbao_bg_slurp.results[0].content,
+                'init-keys.yml': _openbao_bg_slurp.results[1].content,
+              } | combine(
+                {
+                  'unseal-keys.json': (
+                    (_openbao_bg_decrypted.stdout | from_yaml).unseal_keys
+                    | to_json | b64encode
+                  )
+                } if (openbao_unseal_watcher_enabled | default(false) | bool) else {}
+              )
+            }}
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2

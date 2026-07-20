@@ -1,0 +1,187 @@
+---
+# In-cluster unseal watcher.
+#
+# OpenBao comes up SEALED after every restart, and only unseals when enough key
+# shards are submitted. Ansible does that on a playbook run — fine on a single
+# machine that rarely restarted, but on OpenShift a node drain or update
+# reschedules the pod and everything downstream (Keycloak's database password,
+# certificate issuance, secret delivery) stalls until a human notices and re-runs.
+#
+# This watches the seal status and submits the shards itself.
+#
+# THE TRADEOFF: unsealing without a human means the shards must be machine
+# readable, which weakens "sealed at rest" — an attacker who can read this
+# namespace's Secrets can unseal. That is NOT a new exposure: the break-glass
+# Secret already holds the encrypted keys AND the password to decrypt them, so
+# reading it was already sufficient. This just spends that same access on
+# availability. Set openbao_unseal_watcher_enabled=false to keep unsealing manual.
+#
+# A Deployment, not a CronJob: a once-a-minute CronJob would create ~1400 pods a
+# day and still react a minute late. This reacts in seconds and idles cheaply.
+#
+# Deliberately holds NO Kubernetes permissions. It reads the shards and the CA
+# from mounted Secrets, so its ServiceAccount needs no API access at all.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ openbao_unseal_watcher_name }}
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ openbao_unseal_watcher_name }}
+    app.kubernetes.io/part-of: armory
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ openbao_unseal_watcher_name }}-script
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/part-of: armory
+data:
+  watch.py: |
+    import json, os, ssl, sys, time
+    import urllib.request, urllib.error
+
+    ADDR      = os.environ["OPENBAO_ADDR"]
+    CA_FILE   = os.environ["OPENBAO_CA_FILE"]
+    KEYS_FILE = os.environ["UNSEAL_KEYS_FILE"]
+    INTERVAL  = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
+    THRESHOLD = int(os.environ.get("UNSEAL_THRESHOLD", "3"))
+
+    # Verify OpenBao's certificate against its own CA. Never disable this: the
+    # shards are submitted over this connection.
+    ctx = ssl.create_default_context(cafile=CA_FILE)
+
+    def log(msg):
+        print(msg, flush=True)
+
+    def api(path, payload=None):
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {"Content-Type": "application/json"} if payload is not None else {}
+        req = urllib.request.Request(
+            ADDR + path, data=body,
+            method="POST" if payload is not None else "GET",
+            headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else {}
+
+    def unseal():
+        # Re-read each time so rotating the Secret takes effect without a restart.
+        with open(KEYS_FILE) as fh:
+            keys = json.load(fh)
+        if not keys:
+            log("ERROR: no unseal shards available")
+            return
+        status = {}
+        for shard in keys[:THRESHOLD]:
+            status = api("/v1/sys/unseal", {"key": shard})
+            if not status.get("sealed", True):
+                break
+        if status.get("sealed", True):
+            log("ERROR: still sealed after submitting %d shard(s); "
+                "progress=%s threshold=%s"
+                % (min(len(keys), THRESHOLD),
+                   status.get("progress"), status.get("t")))
+        else:
+            log("OpenBao unsealed")
+
+    log("unseal watcher started; polling %s every %ss" % (ADDR, INTERVAL))
+    was_sealed = None
+    while True:
+        try:
+            status = api("/v1/sys/seal-status")
+            sealed = status.get("sealed", True)
+            if sealed:
+                # Only announce on transition, so a persistent failure does not
+                # flood the log every interval.
+                if was_sealed is not True:
+                    log("OpenBao is sealed; submitting shards")
+                unseal()
+            elif was_sealed is not False:
+                log("OpenBao is unsealed")
+            was_sealed = sealed
+        except urllib.error.HTTPError as e:
+            log("HTTP %s from OpenBao: %r" % (e.code, e.read()[:200]))
+        except Exception as e:
+            # Expected while OpenBao is starting or being rescheduled.
+            log("waiting for OpenBao: %r" % (e,))
+        time.sleep(INTERVAL)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ openbao_unseal_watcher_name }}
+  namespace: {{ openbao_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ openbao_unseal_watcher_name }}
+    app.kubernetes.io/part-of: armory
+spec:
+  replicas: {{ openbao_unseal_watcher_replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ openbao_unseal_watcher_name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ openbao_unseal_watcher_name }}
+        app.kubernetes.io/part-of: armory
+      annotations:
+        armory.io/watcher-script-hash: "{{ _openbao_unseal_watcher_script_hash | default('unset') }}"
+    spec:
+      serviceAccountName: {{ openbao_unseal_watcher_name }}
+      # No runAsUser: OpenShift assigns a UID from the namespace range.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: watcher
+          image: {{ openbao_unseal_watcher_image }}
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/app/watch.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: OPENBAO_ADDR
+              value: "{{ openbao_api_addr }}"
+            - name: OPENBAO_CA_FILE
+              value: /etc/openbao-ca/ca.crt
+            - name: UNSEAL_KEYS_FILE
+              value: /break-glass/unseal-keys.json
+            - name: POLL_INTERVAL_SECONDS
+              value: "{{ openbao_unseal_watcher_interval_seconds }}"
+            - name: UNSEAL_THRESHOLD
+              value: "{{ openbao_key_threshold }}"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: break-glass
+              mountPath: /break-glass
+              readOnly: true
+            - name: openbao-ca
+              mountPath: /etc/openbao-ca
+              readOnly: true
+      volumes:
+        - name: break-glass
+          secret:
+            secretName: {{ openbao_break_glass_secret_name }}
+            defaultMode: 0400
+            # Only the shard list. The vault password and the encrypted keys file
+            # in the same Secret are deliberately NOT mounted — the watcher has
+            # no use for them.
+            items:
+              - key: unseal-keys.json
+                path: unseal-keys.json
+        - name: openbao-ca
+          secret:
+            secretName: {{ openbao_tls_ca_secret_name }}
+            defaultMode: 0444

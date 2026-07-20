@@ -45,6 +45,13 @@
       ansible.builtin.import_tasks: break_glass_mirror.yml
       tags: [openbao, openbao_break_glass]
 
+    # Deployed after the mirror (it reads the shards from that Secret) and before
+    # unseal, so a sealed OpenBao gets opened by the watcher rather than needing
+    # this playbook to finish.
+    - name: OpenBao unseal watcher
+      ansible.builtin.import_tasks: unseal_watcher.yml
+      tags: [openbao, openbao_unseal_watcher]
+
     - name: OpenBao unseal
       ansible.builtin.import_tasks: unseal.yml
       tags: [openbao, openbao_unseal]
