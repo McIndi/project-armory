@@ -1,0 +1,79 @@
+---
+# One-time (and rarely repeated) privileged setup.
+#
+# RUN THIS AS A CLUSTER-ADMIN. Everything here is something a project-scoped
+# account cannot do for itself:
+#
+#   * create the projects
+#   * create the automation account and grant it its permissions
+#   * grant OpenBao the right to review Kubernetes identities, and to run under
+#     a non-root security profile — Kubernetes forbids granting a permission the
+#     granter does not hold, so the account cannot do these for itself
+#   * let cert-manager mint a token for itself
+#   * install the Vault Secrets Operator, which ships cluster-wide definitions
+#     and roles (granting the account rights to manage that would hand back most
+#     of the privilege this exercise removes)
+#
+# Afterwards, playbooks/site.yml runs entirely as the automation account.
+#
+#   ansible-playbook playbooks/bootstrap.yml          # as cluster-admin, once
+#   ansible-playbook playbooks/site.yml               # as the scoped account
+#
+# Re-run this whenever the permission matrix in roles/automation_rbac changes.
+
+- name: Privileged bootstrap for the armory automation account
+  hosts: all
+  gather_facts: true
+  vars:
+    # Marks this play as the privileged one. site.yml leaves it false so the
+    # same tasks are skipped there.
+    armory_privileged_tasks: true
+  pre_tasks:
+    - name: Confirm this is running with cluster-admin rights
+      ansible.builtin.command:
+        cmd: "{{ kubectl_bin }} auth can-i create clusterrolebindings"
+      environment:
+        KUBECONFIG: "{{ k3s_kubeconfig_path }}"
+      register: _bootstrap_admin_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail early if this is not a cluster-admin session
+      ansible.builtin.assert:
+        that:
+          - _bootstrap_admin_check.stdout is search('^yes')
+        fail_msg: >-
+          bootstrap.yml must run as a cluster-admin — it creates cluster-scoped
+          roles and bindings. The current session cannot create
+          ClusterRoleBindings. Log in as an administrator and re-run.
+        success_msg: Running with cluster-admin rights.
+      when: not ansible_check_mode
+
+  roles:
+    - role: env_guard
+      tags: [always, env_guard, preflight]
+
+    - role: automation_rbac
+      tags: [bootstrap, rbac]
+
+    # Installs cluster-wide definitions and roles, so it stays here rather than
+    # being delegated to the scoped account.
+    - role: vso
+      tags: [bootstrap, vso, vso_install]
+
+  post_tasks:
+    # Proves the account can actually do the work before anyone relies on it.
+    - name: Verify the automation account's permissions
+      ansible.builtin.include_role:
+        name: automation_rbac
+        tasks_from: preflight.yml
+      tags: [bootstrap, rbac, preflight]
+
+    - name: Explain how to obtain a token for the automation account
+      ansible.builtin.debug:
+        msg: >-
+          Bootstrap complete. Mint a short-lived token and run site.yml with it:
+          scripts/use-automation-sa.sh
+          (or: oc create token {{ automation_rbac_sa_name }}
+          -n {{ automation_rbac_sa_namespace }}
+          --duration={{ automation_rbac_token_duration }})

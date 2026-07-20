@@ -1,0 +1,131 @@
+---
+# Least-privilege identity for the playbook itself.
+#
+# Armory refuses to use OpenBao's root token for routine work — it mints a
+# scoped provisioner token instead. Running the playbook as cluster-admin is the
+# same mistake one layer up. This role creates a ServiceAccount that can manage
+# armory's own projects and nothing else, so an accidental or compromised run
+# cannot reach the rest of the cluster.
+#
+# THE PERMISSION MATRIX BELOW IS THE SINGLE SOURCE OF TRUTH. It generates the
+# Roles *and* drives the preflight check that verifies them, so the two cannot
+# drift apart — a grant that is missing shows up as a named error before the run
+# starts rather than a failure halfway through.
+
+automation_rbac_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+
+# Where the ServiceAccount itself lives. Its own project, so it is not entangled
+# with any workload's namespace.
+automation_rbac_sa_name: tex26-automation
+automation_rbac_sa_namespace: tex26-automation
+
+# Projects this account may manage. Everything armory deploys lives here.
+automation_rbac_managed_namespaces:
+  - "{{ keycloak_namespace }}"
+  - "{{ openbao_namespace }}"
+  - "{{ envoy_proxy_namespace }}"
+  - "{{ registry_namespace }}"
+  - "{{ automation_rbac_sa_namespace }}"
+
+# The namespace holding the cluster's cert-manager. Armory writes one Secret
+# there (its CA, so cert-manager can verify OpenBao). Not a namespace we own,
+# so the grant is deliberately limited to secrets.
+automation_rbac_certmanager_namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+
+# ── Permissions inside each managed project ───────────────────────────────────
+# Full management of the kinds armory actually deploys. Note pods/exec and
+# pods/portforward: the playbook execs into pods and tunnels to in-cluster
+# services from an off-cluster controller, and both fail confusingly without
+# these.
+automation_rbac_namespace_rules:
+  - apiGroups: [""]
+    resources:
+      - secrets
+      - configmaps
+      - services
+      - serviceaccounts
+      - persistentvolumeclaims
+      - pods
+      - events
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log, pods/status]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec, pods/portforward]
+    verbs: [create, get]
+  # OpenBao's Kubernetes auth setup mints a token for its own ServiceAccount.
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets, deployments/status, statefulsets/status]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [route.openshift.io]
+    resources: [routes, routes/custom-host]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates, certificaterequests, issuers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [secrets.hashicorp.com]
+    resources: [vaultconnections, vaultauths, vaultstaticsecrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Armory creates scoped Roles for its own CronJobs (pods/exec). Kubernetes
+  # forbids granting a permission the granter lacks, so this only works for
+  # permissions already held above — which is the intended limit.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+# ── Permissions in cert-manager's namespace ───────────────────────────────────
+# Secrets only. `create` cannot be restricted by name in Kubernetes RBAC, so the
+# boundary here is the namespace itself.
+automation_rbac_certmanager_rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch]
+
+# ── Cluster-scoped permissions ────────────────────────────────────────────────
+# Deliberately tiny. ClusterIssuers are configuration objects that grant nobody
+# anything; the rest is read-only or namespace creation.
+automation_rbac_cluster_rules:
+  - apiGroups: [cert-manager.io]
+    resources: [clusterissuers]
+    verbs: [get, list, watch, create, update, patch]
+  # `create` on namespaces cannot be name-restricted; get/patch below are.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch, create]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list]
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    verbs: [get, list]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list]
+
+# Mutating an existing namespace IS name-restricted, so the account can only
+# relabel its own projects.
+automation_rbac_cluster_named_rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [update, patch]
+    resourceNames: "{{ automation_rbac_managed_namespaces }}"
+
+# OpenBao's Kubernetes auth needs the cluster's public CA, which lives in a
+# namespace we do not own. Restricted to that one object by name.
+automation_rbac_kube_public_namespace: kube-public
+automation_rbac_kube_public_rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
+    resourceNames: [kube-root-ca.crt]
+
+# How long a minted token lasts. Short by design: the token is created per run
+# rather than stored, so no standing credential sits on the controller.
+automation_rbac_token_duration: 4h

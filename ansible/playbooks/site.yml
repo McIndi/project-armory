@@ -18,6 +18,21 @@
       tags:
         - always
         - edge_gateway_ip
+
+    # Where the playbook runs as a project-scoped account, confirm up front that
+    # it actually holds every permission the run needs. A missing grant would
+    # otherwise surface partway through a deploy, indistinguishable from a bug in
+    # whatever happened to fail first.
+    - name: Verify the automation account's permissions
+      ansible.builtin.include_role:
+        name: automation_rbac
+        tasks_from: preflight.yml
+        apply:
+          tags: [always, rbac_preflight]
+      when: not (armory_privileged_tasks | default(true) | bool)
+      tags:
+        - always
+        - rbac_preflight
   roles:
     - role: env_guard
       tags:
@@ -81,7 +96,10 @@
       when: target_platform | default('k3s') == 'k3s'
       tags:
         - envoy_gateway
+    # Ships cluster-wide definitions and roles. Where the playbook runs as a
+    # project-scoped account, bootstrap.yml installs it instead.
     - role: vso
+      when: armory_privileged_tasks | default(true) | bool
       tags:
         - vso
         - vso_install

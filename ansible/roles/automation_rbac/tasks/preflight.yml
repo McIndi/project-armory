@@ -1,0 +1,98 @@
+---
+# Verify the automation account actually holds every permission the playbook
+# needs, BEFORE the run starts.
+#
+# Without this, a missing grant surfaces as a failure partway through a deploy,
+# indistinguishable from a genuine bug in the thing that failed. This turns it
+# into a single up-front error naming the exact verb, resource and namespace.
+#
+# It expands the same permission matrix that generates the Roles, so a grant and
+# its check cannot drift apart.
+
+- name: Verify the automation account's permissions
+  when: not ansible_check_mode
+  block:
+    # Flatten the matrix into one check per (namespace, resource, verb). Only the
+    # first verb of each rule is probed: RBAC grants a rule's verbs together, so
+    # probing every verb multiplies API calls without adding signal.
+    - name: Expand the namespaced permission checklist
+      ansible.builtin.set_fact:
+        _rbac_ns_checks: >-
+          {{ _rbac_ns_checks | default([]) + [{
+               'namespace': item.0,
+               'group': (item.1.apiGroups | first),
+               'resource': (item.1.resources | first),
+               'verb': (item.1.verbs | first)
+             }] }}
+      loop: "{{ automation_rbac_managed_namespaces | product(automation_rbac_namespace_rules) | list }}"
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1.resources | first }}"
+      changed_when: false
+
+    - name: Expand the cluster-scoped permission checklist
+      ansible.builtin.set_fact:
+        _rbac_cluster_checks: >-
+          {{ _rbac_cluster_checks | default([]) + [{
+               'namespace': '',
+               'group': (item.apiGroups | first),
+               'resource': (item.resources | first),
+               'verb': (item.verbs | first)
+             }] }}
+      loop: "{{ automation_rbac_cluster_rules }}"
+      loop_control:
+        label: "{{ item.resources | first }}"
+      changed_when: false
+
+    - name: Expand the foreign-namespace permission checklist
+      ansible.builtin.set_fact:
+        _rbac_foreign_checks:
+          - namespace: "{{ automation_rbac_certmanager_namespace }}"
+            group: ""
+            resource: secrets
+            verb: create
+          - namespace: "{{ automation_rbac_kube_public_namespace }}"
+            group: ""
+            resource: configmaps
+            verb: get
+      changed_when: false
+
+    - name: Check each permission against the API server
+      ansible.builtin.command:
+        cmd: >-
+          {{ kubectl_bin }} auth can-i {{ item.verb }}
+          {{ item.resource }}{{ ('.' + item.group) if (item.group | length) > 0 else '' }}
+          {{ ('--namespace ' + item.namespace) if (item.namespace | length) > 0 else '--all-namespaces' }}
+          --as=system:serviceaccount:{{ automation_rbac_sa_namespace }}:{{ automation_rbac_sa_name }}
+      environment:
+        KUBECONFIG: "{{ automation_rbac_kubeconfig_path }}"
+      loop: "{{ _rbac_ns_checks + _rbac_cluster_checks + _rbac_foreign_checks }}"
+      loop_control:
+        label: "{{ item.verb }} {{ item.resource }} {{ ('in ' + item.namespace) if (item.namespace | length) > 0 else '(cluster)' }}"
+      register: _rbac_results
+      changed_when: false
+      failed_when: false
+
+    - name: Collect any missing permissions
+      ansible.builtin.set_fact:
+        _rbac_missing: >-
+          {{ _rbac_results.results
+             | rejectattr('stdout', 'search', '^yes')
+             | map(attribute='item')
+             | list }}
+      changed_when: false
+
+    - name: Fail with the exact permissions that are missing
+      ansible.builtin.assert:
+        that:
+          - (_rbac_missing | length) == 0
+        fail_msg: >-
+          The automation account
+          '{{ automation_rbac_sa_namespace }}:{{ automation_rbac_sa_name }}'
+          is missing {{ _rbac_missing | length }} permission(s):
+          {{ _rbac_missing | map('to_json') | join('; ') }}.
+          Re-run playbooks/bootstrap.yml as a cluster-admin to (re)apply the
+          grants, or add the missing rule to automation_rbac_*_rules.
+        success_msg: >-
+          Automation account holds all
+          {{ (_rbac_ns_checks + _rbac_cluster_checks + _rbac_foreign_checks) | length }}
+          checked permissions.

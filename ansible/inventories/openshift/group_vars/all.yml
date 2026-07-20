@@ -41,6 +41,15 @@ k3s_kubeconfig_path: "{{ armory_kubeconfig_path }}"
 # Roles shell out via this var instead of hardcoding the binary.
 kubectl_bin: oc
 
+# site.yml runs as the project-scoped automation account, not as a cluster-admin,
+# so the handful of tasks that need cluster-wide privilege are skipped here.
+# playbooks/bootstrap.yml applies those once, as an admin — it sets this true.
+#
+# Kubernetes forbids granting a permission the granter does not hold, which is
+# why the account genuinely cannot make those grants for itself rather than this
+# being a stylistic split.
+armory_privileged_tasks: false
+
 # Scheduled maintenance runs as in-cluster CronJobs: there is no node of ours to
 # host a systemd timer on. The CronJobs exec into the target pod exactly as the
 # host scripts did, via a ServiceAccount granted pods/exec in that namespace.

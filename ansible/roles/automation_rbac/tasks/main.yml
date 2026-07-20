@@ -1,0 +1,202 @@
+---
+# Create the automation ServiceAccount and everything it is allowed to do.
+# Runs from the bootstrap playbook as a cluster-admin; the account it creates is
+# what every subsequent run uses.
+
+- name: Ensure the managed projects exist
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ item }}"
+        labels: "{{ armory_namespace_labels | default({'app.kubernetes.io/part-of': 'armory'}) }}"
+  loop: "{{ automation_rbac_managed_namespaces }}"
+  when: not ansible_check_mode
+
+- name: Create the automation ServiceAccount
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: "{{ automation_rbac_sa_name }}"
+        namespace: "{{ automation_rbac_sa_namespace }}"
+        labels:
+          app.kubernetes.io/part-of: armory
+        annotations:
+          armory.io/description: >-
+            Least-privilege identity used by the armory playbook. Scoped to
+            armory's own projects; cannot reach the rest of the cluster.
+  when: not ansible_check_mode
+
+# ── Per-project permissions ───────────────────────────────────────────────────
+- name: Grant the account management of each project
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: "{{ automation_rbac_sa_name }}"
+          namespace: "{{ item }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        rules: "{{ automation_rbac_namespace_rules }}"
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        metadata:
+          name: "{{ automation_rbac_sa_name }}"
+          namespace: "{{ item }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: Role
+          name: "{{ automation_rbac_sa_name }}"
+        subjects:
+          - kind: ServiceAccount
+            name: "{{ automation_rbac_sa_name }}"
+            namespace: "{{ automation_rbac_sa_namespace }}"
+  loop: "{{ automation_rbac_managed_namespaces }}"
+  when: not ansible_check_mode
+
+# ── Narrow grants in namespaces we do not own ─────────────────────────────────
+- name: Grant secret access in the cert-manager namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: "{{ automation_rbac_sa_name }}-ca-writer"
+          namespace: "{{ automation_rbac_certmanager_namespace }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        rules: "{{ automation_rbac_certmanager_rules }}"
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        metadata:
+          name: "{{ automation_rbac_sa_name }}-ca-writer"
+          namespace: "{{ automation_rbac_certmanager_namespace }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: Role
+          name: "{{ automation_rbac_sa_name }}-ca-writer"
+        subjects:
+          - kind: ServiceAccount
+            name: "{{ automation_rbac_sa_name }}"
+            namespace: "{{ automation_rbac_sa_namespace }}"
+  when: not ansible_check_mode
+
+- name: Grant read of the cluster public CA configmap
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: "{{ automation_rbac_sa_name }}-root-ca-reader"
+          namespace: "{{ automation_rbac_kube_public_namespace }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        rules: "{{ automation_rbac_kube_public_rules }}"
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        metadata:
+          name: "{{ automation_rbac_sa_name }}-root-ca-reader"
+          namespace: "{{ automation_rbac_kube_public_namespace }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: Role
+          name: "{{ automation_rbac_sa_name }}-root-ca-reader"
+        subjects:
+          - kind: ServiceAccount
+            name: "{{ automation_rbac_sa_name }}"
+            namespace: "{{ automation_rbac_sa_namespace }}"
+  when: not ansible_check_mode
+
+# ── Cluster-scoped permissions ────────────────────────────────────────────────
+- name: Grant the account its cluster-scoped permissions
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: "{{ automation_rbac_sa_name }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        rules: "{{ automation_rbac_cluster_rules + automation_rbac_cluster_named_rules }}"
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: "{{ automation_rbac_sa_name }}"
+          labels:
+            app.kubernetes.io/part-of: armory
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: "{{ automation_rbac_sa_name }}"
+        subjects:
+          - kind: ServiceAccount
+            name: "{{ automation_rbac_sa_name }}"
+            namespace: "{{ automation_rbac_sa_namespace }}"
+  when: not ansible_check_mode
+
+# ── Grants the account may NOT make for itself ────────────────────────────────
+# Kubernetes forbids granting a permission you do not hold, so these are made
+# here by an admin rather than by the account at run time. All are static: the
+# subjects need not exist yet.
+- name: Grant OpenBao the right to review Kubernetes identities
+  kubernetes.core.k8s:
+    kubeconfig: "{{ automation_rbac_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: openbao-tokenreview
+        labels:
+          app.kubernetes.io/part-of: armory
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:auth-delegator
+      subjects:
+        - kind: ServiceAccount
+          name: "{{ openbao_service_account_name | default('openbao') }}"
+          namespace: "{{ openbao_namespace }}"
+  when: not ansible_check_mode
+
+- name: Allow the OpenBao pod to run under a non-root security profile
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: bind_scc.yml
+  vars:
+    common_scc_name: "{{ openbao_scc_name }}"
+    common_scc_service_account: "{{ openbao_service_account_name | default('openbao') }}"
+    common_scc_namespace: "{{ openbao_namespace }}"
+    common_scc_kubeconfig_path: "{{ automation_rbac_kubeconfig_path }}"
+  when:
+    - (openbao_scc_name | default('') | trim | length) > 0
+    - not ansible_check_mode
+
+- name: Allow cert-manager to mint a token for itself
+  ansible.builtin.import_role:
+    name: cert_manager
+    tasks_from: rbac.yml
+  vars:
+    certmanager_kubeconfig_path: "{{ automation_rbac_kubeconfig_path }}"

@@ -15,8 +15,12 @@
       when: certmanager_install_enabled | default(true) | bool
       tags: [cert_manager, cert_manager_install]
 
+    # Creating a Role that grants token minting requires holding that permission,
+    # so a project-scoped account cannot make this grant for itself. Where the
+    # playbook runs as one, bootstrap.yml applies it instead.
     - name: cert-manager TokenRequest RBAC
       ansible.builtin.import_tasks: rbac.yml
+      when: armory_privileged_tasks | default(true) | bool
       tags: [cert_manager, cert_manager_rbac]
 
     - name: ClusterIssuer provisioning

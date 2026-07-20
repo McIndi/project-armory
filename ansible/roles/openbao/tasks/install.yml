@@ -237,9 +237,12 @@
     common_scc_service_account: "{{ openbao_service_account_name }}"
     common_scc_namespace: "{{ openbao_namespace }}"
     common_scc_kubeconfig_path: "{{ openbao_kubeconfig_path }}"
+  # Granting use of an SCC requires holding it, so a project-scoped account
+  # cannot make this binding for itself — bootstrap.yml does it instead.
   when:
     - (openbao_scc_name | default('') | trim | length) > 0
     - not ansible_check_mode
+    - armory_privileged_tasks | default(true) | bool
 
 - name: Deploy OpenBao via Helm
   kubernetes.core.helm:
@@ -332,7 +335,12 @@
           name: openbao
           namespace: "{{ openbao_namespace }}"
     kubeconfig: "{{ openbao_kubeconfig_path }}"
-  when: not ansible_check_mode
+  # Cluster-scoped, and Kubernetes forbids granting a permission the granter does
+  # not hold — so where the playbook runs as a project-scoped account this is
+  # made once by bootstrap.yml instead.
+  when:
+    - not ansible_check_mode
+    - armory_privileged_tasks | default(true) | bool
 
 - name: Wait for OpenBao pod to be ready
   block:
