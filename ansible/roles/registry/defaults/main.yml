@@ -32,7 +32,11 @@ registry_host: "registry.{{ armory_apps_domain | default('apps.example.com') }}"
 
 # --- Storage -----------------------------------------------------------------
 registry_storage_class: "{{ armory_storage_class | default('') }}"
-registry_storage_size: 50Gi
+# Sized for the images this platform actually builds, not a general-purpose
+# registry. The backing pool is shared across the cluster and has no quota, so
+# the cluster owner asked that usage be kept in view — grow this deliberately
+# rather than reserving space speculatively.
+registry_storage_size: 20Gi
 
 # --- Authentication ----------------------------------------------------------
 # The Route publishes this registry on the cluster's ingress, so it is reachable
