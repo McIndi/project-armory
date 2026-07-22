@@ -119,6 +119,13 @@ openbao_storage_class: "{{ armory_storage_class }}"
 keycloak_pg_image: quay.io/sclorg/postgresql-16-c9s
 keycloak_pg_manifest_template: postgres-openshift.yaml.j2
 
+# OpenBao's "remove legacy firewall port exposure" task manages a NodePort
+# firewall rule on the k3s node itself. OpenBao has no NodePort exposure on
+# OpenShift (it's reached via a Route -> in-namespace Envoy), and the
+# controller here is an off-cluster workstation, not the node whose firewall
+# would matter anyway -- it doesn't even have python3-firewall installed.
+openbao_firewall_manage: false
+
 # OpenBao wants the IPC_LOCK capability to mlock its memory, which restricted-v2
 # strips — granting it would mean a custom SCC carrying a privileged capability.
 # Kubernetes nodes run with swap disabled, so locking memory against swap buys
@@ -322,3 +329,40 @@ readiness_check_trace_boundary_enabled: true
 readiness_check_tracing_enabled: "{{ envoy_proxy_tracing_enabled | default(true) }}"
 readiness_check_trace_forensic_header: "{{ envoy_proxy_trace_forensic_header | default('x-external-traceparent') }}"
 readiness_check_public_domain: "{{ armory_apps_domain }}"
+
+# --- OpenBao consumer wiring --------------------------------------------------
+# roles/openbao/tasks/consumer_wiring.yml writes Keycloak/Headlamp/Delve ACL
+# policies and Kubernetes-auth roles unconditionally (no when: guard), so these
+# names must resolve here even though Headlamp is gated off entirely on
+# OpenShift (target_platform == 'k3s') and Delve is gated off by
+# delve_enabled: false above. Without them the very first OpenBao run fails on
+# an undefined variable before anything else in the play executes.
+#
+# Values mirror inventories/development/group_vars/all.yml so the two
+# inventories cannot drift on what OpenBao actually names these objects. The
+# Headlamp/Delve entries below produce inert OpenBao configuration — auth
+# roles bound to namespaces that do not exist on this cluster — since neither
+# role ever runs here; nothing can ever present a token from a namespace that
+# was never created.
+keycloak_vso_sa_name: keycloak-vso
+keycloak_openbao_policy_name: keycloak-vso
+keycloak_openbao_k8s_role: keycloak-vso
+keycloak_openbao_db_path: keycloak/db
+keycloak_openbao_realm_admin_path: keycloak/realm-admin
+keycloak_openbao_rotator_path: keycloak/rotator
+keycloak_rotator_sa_name: keycloak-realm-admin-rotator
+keycloak_rotator_openbao_policy_name: keycloak-realm-admin-rotator
+keycloak_rotator_openbao_k8s_role: keycloak-realm-admin-rotator
+headlamp_namespace: headlamp
+headlamp_vso_sa_name: headlamp-vso
+headlamp_openbao_policy_name: headlamp-vso
+headlamp_openbao_k8s_role: headlamp-vso
+headlamp_openbao_oidc_path: headlamp/oidc
+delve_namespace: delve
+delve_vso_sa_name: delve-vso
+delve_openbao_policy_name: delve-vso
+delve_openbao_k8s_role: delve-vso
+delve_openbao_db_path: delve/db
+delve_openbao_oidc_path: delve/oidc
+delve_openbao_ingest_path: delve/ingest
+delve_openbao_keycloak_reader_path: delve/keycloak-reader

@@ -17,12 +17,14 @@
     mode: "0700"
     owner: root
     group: root
+  become: true
   when: openbao_tls_enabled | bool
 
 - name: Ensure OpenSSL is installed for OpenBao certificate generation
   ansible.builtin.dnf:
     name: openssl
     state: present
+  become: true
   when: openbao_tls_enabled | bool
 
 - name: Render OpenBao TLS OpenSSL config
@@ -44,6 +46,7 @@
 
       [req_ext]
       subjectAltName = {{ openbao_tls_sans | join(',') }}
+  become: true
   when: openbao_tls_enabled | bool
 
 - name: Stat existing OpenBao TLS artifacts
@@ -55,6 +58,7 @@
     - "{{ openbao_tls_cert_host_path }}"
     - "{{ openbao_tls_key_host_path }}"
   register: _openbao_tls_stat
+  become: true
   when: openbao_tls_enabled | bool
 
 - name: Read OpenBao CA expiry status
@@ -67,6 +71,7 @@
   register: _openbao_ca_checkend
   changed_when: false
   failed_when: false
+  become: true
   when:
     - openbao_tls_enabled | bool
     - (openbao_tls_ca_host_path in (_openbao_tls_stat.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list))
@@ -88,6 +93,7 @@
       -subj /CN={{ openbao_tls_ca_common_name }}
       -addext basicConstraints=critical,CA:TRUE
       -addext keyUsage=critical,keyCertSign,cRLSign
+  become: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -100,6 +106,7 @@
       -keyout {{ openbao_tls_key_host_path }}
       -out {{ openbao_tls_csr_host_path }}
       -config {{ openbao_tls_openssl_config_path }}
+  become: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -119,6 +126,7 @@
       -sha256
       -extfile {{ openbao_tls_openssl_config_path }}
       -extensions req_ext
+  become: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -128,6 +136,7 @@
   ansible.builtin.file:
     path: "{{ openbao_tls_csr_host_path }}"
     state: absent
+  become: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -142,12 +151,16 @@
     owner: root
     group: root
   register: _openbao_host_ca_install
-  when: openbao_tls_enabled | bool
+  become: true
+  when:
+    - openbao_tls_enabled | bool
+    - not ansible_check_mode
 
 - name: Update host CA trust store
   ansible.builtin.command:
     cmd: update-ca-trust
   changed_when: false
+  become: true
   when:
     - openbao_tls_enabled | bool
     - _openbao_host_ca_install.changed | default(false)
@@ -164,6 +177,7 @@
     - "{{ openbao_tls_key_host_path }}"
   register: _openbao_tls_secret_files
   no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  become: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -192,6 +206,7 @@
   ansible.builtin.slurp:
     src: "{{ openbao_tls_ca_host_path }}"
   register: _openbao_ca_secret_file
+  become: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
