@@ -24,7 +24,6 @@ edge_gateway_ip_resolution_enabled: true
 
 # armory owns the full stack on k3s: it installs cert-manager itself.
 certmanager_install_enabled: true
-vso_enabled: true
 
 # Cut over to the standalone Keycloak (Operator + Postgres StatefulSet) role.
 # Must live here (group_vars/all), NOT in the keycloak role defaults, so that

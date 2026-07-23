@@ -33,6 +33,31 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Closed the remaining Phase 1 step 1 deletions and recaptured
+  the Phase 1 baseline.
+  Deleted `ansible/roles/vso/` and `charts/vso-hardened/`, removed
+  `vso_enabled` from both inventories, and removed `VSO_CHART_*` env plumbing
+  from `.env`, `.env.example`, and `.env.openshift.example`. Also removed the
+  now-dangling `include_role: name: vso` task from
+  `playbooks/teardown_k3s_workloads.yml` so no playbook references a deleted
+  role. Local validation in Vagrant: `ANSIBLE_ROLES_PATH=roles
+  ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check`
+  and `... playbooks/bootstrap.yml --syntax-check` both passed; `--check` for
+  both playbooks passed after sourcing `.env`; and fresh list-task baselines
+  were captured to `/tmp/base-site-p1.txt` and `/tmp/base-bootstrap-p1.txt`
+  (diff vs the previous step baseline was empty for both playbooks).
+
+- [x] 2026-07-23: Completed Phase 1 step 6.
+  Removed the `secrets.hashicorp.com` permission rule from
+  `roles/automation_rbac/defaults/main.yml`
+  (`automation_rbac_namespace_rules`) now that VSO resources are gone. Local
+  validation in Vagrant: `ANSIBLE_ROLES_PATH=roles ansible-playbook -i
+  inventories/openshift playbooks/site.yml --syntax-check` and
+  `... playbooks/bootstrap.yml --syntax-check` both passed; `--list-tasks`
+  diffs versus the prior baseline (`/tmp/now-site-step4.txt` and
+  `/tmp/now-bootstrap-step4.txt`) were empty; and `--check` for both playbooks
+  passed once the repo `.env` was sourced before running Ansible.
+
 - [x] 2026-07-23: Completed Phase 1 step 4 and closed the coupled rotator regression.
   Removed the Keycloak realm-admin rotator include from
   `roles/keycloak/tasks/main.yml`, deleted `roles/keycloak/tasks/rotator.yml`

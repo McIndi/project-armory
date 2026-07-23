@@ -83,11 +83,6 @@ certmanager_openbao_external_clusterissuer_name: tex26-openbao-pki-external
 trust_manager_enabled: false
 use_declarative_ca_distribution: false
 
-# Vault Secrets Operator is NOT present on the cluster (no secrets.hashicorp.com
-# CRDs), so armory still installs it. Its CRDs are unique and unused by other
-# tenants, so this adds no collision risk.
-vso_enabled: true
-
 # Helm is already on the ocp-garrison workstation (installed by its Vagrantfile),
 # and the controller runs as a non-root user, so armory does not dnf-install it.
 # The helm-diff plugin is still installed by the role (it runs as the user).

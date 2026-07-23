@@ -70,9 +70,6 @@ automation_rbac_namespace_rules:
   - apiGroups: [cert-manager.io]
     resources: [certificates, certificaterequests, issuers]
     verbs: [get, list, watch, create, update, patch, delete]
-  - apiGroups: [secrets.hashicorp.com]
-    resources: [vaultconnections, vaultauths, vaultstaticsecrets]
-    verbs: [get, list, watch, create, update, patch, delete]
   # Armory creates scoped Roles for its own CronJobs (pods/exec). Kubernetes
   # forbids granting a permission the granter lacks, so this only works for
   # permissions already held above — which is the intended limit.
