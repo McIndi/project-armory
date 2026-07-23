@@ -266,10 +266,6 @@ keycloak_pg_tls_ca_mount_path: /opt/keycloak/conf/truststores/postgres-ca
 # needs a redesign against OpenShift logging before the role can run.
 delve_enabled: false
 
-# The k3s API-server audit feed required kube-apiserver flags. On OpenShift the
-# API server is not ours to reconfigure, and cluster login stays LDAP.
-k3s_audit_enabled: false
-
 # --- Registry ----------------------------------------------------------------
 # armory hosts its own OCI registry. Node pulls trust it for free: its Route is
 # fronted by the router's Let's Encrypt wildcard certificate, which RHCOS already

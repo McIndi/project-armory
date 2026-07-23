@@ -33,6 +33,22 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed a seventh Phase 2 slice (remove `k3s`).
+  Deleted `roles/k3s/`, removed its role entry from `playbooks/site.yml`, and
+  removed `k3s_audit_enabled` from both inventories. Also removed the now-dead
+  Delve k8s-audit shipper task (`roles/delve/tasks/shippers.yml`) plus its
+  template (`roles/delve/templates/delve_shipper_k8s_audit.yaml.j2`) and
+  cleaned matching stale references in `roles/delve/README.md`. Local
+  validation in Vagrant: `ANSIBLE_ROLES_PATH=roles ansible-playbook -i
+  inventories/openshift playbooks/site.yml --syntax-check` and
+  `... playbooks/bootstrap.yml --syntax-check` both passed; `--check` for both
+  playbooks passed with failed=0 after sourcing `.env`; and list-task diffs vs
+  the Phase 1 baseline (`/tmp/base-site-p1.txt`, `/tmp/base-bootstrap-p1.txt`)
+  showed the expected cumulative `site.yml` removals including the `k3s` role
+  tasks with no bootstrap delta. Static grep gate for removed artifacts
+  (`roles/k3s`, `k3s_audit_enabled`, `delve_shipper_k8s_audit.yaml.j2`) found
+  no remaining references under `ansible/`.
+
 - [x] 2026-07-23: Headlamp slice follow-up cleanup after review.
   Removed the remaining `headlamp` leftovers from OpenShift inventory
   (`readiness_check_headlamp_enabled`, `headlamp_namespace`,

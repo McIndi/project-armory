@@ -98,11 +98,6 @@ delve_openbao_keycloak_reader_path: delve/keycloak-reader
 # Toggle for the delve role (mirrors keycloak_enabled). Default on for dev.
 delve_enabled: true
 
-# Phase 2: enable the k3s API-server audit feed (secrets-only, Metadata level)
-# so the Delve k8s_audit shipper has a log to tail. Off in the role default to
-# keep the minimal default; on here for the dev demo.
-k3s_audit_enabled: true
-
 # Ingress HTTP behavior policy.
 ingress_http_policy: disabled
 

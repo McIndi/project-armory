@@ -239,15 +239,6 @@
     - not ansible_check_mode
     - (delve_shipper_openbao_host_dir | default('') | length) > 0
 
-- name: Deploy k8s API-server audit feed shipper
-  kubernetes.core.k8s:
-    state: present
-    definition: "{{ lookup('template', 'delve_shipper_k8s_audit.yaml.j2') | from_yaml_all | list }}"
-    kubeconfig: "{{ delve_kubeconfig_path }}"
-  when:
-    - not ansible_check_mode
-    - k3s_audit_enabled | default(false) | bool
-
 - name: Deploy Keycloak event feed shipper
   kubernetes.core.k8s:
     state: present

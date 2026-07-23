@@ -49,8 +49,6 @@ shippers. Machine ingestion is independent of Phase 3's human SSO.
    authenticating to `api/events/` with a `delve-ingest` bearer token:
    - **openbao_audit** (Deployment) — tails the OpenBao audit log via the
      local-path host dir of its PVC (resolved at deploy time), read-only.
-   - **k8s_audit** (DaemonSet) — tails the host kube-apiserver audit log
-     (hostPath, read-only); requires `k3s_audit_enabled`.
    - **keycloak_event** (Deployment + cursor PVC) — scheduled query of the
      Keycloak Tier-1 tables with a persisted high-water-mark cursor.
 
@@ -79,9 +77,7 @@ These live elsewhere because role defaults are invisible across roles
   Kubernetes auth role that let VSO in the `delve` namespace read
   `secret/delve/db`, `secret/delve/oidc`, `secret/delve/ingest`, and
   `secret/delve/keycloak-reader`.
-- **`roles/k3s`** — the k8s_audit feed needs `k3s_audit_enabled` (group_vars,
-  on in dev), which drops the API-server audit policy and points the apiserver at
-  it; the shipper tails the resulting host audit log.
+
 
 ## Deviation from the plan
 

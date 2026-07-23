@@ -43,13 +43,6 @@
       tags:
         - helm
         - helm_install
-    # The role below owns the node (installs k3s). On OpenShift the nodes are
-    # RHCOS and managed by the platform, so this is gated off rather than
-    # deleted to keep this file mergeable with `main`.
-    - role: k3s
-      when: target_platform | default('k3s') == 'k3s'
-      tags:
-        - k3s
 
 # k3s's "restart k3s" handler (notified by config/install changes above) does not
 # flush until the end of a play. Ending the play here guarantees any pending k3s
