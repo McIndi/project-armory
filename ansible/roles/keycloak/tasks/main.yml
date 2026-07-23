@@ -90,8 +90,8 @@
         status_code: [200, 204]
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       # Store only on first creation. The build reuses any existing value, so a
-      # re-store would write an identical-data KV version every run — VSO then
-      # rewrites keycloak-db-secret and the operator rolls keycloak-0 (cause #3).
+      # re-store would write an identical-data KV version every run and create
+      # unnecessary churn in the source of truth.
       when:
         - not ansible_check_mode
         - (_keycloak_db_creds_current.status | default(404)) != 200
@@ -199,7 +199,7 @@
       no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    # ── VSO wiring: sync DB secret from OpenBao ─────────────────────────────────
+    # Materialize the namespace Secrets directly from the OpenBao-backed facts.
     - name: Ensure OpenBao CA secret exists in the Keycloak namespace
       ansible.builtin.import_role:
         name: common
@@ -211,41 +211,38 @@
         common_ca_target_namespace: "{{ keycloak_namespace }}"
       when: not (use_declarative_ca_distribution | default(false) | bool)
 
-    - name: Apply Keycloak VaultConnection and VaultAuth resources
+    - name: Apply keycloak-db-secret directly in the Keycloak namespace
       kubernetes.core.k8s:
         kubeconfig: "{{ keycloak_kubeconfig_path }}"
         state: present
-        definition: >-
-          {{ (lookup('template', 'vaultconnection.yaml.j2') | from_yaml_all | list)
-             + (lookup('template', 'vaultauth.yaml.j2') | from_yaml_all | list) }}
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ keycloak_db_secret_name }}"
+            namespace: "{{ keycloak_namespace }}"
+          type: Opaque
+          stringData:
+            username: "{{ _keycloak_db_creds.username }}"
+            password: "{{ _keycloak_db_creds.password }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
-    - name: Apply Keycloak VaultStaticSecret (DB credentials)
+    - name: Apply keycloak-realm-admin secret directly in the Keycloak namespace
       kubernetes.core.k8s:
         kubeconfig: "{{ keycloak_kubeconfig_path }}"
         state: present
-        definition: "{{ lookup('template', 'vaultstaticsecret.yaml.j2') | from_yaml_all | list }}"
-      when: not ansible_check_mode
-
-    - name: Apply Keycloak VaultStaticSecret (realm-admin login mirror)
-      kubernetes.core.k8s:
-        kubeconfig: "{{ keycloak_kubeconfig_path }}"
-        state: present
-        definition: "{{ lookup('template', 'vaultstaticsecret_realm_admin.yaml.j2') | from_yaml_all | list }}"
-      when: not ansible_check_mode
-
-    - name: Wait for keycloak-db-secret to be synced by VSO
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} get secret {{ keycloak_db_secret_name }}
-          --namespace {{ keycloak_namespace }}
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_db_secret_check
-      until: _keycloak_db_secret_check.rc == 0
-      retries: 20
-      delay: 6
-      changed_when: false
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ keycloak_realm_admin_secret_name }}"
+            namespace: "{{ keycloak_namespace }}"
+          type: Opaque
+          stringData:
+            username: "{{ keycloak_realm_admin_username }}"
+            password: "{{ _keycloak_realm_admin_password }}"
+      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Ensure PostgreSQL TLS certificate exists and is ready
@@ -619,9 +616,9 @@
         - not ansible_check_mode
         - keycloak_operator_install_method | default('manifests') == 'manifests'
 
-    # Gate realm reconciliation on a settled StatefulSet: on a fresh deploy the
-    # first VSO DB-secret sync (placeholder → real creds) rolls keycloak-0 once,
-    # and the admin-REST calls below fail with connection-refused if they race it.
+    # Gate realm reconciliation on a settled workload. On a fresh deploy the
+    # DB Secret, the server bootstrap, and the admin-REST calls below all need a
+    # stable target, so wait until the rollout is complete before reconciling.
     # The operator renders a StatefulSet; the operator-less path a Deployment.
     # The race this guards against is the same either way, so the workload kind
     # is a variable rather than the task being duplicated.

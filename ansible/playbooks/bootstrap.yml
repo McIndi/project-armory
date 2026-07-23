@@ -10,9 +10,8 @@
 #     a non-root security profile — Kubernetes forbids granting a permission the
 #     granter does not hold, so the account cannot do these for itself
 #   * let cert-manager mint a token for itself
-#   * install the Vault Secrets Operator, which ships cluster-wide definitions
-#     and roles (granting the account rights to manage that would hand back most
-#     of the privilege this exercise removes)
+#   * create the automation account's permissions; the scoped playbook now
+#     materializes its own namespace Secrets directly instead of relying on VSO
 #
 # Afterwards, playbooks/site.yml runs entirely as the automation account.
 #
@@ -55,11 +54,6 @@
 
     - role: automation_rbac
       tags: [bootstrap, rbac]
-
-    # Installs cluster-wide definitions and roles, so it stays here rather than
-    # being delegated to the scoped account.
-    - role: vso
-      tags: [bootstrap, vso, vso_install]
 
   post_tasks:
     # Proves the account can actually do the work before anyone relies on it.

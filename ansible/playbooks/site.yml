@@ -96,13 +96,6 @@
       when: target_platform | default('k3s') == 'k3s'
       tags:
         - envoy_gateway
-    # Ships cluster-wide definitions and roles. Where the playbook runs as a
-    # project-scoped account, bootstrap.yml installs it instead.
-    - role: vso
-      when: armory_privileged_tasks | default(true) | bool
-      tags:
-        - vso
-        - vso_install
     - role: keycloak
       tags:
         - keycloak

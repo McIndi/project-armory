@@ -33,6 +33,23 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed the remainder of Phase 1 step 1.
+  Removed the `readiness_check` VSO include and its defaults, and deleted the
+  now-dead Keycloak VSO templates plus their stale defaults/comments. Local
+  validation in Vagrant:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check`
+  and `... playbooks/bootstrap.yml --syntax-check` both passed, and the
+  recaptured `--list-tasks` diff only shows the expected VSO / Keycloak Secret
+  materialization removals.
+
+- [x] 2026-07-23: Completed the first Phase 1 slice.
+  Removed the shared `vso` role from `playbooks/bootstrap.yml` and
+  `playbooks/site.yml`, and replaced Keycloak's VSO-backed DB / realm-admin
+  sync with direct namespace `Secret` applies in
+  `roles/keycloak/tasks/main.yml`. Local validation in Vagrant:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check`
+  and `... playbooks/bootstrap.yml --syntax-check` both passed.
+
 - [x] 2026-07-23: Completed Phase 0 step 2 in
   `roles/common/tasks/copy_openbao_ca_secret.yml`.
   Added a guard so "Apply CA secret in target namespace" only runs when
