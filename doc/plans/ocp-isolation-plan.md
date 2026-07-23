@@ -33,6 +33,18 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed the first Phase 2 slice (teardown-order safety).
+  Deleted `playbooks/teardown_k3s_workloads.yml` and
+  `roles/cert_manager/tasks/teardown.yml` together so no playbook can retain
+  includes to deleted k3s / envoy-gateway teardown tasks. Local validation in
+  Vagrant: `ANSIBLE_ROLES_PATH=roles ansible-playbook -i
+  inventories/openshift playbooks/site.yml --syntax-check` and
+  `... playbooks/bootstrap.yml --syntax-check` both passed; `--check` for both
+  playbooks passed after sourcing `.env`; and fresh list-task snapshots were
+  captured to `/tmp/now-site-p2-step1.txt` and `/tmp/now-bootstrap-p2-step1.txt`
+  with diffs against the Phase 1 baseline (`/tmp/base-site-p1.txt`,
+  `/tmp/base-bootstrap-p1.txt`) showing no task-list deltas.
+
 - [x] 2026-07-23: Closed the remaining Phase 1 step 1 deletions and recaptured
   the Phase 1 baseline.
   Deleted `ansible/roles/vso/` and `charts/vso-hardened/`, removed
