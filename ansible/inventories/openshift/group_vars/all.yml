@@ -11,8 +11,8 @@
 # stay mergeable with `main`.
 
 # --- Platform selector -------------------------------------------------------
-# Consumed by playbooks/site.yml to gate node-owning roles (k3s, kernel_tuning,
-# system_update, host_dependencies, headlamp, envoy_gateway) that have no target
+# Consumed by playbooks/site.yml to gate node-owning roles (k3s, system_update,
+# host_dependencies, headlamp, envoy_gateway) that have no target
 # on a managed cluster.
 target_platform: openshift
 

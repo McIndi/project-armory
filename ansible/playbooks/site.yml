@@ -43,10 +43,6 @@
     # cluster). On OpenShift the nodes are RHCOS and managed by the platform —
     # we have no root on them and no cluster to install — so they are gated off
     # rather than deleted, keeping this file mergeable with `main`.
-    - role: kernel_tuning
-      when: target_platform | default('k3s') == 'k3s'
-      tags:
-        - kernel_tuning
     - role: host_dependencies
       when: target_platform | default('k3s') == 'k3s'
       tags:
