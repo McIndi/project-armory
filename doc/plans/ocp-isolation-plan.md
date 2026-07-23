@@ -33,6 +33,21 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed a fifth Phase 2 slice (remove `trust_manager`).
+  Deleted `roles/trust_manager/` and removed its role entry from
+  `playbooks/site.yml`; removed `trust_manager_enabled` and
+  `use_declarative_ca_distribution` from both inventories; and simplified CA
+  secret defaults/guards in `roles/delve`, `roles/headlamp`,
+  `roles/keycloak`, `roles/openbao_oidc`, and `roles/readiness_check` so they
+  always use direct OpenBao CA-secret copy. Local validation in Vagrant:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift
+  playbooks/site.yml --syntax-check` and `... playbooks/bootstrap.yml
+  --syntax-check` both passed; `--check` for both playbooks passed after
+  sourcing `.env`; and list-task diffs vs the Phase 1 baseline
+  (`/tmp/base-site-p1.txt`, `/tmp/base-bootstrap-p1.txt`) showed no bootstrap
+  delta and the expected cumulative `site.yml` removals, including the
+  trust-manager tasks.
+
 - [x] 2026-07-23: Completed a fourth Phase 2 slice (remove `host_dependencies`).
   Deleted `roles/host_dependencies/` and removed its role entry from
   `playbooks/site.yml`; also updated the stale OpenShift inventory comment that

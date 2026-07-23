@@ -209,7 +209,6 @@
         common_ca_secret_name: "{{ keycloak_openbao_ca_secret_name }}"
         common_ca_source_namespace: "{{ keycloak_openbao_namespace }}"
         common_ca_target_namespace: "{{ keycloak_namespace }}"
-      when: not (use_declarative_ca_distribution | default(false) | bool)
 
     - name: Apply keycloak-db-secret directly in the Keycloak namespace
       kubernetes.core.k8s:

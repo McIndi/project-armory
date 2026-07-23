@@ -33,20 +33,6 @@ certmanager_install_enabled: true
 # internal control-plane HTTPS calls, admin secret `keycloak-bootstrap-admin`).
 keycloak_enabled: true
 
-# Declarative CA distribution (trust-manager) is staged off by default.
-trust_manager_enabled: true
-use_declarative_ca_distribution: true
-
-# Shared trust-manager internal CA distribution defaults.
-trust_manager_internal_ca_bundle_name: openbao-ca-bundle
-trust_manager_internal_ca_target_secret_name: openbao-ca-bundle
-trust_manager_internal_ca_target_namespaces:
-  - cert-manager
-  - vault-secrets-operator-system
-  - keycloak
-  - headlamp
-  - delve
-
 # Edge gateway (Envoy Gateway) coordinates. Shared here because route-owning
 # roles (keycloak, headlamp, openbao, delve) reference the Gateway in their
 # HTTPRoute parentRefs, and readiness/common lookups resolve the generated

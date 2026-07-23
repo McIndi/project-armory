@@ -204,12 +204,7 @@ keycloak_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openb
 keycloak_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
 keycloak_openbao_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
 keycloak_openbao_tls_server_name: "{{ openbao_tls_server_name | default('openbao.openbao.svc.cluster.local') }}"
-keycloak_openbao_ca_secret_name: >-
-  {{
-    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
-    if (use_declarative_ca_distribution | default(false) | bool)
-    else (openbao_tls_ca_secret_name | default('openbao-ca'))
-  }}
+keycloak_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
 keycloak_openbao_namespace: "{{ openbao_namespace | default('openbao') }}"
 
 # KV path: bootstrap-admin is read by Ansible only (injected into the bootstrap

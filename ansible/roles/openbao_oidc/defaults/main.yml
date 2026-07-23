@@ -51,12 +51,7 @@ openbao_oidc_token_policies:
 
 # CA and trust wiring for API callers
 openbao_oidc_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
-openbao_oidc_openbao_ca_secret_name: >-
-  {{
-    (trust_manager_internal_ca_target_secret_name | default(openbao_tls_ca_secret_name | default('openbao-ca')))
-    if (use_declarative_ca_distribution | default(false) | bool)
-    else (openbao_tls_ca_secret_name | default('openbao-ca'))
-  }}
+openbao_oidc_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
 openbao_oidc_ca_pem_url: "{{ openbao_oidc_api_addr }}/v1/{{ openbao_pki_external_mount | default('pki-ext') }}/ca/pem"
 
 # When true, disables Ansible no_log redaction for sensitive tasks.

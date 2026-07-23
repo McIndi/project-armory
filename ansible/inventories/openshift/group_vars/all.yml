@@ -76,13 +76,6 @@ certmanager_namespace: cert-manager
 certmanager_openbao_internal_clusterissuer_name: tex26-openbao-pki-internal
 certmanager_openbao_external_clusterissuer_name: tex26-openbao-pki-external
 
-# trust-manager: its CRD ships with the cert-manager operator but NO controller
-# is deployed, and adding a cluster-wide controller is out of scope. Every
-# consumer role already implements an imperative CA-copy fallback, so we take
-# that path instead of introducing a cluster-scoped Bundle controller.
-trust_manager_enabled: false
-use_declarative_ca_distribution: false
-
 # Helm is already on the ocp-garrison workstation (installed by its Vagrantfile),
 # and the controller runs as a non-root user, so armory does not dnf-install it.
 # The helm-diff plugin is still installed by the role (it runs as the user).

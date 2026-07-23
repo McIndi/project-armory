@@ -68,11 +68,6 @@
       tags:
         - cert_manager
         - cert_manager_install
-    - role: trust_manager
-      tags:
-        - trust_manager
-        - trust_manager_install
-      when: trust_manager_enabled | default(false) | bool
     # Envoy Gateway is a Gateway API implementation. OpenShift 4.20 ships and
     # actively manages the Gateway API CRDs via its Cluster Ingress Operator, so
     # installing a second controller risks a tug-of-war with a core platform
