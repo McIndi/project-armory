@@ -103,11 +103,6 @@
       when: registry_enabled | default(false) | bool
       tags:
         - registry
-    - role: delve
-      tags:
-        - delve
-        - delve_install
-      when: delve_enabled | default(false) | bool
     - role: readiness_check
       tags:
         - readiness

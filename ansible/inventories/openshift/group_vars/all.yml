@@ -87,7 +87,6 @@ helm_package_install_enabled: false
 # `ocs-storagecluster-cephfs` is available if anything ever needs RWX.
 armory_storage_class: ocs-storagecluster-ceph-rbd
 keycloak_pg_storage_class: "{{ armory_storage_class }}"
-delve_pg_storage_class: "{{ armory_storage_class }}"
 openbao_storage_class: "{{ armory_storage_class }}"
 
 # --- Pod security (SCC) ------------------------------------------------------
@@ -261,11 +260,6 @@ keycloak_public_base_url: "https://{{ armory_keycloak_host }}"
 # still picks the CA up automatically.
 keycloak_pg_tls_ca_mount_path: /opt/keycloak/conf/truststores/postgres-ca
 
-# Delve is DEFERRED on OpenShift. Its audit shippers read PVC host-directories
-# and the k3s API-server audit log, neither of which exists here — that feed
-# needs a redesign against OpenShift logging before the role can run.
-delve_enabled: false
-
 # --- Registry ----------------------------------------------------------------
 # armory hosts its own OCI registry. Node pulls trust it for free: its Route is
 # fronted by the router's Let's Encrypt wildcard certificate, which RHCOS already
@@ -277,9 +271,8 @@ registry_enabled: true
 registry_host: "{{ armory_registry_host }}"
 registry_storage_class: "{{ armory_storage_class }}"
 
-# Namespaces whose pods pull from it. Empty for now: delve is deferred, so its
-# namespace does not exist and a pull secret there would fail to apply. garrison
-# adds its own agentstack namespace when it lands.
+# Namespaces whose pods pull from it. Empty for now; garrison adds its own
+# agentstack namespace when it lands.
 registry_pull_secret_namespaces: []
 
 # --- Readiness ---------------------------------------------------------------
@@ -311,8 +304,3 @@ readiness_check_public_domain: "{{ armory_apps_domain }}"
 
 keycloak_openbao_db_path: keycloak/db
 keycloak_openbao_realm_admin_path: keycloak/realm-admin
-delve_namespace: delve
-delve_openbao_db_path: delve/db
-delve_openbao_oidc_path: delve/oidc
-delve_openbao_ingest_path: delve/ingest
-delve_openbao_keycloak_reader_path: delve/keycloak-reader

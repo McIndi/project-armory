@@ -4,7 +4,7 @@ Deploys Envoy Gateway as the Kubernetes Gateway API edge, replacing
 ingress-nginx (retired upstream). Owns the `GatewayClass`, the `Gateway`
 (listeners + edge TLS), the `EnvoyProxy` data-plane/telemetry configuration,
 and the trace-context trust boundary. Per-workload `HTTPRoute`s stay with the
-owning roles (keycloak, headlamp, openbao, delve).
+owning roles (keycloak, headlamp, openbao).
 
 ## Trace-context trust boundary
 

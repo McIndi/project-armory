@@ -34,7 +34,7 @@ certmanager_install_enabled: true
 keycloak_enabled: true
 
 # Edge gateway (Envoy Gateway) coordinates. Shared here because route-owning
-# roles (keycloak, headlamp, openbao, delve) reference the Gateway in their
+# roles (keycloak, headlamp, openbao) reference the Gateway in their
 # HTTPRoute parentRefs, and readiness/common lookups resolve the generated
 # Envoy Service by owning-gateway labels.
 edge_gateway_namespace: envoy-gateway-system
@@ -79,25 +79,6 @@ headlamp_vso_sa_name: headlamp-vso
 headlamp_openbao_policy_name: headlamp-vso
 headlamp_openbao_k8s_role: headlamp-vso
 headlamp_openbao_oidc_path: headlamp/oidc
-# Delve audit-search platform. Same split as keycloak/headlamp: the openbao role
-# writes the consumer ACL policy + k8s auth role (root, at bootstrap), while the
-# delve role writes the KV secrets with the provisioner token. KV paths are added
-# per phase — db (Phase 1) now; oidc (Phase 3) and ingest (Phase 2) land with
-# their phases. `delve_vso_sa_name` authenticates VSO sync; web/worker pods run
-# under a separate `delve` SA created by the chart.
-delve_namespace: delve
-delve_vso_sa_name: delve-vso
-delve_openbao_policy_name: delve-vso
-delve_openbao_k8s_role: delve-vso
-delve_openbao_db_path: delve/db
-delve_openbao_oidc_path: delve/oidc
-delve_openbao_ingest_path: delve/ingest
-# Read-only Keycloak DB credentials the keycloak_event shipper uses (Phase 2).
-delve_openbao_keycloak_reader_path: delve/keycloak-reader
-
-# Toggle for the delve role (mirrors keycloak_enabled). Default on for dev.
-delve_enabled: true
-
 # Ingress HTTP behavior policy.
 ingress_http_policy: disabled
 

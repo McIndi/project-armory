@@ -275,7 +275,7 @@
   register: _openbao_helm_apply_result
   when: not ansible_check_mode
 
-# Every later task in this role (and the keycloak/delve roles) talks to OpenBao
+# Every later task in this role (and the keycloak role) talks to OpenBao
 # over HTTPS at openbao_tls_server_name — its INTERNAL FQDN, which is the name in
 # the server certificate's SAN. Make that name resolve from the controller
 # without changing the name itself, so TLS validation is untouched.

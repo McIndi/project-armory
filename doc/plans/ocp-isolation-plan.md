@@ -33,6 +33,19 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed a eighth Phase 2 slice (remove `delve`).
+  Deleted `roles/delve/` and `charts/delve/`, removed the `delve` role entry
+  from `playbooks/site.yml`, and scrubbed the leftover Delve inventory knobs
+  from both `inventories/development/group_vars/all.yml` and
+  `inventories/openshift/group_vars/all.yml`. Also trimmed a few stale Delve
+  comment references in `roles/envoy_gateway/README.md`,
+  `roles/openbao/defaults/main.yml`, and `roles/openbao/tasks/install.yml`.
+  Local validation in Vagrant passed: `ANSIBLE_ROLES_PATH=roles ansible-playbook
+  -i inventories/openshift playbooks/site.yml --syntax-check` and
+  `... playbooks/bootstrap.yml --syntax-check` both passed; `--check` for both
+  playbooks passed after sourcing `.env`; and a fresh `site.yml` task-list
+  snapshot was captured for the Phase 2 baseline update.
+
 - [x] 2026-07-23: Completed a seventh Phase 2 slice (remove `k3s`).
   Deleted `roles/k3s/`, removed its role entry from `playbooks/site.yml`, and
   removed `k3s_audit_enabled` from both inventories. Also removed the now-dead

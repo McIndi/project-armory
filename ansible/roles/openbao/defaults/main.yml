@@ -277,11 +277,10 @@ openbao_provisioner_token_file: "{{ openbao_work_dir }}/provisioner-token.yml"
 openbao_provisioner_token_period: 768h
 openbao_provisioner_token_display_name: ansible-provisioner
 # KV path prefixes (under openbao_kv_mount) the provisioner may write. Keep
-# in sync with the keycloak/delve *_path values in group_vars/all.yml.
+# in sync with the keycloak *_path values in group_vars/all.yml.
 openbao_provisioner_kv_prefixes:
   - keycloak
   - openbao
-  - delve
 
 # Whether this role manages firewalld rules for OpenBao access.
 # Disable if firewall is managed externally.
