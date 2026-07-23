@@ -12,7 +12,7 @@
 
 # --- Platform selector -------------------------------------------------------
 # Consumed by playbooks/site.yml to gate node-owning roles (k3s,
-# host_dependencies, headlamp, envoy_gateway) that have no target
+# headlamp, envoy_gateway) that have no target
 # on a managed cluster.
 target_platform: openshift
 
