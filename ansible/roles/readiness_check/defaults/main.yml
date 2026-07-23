@@ -8,7 +8,6 @@ readiness_check_helm_enabled: true
 readiness_check_openbao_enabled: true
 readiness_check_gateway_enabled: true
 readiness_check_keycloak_enabled: true
-readiness_check_headlamp_enabled: true
 
 # Network connectivity defaults
 readiness_check_connect_timeout: 5
@@ -29,11 +28,6 @@ readiness_check_keycloak_internal_fqdn: "{{ readiness_check_keycloak_service_nam
 readiness_check_keycloak_internal_url: "https://{{ readiness_check_keycloak_internal_fqdn }}:8443/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
 readiness_check_keycloak_ca_bundle_path: /tmp/readiness-keycloak-ca-bundle.crt
 readiness_check_keycloak_ca_source_namespace: "{{ readiness_check_keycloak_namespace }}"
-readiness_check_headlamp_ca_bundle_path: /tmp/readiness-headlamp-ca-bundle.crt
-readiness_check_headlamp_ca_source_namespace: headlamp
-readiness_check_headlamp_manage_hosts_override: true
-readiness_check_headlamp_internal_fqdn: headlamp.headlamp.svc.cluster.local
-readiness_check_headlamp_internal_url: "https://{{ readiness_check_headlamp_internal_fqdn }}:8443/"
 
 # Host checks
 readiness_check_required_packages:
@@ -77,7 +71,6 @@ readiness_check_ingress_tls_namespace: "{{ readiness_check_gateway_namespace }}"
 readiness_check_ingress_tls_certificate_name: armory-tls
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
-readiness_check_headlamp_host: "{{ lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + readiness_check_public_domain, true) }}"
 readiness_check_ingress_probe_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
 readiness_check_ingress_http_port: 80
 readiness_check_ingress_https_port: 443
@@ -90,7 +83,6 @@ readiness_check_http_redirect_status_codes:
   - 308
 readiness_check_http_redirect_hosts:
   - "{{ readiness_check_public_domain }}"
-  - "{{ readiness_check_headlamp_host }}"
 readiness_check_ingress_http_policy: "{{ ingress_http_policy | default('redirect-only') }}"
 # firewalld zone the envoy_gateway role manages the HTTP port in; used to verify
 # the 80/tcp closure when ingress_http_policy is 'disabled'.
@@ -165,24 +157,6 @@ readiness_check_keycloak_pg_verify_mode: "{{ keycloak_pg_tls_verify_mode | defau
 readiness_check_keycloak_pg_statefulset_name: "{{ keycloak_pg_service | default('postgres') }}"
 readiness_check_keycloak_db_name: "{{ keycloak_db_name | default('keycloak') }}"
 readiness_check_keycloak_db_username: "{{ keycloak_db_username | default('keycloak') }}"
-
-# Headlamp settings
-readiness_check_headlamp_namespace: headlamp
-readiness_check_headlamp_deployment_name: headlamp
-readiness_check_headlamp_url: "https://{{ readiness_check_headlamp_host }}"
-readiness_check_headlamp_host_header: "{{ readiness_check_headlamp_host }}"
-# Serving cert for the gateway→Headlamp re-encrypt hop (the per-workload edge
-# cert is gone; edge TLS terminates at the gateway with armory-tls).
-readiness_check_headlamp_tls_secret: headlamp-internal-tls
-readiness_check_headlamp_oidc_secret: headlamp-oidc
-readiness_check_headlamp_oidc_group_bindings: >-
-  {{
-    headlamp_oidc_group_bindings | default([
-      {'group': (keycloak_admin_group | default('armory-admins')), 'cluster_role': 'cluster-admin'},
-      {'group': 'armory-operators', 'cluster_role': 'edit'},
-      {'group': 'armory-viewers', 'cluster_role': 'view'}
-    ])
-  }}
 
 # Credential validation: attempt to use credentials to verify they work
 # Set to false to skip credential tests (only check file/secret existence)

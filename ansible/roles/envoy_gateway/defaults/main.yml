@@ -42,7 +42,7 @@ envoy_gateway_extra_tls_sans: >-
   }}
 
 # Host VM IP. k3s runs with servicelb disabled, so the Envoy Service is
-# ClusterIP patched with this address as an externalIP — kube-proxy then
+# ClusterIP patched with this address as an externalIP -- kube-proxy then
 # binds 443 (and 80 under redirect-only policy) on the node, replacing the
 # hostNetwork arrangement ingress-nginx used.
 envoy_gateway_ip: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
@@ -54,7 +54,6 @@ envoy_gateway_tls_sans: >-
   {{
     [
       envoy_gateway_domain,
-      lookup('ansible.builtin.env', 'ARMORY_HEADLAMP_HOST') | default('headlamp.' + envoy_gateway_domain, true),
       lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + envoy_gateway_domain, true),
       lookup('ansible.builtin.env', 'ARMORY_DELVE_HOST') | default('delve.' + envoy_gateway_domain, true)
     ] + envoy_gateway_extra_tls_sans

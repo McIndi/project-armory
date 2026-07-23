@@ -33,6 +33,29 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Headlamp slice follow-up cleanup after review.
+  Removed the remaining `headlamp` leftovers from OpenShift inventory
+  (`readiness_check_headlamp_enabled`, `headlamp_namespace`,
+  `headlamp_openbao_oidc_path`), removed `headlamp` from
+  `openbao_provisioner_kv_prefixes` in `roles/openbao/defaults/main.yml`, and
+  fixed the accidental comment truncation in
+  `roles/envoy_gateway/defaults/main.yml` while keeping only
+  `ARMORY_OPENBAO_HOST` / `ARMORY_DELVE_HOST` in gateway SAN defaults. Local
+  validation in Vagrant passed: `site.yml` and `bootstrap.yml` syntax-check and
+  `--check` both returned failed=0.
+
+- [x] 2026-07-23: Completed a sixth Phase 2 slice (remove `headlamp`).
+  Deleted `roles/headlamp/` and removed its role entry from `playbooks/site.yml`;
+  removed the `readiness_check` headlamp toggle and task include; dropped the
+  headlamp host from the consolidated gateway SAN list; and trimmed the OpenShift
+  inventory comment plus the readiness-check README's stale role list entry.
+  Local validation in Vagrant: `ANSIBLE_ROLES_PATH=roles ansible-playbook -i
+  inventories/openshift playbooks/site.yml --syntax-check` and
+  `... playbooks/bootstrap.yml --syntax-check` both passed; `--check` for both
+  playbooks passed after sourcing `.env`; and the task-list diff against the
+  Phase 1 baseline showed the expected cumulative `headlamp` removals with no
+  bootstrap delta.
+
 - [x] 2026-07-23: Completed a fifth Phase 2 slice (remove `trust_manager`).
   Deleted `roles/trust_manager/` and removed its role entry from
   `playbooks/site.yml`; removed `trust_manager_enabled` and

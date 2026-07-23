@@ -12,7 +12,7 @@
 
 # --- Platform selector -------------------------------------------------------
 # Consumed by playbooks/site.yml to gate node-owning roles (k3s,
-# headlamp, envoy_gateway) that have no target
+# envoy_gateway) that have no target
 # on a managed cluster.
 target_platform: openshift
 
@@ -288,11 +288,10 @@ registry_pull_secret_namespaces: []
 
 # --- Readiness ---------------------------------------------------------------
 # Checks that probe the node or the k3s control plane have nothing to look at:
-# the nodes are RHCOS and not ours, and there is no k3s. Headlamp is not
-# deployed. Everything else still runs.
+# the nodes are RHCOS and not ours, and there is no k3s. Everything else still
+# runs.
 readiness_check_host_enabled: false
 readiness_check_k3s_enabled: false
-readiness_check_headlamp_enabled: false
 # check_gateway inspects Envoy Gateway's Gateway/GatewayClass objects, which do
 # not exist here. The trace-boundary check below is what actually proves the edge
 # works, and it is far more informative than a "the Gateway is Programmed" probe.
@@ -316,8 +315,6 @@ readiness_check_public_domain: "{{ armory_apps_domain }}"
 
 keycloak_openbao_db_path: keycloak/db
 keycloak_openbao_realm_admin_path: keycloak/realm-admin
-headlamp_namespace: headlamp
-headlamp_openbao_oidc_path: headlamp/oidc
 delve_namespace: delve
 delve_openbao_db_path: delve/db
 delve_openbao_oidc_path: delve/oidc

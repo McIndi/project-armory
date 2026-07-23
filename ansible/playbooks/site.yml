@@ -39,14 +39,13 @@
         - always
         - env_guard
         - preflight
-    # The role below owns the NODE (installs the cluster).
-    # cluster). On OpenShift the nodes are RHCOS and managed by the platform —
-    # we have no root on them and no cluster to install — so they are gated off
-    # rather than deleted, keeping this file mergeable with `main`.
     - role: helm
       tags:
         - helm
         - helm_install
+    # The role below owns the node (installs k3s). On OpenShift the nodes are
+    # RHCOS and managed by the platform, so this is gated off rather than
+    # deleted to keep this file mergeable with `main`.
     - role: k3s
       when: target_platform | default('k3s') == 'k3s'
       tags:
@@ -111,16 +110,6 @@
       when: registry_enabled | default(false) | bool
       tags:
         - registry
-    # Headlamp existed to give cluster login via Keycloak, which required
-    # reconfiguring the k3s API server's OIDC flags. On OpenShift cluster login
-    # is LDAP (a shared, cluster-wide OAuth object we must not touch) and the
-    # platform ships its own console, so Headlamp has no remaining role.
-    - role: headlamp
-      when: target_platform | default('k3s') == 'k3s'
-      tags:
-        - headlamp
-        - headlamp_install
-        - k3s_oidc
     - role: delve
       tags:
         - delve

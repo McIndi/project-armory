@@ -9,7 +9,7 @@ Intended to be run after core platform roles complete to verify all services are
 - Fedora (all)
 
 ## Prerequisites
-- The environment should already have been provisioned by the relevant roles before running readiness checks: `env_guard`, `system_update`, `k3s`, `openbao`, `envoy_gateway`, `vso`, `keycloak`, `headlamp`
+- The environment should already have been provisioned by the relevant roles before running readiness checks: `env_guard`, `system_update`, `k3s`, `openbao`, `envoy_gateway`, `vso`, `keycloak`
 - This role intentionally has no runtime metadata dependencies so it can be executed in isolation.
 
 ## Variables
