@@ -48,11 +48,6 @@
       tags:
         - host_dependencies
         - host_prereqs
-    - role: system_update
-      when: target_platform | default('k3s') == 'k3s'
-      tags:
-        - system_update
-        - dnf_update
     - role: helm
       tags:
         - helm

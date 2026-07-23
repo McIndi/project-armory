@@ -33,6 +33,18 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed a third Phase 2 slice (remove `system_update`).
+  Deleted `roles/system_update/` and removed its role entry from
+  `playbooks/site.yml`; also updated the stale OpenShift inventory comment that
+  listed `system_update` among the gated node-owning roles. Local validation in
+  Vagrant: `ANSIBLE_ROLES_PATH=roles ansible-playbook -i
+  inventories/openshift playbooks/site.yml --syntax-check` and
+  `... playbooks/bootstrap.yml --syntax-check` both passed; `--check` for both
+  playbooks passed after sourcing `.env`; and list-task diffs vs the Phase 1
+  baseline (`/tmp/base-site-p1.txt`, `/tmp/base-bootstrap-p1.txt`) showed no
+  bootstrap delta and only the expected cumulative `site.yml` removals from the
+  already-completed `kernel_tuning` slice plus the two `system_update` tasks.
+
 - [x] 2026-07-23: Completed a second Phase 2 slice (remove `kernel_tuning`).
   Deleted `roles/kernel_tuning/` and removed its role entry from
   `playbooks/site.yml`; also updated the stale OpenShift inventory comment that
