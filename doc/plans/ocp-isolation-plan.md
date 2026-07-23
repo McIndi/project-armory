@@ -33,6 +33,31 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-23: Completed Phase 1 step 4 and closed the coupled rotator regression.
+  Removed the Keycloak realm-admin rotator include from
+  `roles/keycloak/tasks/main.yml`, deleted `roles/keycloak/tasks/rotator.yml`
+  and `roles/keycloak/templates/realm_admin_rotator.yaml.j2`, and dropped the
+  rotator defaults / inventory vars that kept the CronJob reachable on
+  OpenShift. Local validation in Vagrant: `ANSIBLE_ROLES_PATH=roles
+  ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check`
+  and `... playbooks/bootstrap.yml --syntax-check` both passed; grep of the
+  Ansible tree returned no remaining `keycloak_rotator_*`,
+  `keycloak_openbao_rotator_path`, `keycloak_realm_admin_rotation_*`,
+  `rotator.yml`, or `realm_admin_rotator.yaml.j2` references; and `--check`
+  for both playbooks passed once the repo `.env` was sourced before running
+  Ansible.
+
+- [x] 2026-07-23: Completed Phase 1 step 5.
+  Removed `roles/openbao/tasks/consumer_wiring.yml`, dropped its import from
+  `roles/openbao/tasks/main.yml`, and deleted the now-unused OpenShift
+  inventory wiring vars for Keycloak / rotator / Headlamp / Delve Kubernetes
+  auth roles and ACL policy names. Local validation in Vagrant:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check`
+  and `... playbooks/bootstrap.yml --syntax-check` both passed; `--list-tasks`
+  diff versus the Phase 1 baseline only removed the expected
+  `openbao_consumer_wiring` tasks; and `--check` for both playbooks passed once
+  the repo `.env` was sourced before running Ansible.
+
 - [x] 2026-07-23: Completed the remainder of Phase 1 step 1.
   Removed the `readiness_check` VSO include and its defaults, and deleted the
   now-dead Keycloak VSO templates plus their stale defaults/comments. Local

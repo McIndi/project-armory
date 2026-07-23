@@ -60,10 +60,6 @@
       ansible.builtin.import_tasks: configure.yml
       tags: [openbao, openbao_configure]
 
-    - name: OpenBao consumer wiring
-      ansible.builtin.import_tasks: consumer_wiring.yml
-      tags: [openbao, openbao_consumer_wiring]
-
     - name: OpenBao OIDC scaffold
       ansible.builtin.import_tasks: oidc_scaffold.yml
       tags: [openbao, openbao_oidc_scaffold]

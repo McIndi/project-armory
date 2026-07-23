@@ -89,10 +89,6 @@ keycloak_openbao_policy_name: keycloak-vso
 keycloak_openbao_k8s_role: keycloak-vso
 keycloak_openbao_db_path: keycloak/db
 keycloak_openbao_realm_admin_path: keycloak/realm-admin
-keycloak_openbao_rotator_path: keycloak/rotator
-keycloak_rotator_sa_name: keycloak-realm-admin-rotator
-keycloak_rotator_openbao_policy_name: keycloak-realm-admin-rotator
-keycloak_rotator_openbao_k8s_role: keycloak-realm-admin-rotator
 headlamp_namespace: headlamp
 headlamp_vso_sa_name: headlamp-vso
 headlamp_openbao_policy_name: headlamp-vso

@@ -667,13 +667,6 @@
         - not ansible_check_mode
         - keycloak_ingress_enabled | bool
 
-    # ── realm-admin password auto-rotation ──────────────────────────────────────
-    - name: Provision realm-admin password rotation CronJob
-      ansible.builtin.include_tasks: rotator.yml
-      when:
-        - not ansible_check_mode
-        - keycloak_realm_admin_rotation_enabled | bool
-
     - name: Provision Keycloak admin-events retention prune timer
       ansible.builtin.import_tasks: admin_events_prune.yml
       when:
