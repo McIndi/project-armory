@@ -37,11 +37,6 @@ kubectl_bin: oc
 # being a stylistic split.
 armory_privileged_tasks: false
 
-# Scheduled maintenance runs as in-cluster CronJobs: there is no node of ours to
-# host a systemd timer on. The CronJobs exec into the target pod exactly as the
-# host scripts did, via a ServiceAccount granted pods/exec in that namespace.
-armory_scheduler_kind: cronjob
-
 # The controller is OUTSIDE the cluster network, so it cannot reach a ClusterIP
 # or resolve *.svc.cluster.local. common/tasks/prepare_internal_https_caller.yml
 # therefore tunnels with `oc port-forward` and aliases the internal FQDN to

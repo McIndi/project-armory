@@ -147,15 +147,10 @@ keycloak_admin_events_details_enabled: true
 keycloak_events_jboss_logging_success_level: info
 keycloak_events_jboss_logging_error_level: warn
 
-# Admin events have no server-side expiration; a scheduled job prunes the
-# admin_event_entity table by age. Delivered as a host systemd timer or an
-# in-cluster CronJob, selected by armory_scheduler_kind. Mirrors the OpenBao
-# audit-rotate pattern.
+# Admin events have no server-side expiration; a scheduled CronJob prunes the
+# admin_event_entity table by age.
 keycloak_admin_events_prune_enabled: true
 keycloak_admin_events_prune_keep_days: 90
-
-# host_timer form: systemd OnCalendar expression.
-keycloak_admin_events_prune_on_calendar: weekly
 
 # cronjob form: cron schedule, exec SA, and a kubectl-capable image.
 keycloak_admin_events_prune_cron_schedule: "23 3 * * 0"

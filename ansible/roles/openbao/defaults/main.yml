@@ -292,13 +292,10 @@ openbao_audit_device_name: file
 openbao_audit_mount_path: /openbao/audit
 openbao_audit_log_path: "{{ openbao_audit_mount_path }}/audit.log"
 openbao_audit_storage_size: 2Gi
-# Audit-log rotation (exec + SIGHUP into the pod). Delivered either as a host
-# systemd timer or an in-cluster CronJob, selected by armory_scheduler_kind.
+# Audit-log rotation (exec + SIGHUP into the pod), delivered as an in-cluster
+# CronJob.
 openbao_audit_rotate_enabled: true
 openbao_audit_rotate_keep: 7
-
-# host_timer form: systemd OnCalendar expression.
-openbao_audit_rotate_on_calendar: daily
 
 # cronjob form: cron schedule, the SA the exec runs under, and a kubectl-capable
 # image. bitnami/kubectl runs unprivileged and tolerates an arbitrary UID, so it

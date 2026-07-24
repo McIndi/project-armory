@@ -33,6 +33,34 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed a scheduler-selector follow-up cleanup.
+  After the CronJob-only code collapse, removed the now-dead
+  `armory_scheduler_kind` inventory knob from both
+  `inventories/openshift/group_vars/all.yml` and
+  `inventories/development/group_vars/all.yml` so no inert selector remains.
+  Local Vagrant validation passed again for `site.yml` and `bootstrap.yml`
+  (`--syntax-check` and `--check`, both recaps `failed=0`). This closes the
+  `armory_scheduler_kind` selector fully (code and config).
+  Next intended Phase 3 slice: `target_platform` collapse, including explicit
+  verification of the `openbao_oidc` hostAlias/edge-gateway lookup unknown
+  before deleting that chain.
+
+- [x] 2026-07-24: Completed a Phase 3 scheduler-selector slice
+  (`armory_scheduler_kind` collapse to CronJob-only behavior).
+  Removed the non-OCP host-timer branches from
+  `roles/openbao/tasks/audit_rotate.yml` and
+  `roles/keycloak/tasks/admin_events_prune.yml`, deleted the now-dead host
+  timer script templates
+  (`roles/openbao/templates/openbao-audit-rotate.sh.j2` and
+  `roles/keycloak/templates/keycloak-admin-events-prune.sh.j2`), removed the
+  obsolete host-timer defaults (`openbao_audit_rotate_on_calendar` and
+  `keycloak_admin_events_prune_on_calendar`), and deleted the matching systemd
+  cleanup tasks from `roles/openbao/tasks/teardown.yml`. Local validation in
+  Vagrant passed for `site.yml` and `bootstrap.yml` syntax checks plus
+  check-mode runs (`failed=0` in both recaps). Fresh task-list snapshots were
+  captured to `/tmp/now-site-step7.txt` and `/tmp/now-bootstrap-step7.txt` for
+  use as the next baseline after this task-moving slice.
+
 - [x] 2026-07-24: Completed the follow-on Phase 3 edge selector cleanup
   (eliminate `edge_kind` and dead direct-Route branches).
   After verifying the pass-1 collapse left `openbao/tasks/route.yml` and
