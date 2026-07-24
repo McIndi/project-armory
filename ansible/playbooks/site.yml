@@ -1,5 +1,5 @@
 ---
-- name: Base configuration for local Fedora VM
+- name: Base configuration for OpenShift deployment
   hosts: all
   gather_facts: true
   pre_tasks:
@@ -79,7 +79,6 @@
     # issuer (cert_manager + openbao), and its upstream Services (Keycloak,
     # OpenBao) should already exist so Envoy's clusters resolve on first boot.
     - role: envoy_proxy
-      when: edge_kind | default('httproute') == 'route_envoy'
       tags:
         - envoy_proxy
         - edge

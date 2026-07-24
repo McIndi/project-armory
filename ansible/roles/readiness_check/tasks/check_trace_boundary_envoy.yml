@@ -1,7 +1,7 @@
 ---
 # Trace-boundary check, OpenShift edge.
 #
-# Identical intent to check_trace_boundary.yml (the Gateway API version): stand up
+# Verifies the trace-boundary behavior by standing up
 # an ephemeral header-echo backend behind the edge, push a FORGED W3C trace
 # context through it, and reconcile what the backend actually received against
 # policy:

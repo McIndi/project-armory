@@ -101,7 +101,7 @@ readiness_check_trace_probe_image: mendhak/http-https-echo:latest
 readiness_check_trace_probe_port: 8080
 readiness_check_trace_probe_rollout_timeout_seconds: 120
 
-# ── Envoy edge (edge_kind: route_envoy) ───────────────────────────────────────
+# ── Envoy edge ────────────────────────────────────────────────────────────────
 # Where the edge is an in-namespace Envoy behind an OpenShift Route, the probe
 # reaches Envoy through a tunnel rather than through a Route: it must pass through
 # Envoy to be tested, but it must not be published on the apps domain.

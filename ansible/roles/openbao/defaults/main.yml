@@ -99,11 +99,6 @@ openbao_ready_wait_timeout: 600s
 openbao_ui_enabled: false
 openbao_ingress_enabled: "{{ openbao_ui_enabled }}"
 openbao_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
-openbao_route_gateway_name: "{{ edge_gateway_name | default('armory') }}"
-openbao_route_gateway_namespace: "{{ edge_gateway_namespace | default('envoy-gateway-system') }}"
-# ConfigMap mirroring the OpenBao server CA (openbao-ca) for BackendTLSPolicy
-# validation of the gateway→OpenBao re-encrypt hop.
-openbao_backend_ca_configmap: openbao-backend-ca
 openbao_cert_duration: "8760h"
 openbao_cert_renew_before: "720h"
 

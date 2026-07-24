@@ -40,7 +40,7 @@ Defined in `defaults/main.yml`:
   - `check_openbao.yml`: OpenBao TCP port 8200, health endpoint, and unsealed status via the internal TLS service address.
    - `check_vso.yml`: Vault Secrets Operator deployment running, vaultconnection resources present.
   - `check_gateway.yml`: Envoy data-plane pods, Gateway Programmed status, HTTPRoute hosts, edge TLS certificate validity, and policy-aware HTTP behavior (`redirect-only` vs `disabled`).
-  - `check_trace_boundary.yml`: forged external trace context is stripped at the edge, a fresh gateway trace-id reaches the backend, and the inbound traceparent is captured in the forensic header.
+  - `check_trace_boundary_envoy.yml`: forged external trace context is stripped at the edge, a fresh gateway trace-id reaches the backend, and the inbound traceparent is captured in the forensic header.
   - `check_keycloak.yml`: Keycloak namespace, service, admin secret, OIDC discovery endpoint checks with ingress fallback, and Postgres TLS verify-full posture checks when enabled.
 4. Render summary report and per-component breakdown from template.
 5. Print report to console.

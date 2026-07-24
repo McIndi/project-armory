@@ -16,19 +16,6 @@
 # on a managed cluster.
 target_platform: openshift
 
-# Edge implementation.
-#
-#   httproute   — Gateway API HTTPRoute behind Envoy Gateway (k3s).
-#   route       — an OpenShift Route straight to each workload. Simple, but there
-#                 is NO trace boundary: the router is HAProxy, which cannot mint
-#                 or strip W3C trace context.
-#   route_envoy — Route -> in-namespace Envoy -> workload. Restores the trace
-#                 boundary that Envoy Gateway provided on k3s.
-#
-# route_envoy, because armory's audit story depends on the edge minting a trusted
-# traceparent and stripping any the client supplied. See the envoy_proxy role.
-edge_kind: route_envoy
-
 # --- Control-host / cluster access -------------------------------------------
 # On k3s the Ansible controller WAS a cluster node. Here it is an external
 # workstation, so all cluster access goes through a kubeconfig + `oc`.

@@ -6,7 +6,6 @@
 # than implied. The OpenShift inventory overrides these; roles are steered by
 # them instead of being forked per platform.
 target_platform: k3s
-edge_kind: httproute
 
 # k3s bundles kubectl; roles shell out through this rather than hardcoding it.
 kubectl_bin: "k3s kubectl"

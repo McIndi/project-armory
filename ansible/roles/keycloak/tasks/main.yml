@@ -503,12 +503,6 @@
         - keycloak_operator_install_method | default('manifests') != 'manifests'
         - not ansible_check_mode
 
-    - name: Expose Keycloak through the edge
-      ansible.builtin.include_tasks: route.yml
-      when:
-        - edge_kind | default('httproute') == 'route'
-        - not ansible_check_mode
-
     # ── Keycloak custom resource ────────────────────────────────────────────────
     - name: Apply Keycloak custom resource
       kubernetes.core.k8s:
@@ -644,27 +638,6 @@
     - name: Reconcile Keycloak realm event auditing config via admin REST
       ansible.builtin.include_tasks: realm_events.yml
       when: not ansible_check_mode
-
-    # ── Public route (edge TLS at the Envoy gateway) ────────────────────────────
-    - name: Mirror Keycloak serving CA into BackendTLSPolicy ConfigMap
-      ansible.builtin.import_role:
-        name: common
-        tasks_from: apply_backend_ca_configmap.yml
-      vars:
-        common_kubeconfig_path: "{{ keycloak_kubeconfig_path }}"
-        common_backend_ca_namespace: "{{ keycloak_namespace }}"
-        common_backend_ca_secret_name: "{{ keycloak_internal_tls_secret_name }}"
-        common_backend_ca_configmap_name: "{{ keycloak_backend_ca_configmap }}"
-      when: keycloak_ingress_enabled | bool
-
-    - name: Apply Keycloak HTTPRoute and BackendTLSPolicy
-      kubernetes.core.k8s:
-        kubeconfig: "{{ keycloak_kubeconfig_path }}"
-        state: present
-        definition: "{{ lookup('template', 'httproute.yaml.j2') | from_yaml_all | list }}"
-      when:
-        - not ansible_check_mode
-        - keycloak_ingress_enabled | bool
 
     - name: Provision Keycloak admin-events retention prune timer
       ansible.builtin.import_tasks: admin_events_prune.yml

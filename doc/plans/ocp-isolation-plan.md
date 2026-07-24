@@ -33,6 +33,46 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed the follow-on Phase 3 edge selector cleanup
+  (eliminate `edge_kind` and dead direct-Route branches).
+  After verifying the pass-1 collapse left `openbao/tasks/route.yml` and
+  `keycloak/tasks/route.yml` unreachable under the only live OCP edge path,
+  removed both route task files and templates, removed their invocation sites
+  (`roles/openbao_oidc/tasks/main.yml` and `roles/keycloak/tasks/main.yml`),
+  removed `edge_kind` from both inventories, and deleted the now-orphaned
+  readiness Gateway-API trace check (`roles/readiness_check/tasks/check_trace_boundary.yml`).
+  Also scrubbed residual comments/docs that referenced the deleted selector or
+  check file. Validation: local Vagrant syntax-check and check-mode both passed
+  for `site.yml` and `bootstrap.yml` (`failed=0` in both recaps); static include/
+  import target existence check found no missing referenced files; and
+  `site.yml --list-tasks` pass1→pass2 diff showed only expected deletions:
+  Keycloak's dead "Expose Keycloak through the edge" include and the dead
+  OpenBao Route tasks. Verified the live public edge still comes from
+  `envoy_proxy/templates/routes.yaml.j2` with OpenShift inventory upstreams for
+  `armory_keycloak_host` and `armory_openbao_host`.
+
+- [x] 2026-07-24: Completed the first Phase 3 slice (`edge_kind` collapse, pass 1).
+  Removed the remaining Gateway-API `httproute` paths while keeping the
+  OpenShift Route/Route->Envoy behavior: dropped the now-tautological
+  `envoy_proxy` role gate in `playbooks/site.yml`; deleted the
+  `httproute` branch from `roles/openbao/tasks/route.yml`; removed Keycloak's
+  HTTPRoute/BackendTLSPolicy apply block from `roles/keycloak/tasks/main.yml`;
+  simplified `roles/keycloak/tasks/route.yml` and
+  `roles/readiness_check/tasks/main.yml` to the Route/Envoy path; deleted
+  `roles/common/tasks/apply_backend_ca_configmap.yml`; and deleted both
+  `roles/openbao/templates/httproute.yaml.j2` and
+  `roles/keycloak/templates/httproute.yaml.j2`. Also retitled the single
+  `site.yml` play to "Base configuration for OpenShift deployment" to avoid the
+  stale Fedora/k3s wording while this selector collapse is underway. Local
+  validation in Vagrant passed: `ANSIBLE_ROLES_PATH=roles ansible-playbook -i
+  inventories/openshift playbooks/site.yml --syntax-check`,
+  `... playbooks/bootstrap.yml --syntax-check`, `... playbooks/site.yml --check`,
+  and `... playbooks/bootstrap.yml --check` all completed with `failed=0`.
+  A fresh `site.yml --list-tasks` snapshot contains no `HTTPRoute` or
+  `BackendTLSPolicy` tasks, and static reference checks found no remaining
+  references to `apply_backend_ca_configmap.yml` or the deleted
+  `httproute.yaml.j2` templates.
+
 - [x] 2026-07-24: Completed the Phase 2 close-out boundary items.
   Merged `playbooks/site.yml` back to a single play after confirming the old
   split no longer served any handler-flush purpose: the surviving early roles
