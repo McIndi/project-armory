@@ -10,12 +10,6 @@
 # forked for OpenShift — they are steered from here, so that role task files
 # stay mergeable with `main`.
 
-# --- Platform selector -------------------------------------------------------
-# Consumed by playbooks/site.yml to gate node-owning roles (k3s,
-# envoy_gateway) that have no target
-# on a managed cluster.
-target_platform: openshift
-
 # --- Control-host / cluster access -------------------------------------------
 # On k3s the Ansible controller WAS a cluster node. Here it is an external
 # workstation, so all cluster access goes through a kubeconfig + `oc`.

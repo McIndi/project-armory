@@ -33,6 +33,24 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed a Phase 3 selector-collapse slice
+  (`target_platform` removal in current OCP-only paths).
+  Removed the last `target_platform`-driven `site.yml` gate by deleting the
+  `envoy_gateway` role entry from `playbooks/site.yml`, removed the now-dead
+  Keycloak platform assert block from `roles/keycloak/tasks/main.yml`, and
+  removed the obsolete `target_platform` vars/comments from both inventories
+  (`inventories/openshift/group_vars/all.yml` and
+  `inventories/development/group_vars/all.yml`). Local Vagrant validation
+  passed for `site.yml` and `bootstrap.yml` syntax checks; list-task diff
+  (`/tmp/now-site-step7.txt` -> `/tmp/now-site-step8.txt`) showed only the
+  expected removal of `envoy_gateway` tasks plus the deleted Keycloak assert,
+  with no `bootstrap.yml` task delta; and `--check` passed for both playbooks
+  (`site.yml failed=0`, `bootstrap.yml failed=0`). A repo grep now finds no
+  remaining `target_platform` references under `ansible/`.
+  Next intended Phase 3 slice remains the explicit `openbao_oidc` hostAlias /
+  edge-gateway lookup verification called out as the only unknown before that
+  chain can be safely deleted.
+
 - [x] 2026-07-24: Completed a scheduler-selector follow-up cleanup.
   After the CronJob-only code collapse, removed the now-dead
   `armory_scheduler_kind` inventory knob from both

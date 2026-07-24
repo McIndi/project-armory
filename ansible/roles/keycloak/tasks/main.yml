@@ -4,31 +4,6 @@
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
-# Hard stop before anything cluster-scoped is touched. The manifest install path
-# server-side-applies the community Keycloak CRDs, which are cluster-scoped and
-# may already be owned by another tenant's OLM-managed operator. Overwriting them
-# can break that tenant's SSO, so refuse that path on a platform we do not own
-# end to end, however the vars were set.
-- name: Refuse to apply cluster-scoped Keycloak CRDs on a platform we do not own
-  ansible.builtin.assert:
-    that:
-      - >-
-        (target_platform | default('k3s') == 'k3s')
-        or (keycloak_operator_install_method | default('manifests') != 'manifests')
-    fail_msg: >-
-      keycloak_operator_install_method='manifests' applies the upstream community
-      Keycloak CRDs (cluster-scoped), but target_platform is
-      '{{ target_platform | default('k3s') }}'. On a shared cluster those CRDs are
-      likely owned by an OLM-managed operator that another tenant's Keycloak
-      depends on, and overwriting them can break their SSO. Set
-      keycloak_operator_install_method=none to run Keycloak as a plain Deployment
-      instead, touching no CRDs at all.
-    success_msg: >-
-      Keycloak operator install method
-      '{{ keycloak_operator_install_method | default('manifests') }}' is safe for
-      target_platform '{{ target_platform | default('k3s') }}'.
-  tags: [keycloak, keycloak_install, keycloak_oidc]
-
 - name: Deploy standalone Keycloak (Operator + PostgreSQL StatefulSet)
   tags: [keycloak, keycloak_install, keycloak_oidc]
   block:

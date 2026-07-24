@@ -50,15 +50,6 @@
       tags:
         - cert_manager
         - cert_manager_install
-    # Envoy Gateway is a Gateway API implementation. OpenShift 4.20 ships and
-    # actively manages the Gateway API CRDs via its Cluster Ingress Operator, so
-    # installing a second controller risks a tug-of-war with a core platform
-    # operator. On OpenShift the edge is a Route, and the trace-boundary Envoy is
-    # reintroduced as a plain in-namespace Deployment (see the envoy_proxy role).
-    - role: envoy_gateway
-      when: target_platform | default('k3s') == 'k3s'
-      tags:
-        - envoy_gateway
     - role: keycloak
       tags:
         - keycloak
