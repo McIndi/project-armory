@@ -33,6 +33,38 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed the Phase 2 `envoy_gateway` role-tree deletion.
+  Deleted the complete `roles/envoy_gateway/` tree (defaults, meta, tasks,
+  templates, and README). This closes the last k3s-only role directory that
+  remained on disk after its `site.yml` entry had already been removed, and it
+  removes the final source of `httproute`/`Gateway`-centric leftovers from the
+  Ansible tree. Local Vagrant validation passed again for `site.yml` and
+  `bootstrap.yml` syntax checks plus `--check` (`failed=0` in both recaps);
+  the `site.yml` and `bootstrap.yml` task-list snapshots were unchanged from
+  step 9, as expected for an unreferenced role-tree removal. Next intended
+  Phase 3 slice remains `internal_https_caller_mode` collapse in
+  `roles/common/tasks/prepare_internal_https_caller_dns.yml`.
+
+- [x] 2026-07-24: Completed the flagged `openbao_oidc` hostAlias /
+  edge-gateway lookup resolution slice.
+  Removed the OpenBao OIDC hostAlias patch/restart/re-unseal chain from
+  `roles/openbao_oidc/tasks/oidc_config.yml` and deleted the now-orphaned
+  helper `roles/common/tasks/lookup_gateway_service.yml` plus obsolete
+  `openbao_oidc` defaults that only fed that path. This removes dead code and
+  the moving dependency on the already-deleted `envoy_gateway` role
+  artifacts, but it does not prove the OpenBao pod can hairpin to the public
+  Keycloak issuer host; that operational assumption is now recorded in the
+  migration handoff §7 list before further selector collapse work.
+  Local Vagrant validation passed for `site.yml` and `bootstrap.yml`
+  (`--syntax-check` and `--check`, both `failed=0`), and `site.yml`
+  task-list diff (`/tmp/now-site-step8.txt` -> `/tmp/now-site-step9.txt`)
+  showed only the expected removal of gateway lookup + hostAlias/recreate
+  tasks and the dependent unseal tasks in this role path, with no
+  `bootstrap.yml` task delta.
+  Next intended slice: collapse `internal_https_caller_mode` to OCP-only
+  `port_forward` behavior in
+  `roles/common/tasks/prepare_internal_https_caller_dns.yml`.
+
 - [x] 2026-07-24: Completed a Phase 3 selector-collapse slice
   (`target_platform` removal in current OCP-only paths).
   Removed the last `target_platform`-driven `site.yml` gate by deleting the

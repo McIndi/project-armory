@@ -169,6 +169,14 @@ Nothing has met the cluster. Ranked by likelihood of biting:
 8. **Port-forward tunnel lifecycle** across a full run; `ansible_env.HOME`
    resolving in play 2 (traced, not run).
 9. **`oc create token --duration=4h`** not exceeding the cluster's cap.
+10. **OpenBao reaching the public Keycloak issuer from inside the pod.**
+   `auth/oidc/config` triggers server-side discovery against
+   `https://keycloak.<apps-domain>/realms/armory/.well-known/openid-configuration`
+   from the OpenBao pod. That requires pod egress to the router's external VIP
+   and hairpin back into the cluster; never verified. If that path fails,
+   OIDC config fails at deploy time. The fallback is a hostAlias or equivalent
+   mapping to the in-namespace Envoy Service ClusterIP, not the deleted
+   Envoy-Gateway Service lookup chain.
 
 ## 8. Still open
 

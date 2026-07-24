@@ -4,8 +4,6 @@ openbao_oidc_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3
 openbao_oidc_role_enabled: "{{ openbao_ui_enabled | default(false) | bool }}"
 
 # OpenBao deployment coordinates
-openbao_oidc_namespace: "{{ openbao_namespace | default('openbao') }}"
-openbao_oidc_release_name: "{{ openbao_release_name | default('openbao') }}"
 openbao_oidc_api_addr: "{{ openbao_api_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
 openbao_oidc_kv_mount: "{{ openbao_kv_mount | default('secret') }}"
 openbao_oidc_secret_path: openbao/ui-oidc
@@ -16,9 +14,6 @@ openbao_oidc_default_role_name: armory-ui
 openbao_oidc_ingress_host: "{{ openbao_ingress_host | default(lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true)) }}"
 openbao_oidc_issuer_url: "{{ (keycloak_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + openbao_oidc_keycloak_realm }}"
 openbao_oidc_discovery_url: "{{ openbao_oidc_issuer_url }}"
-# The issuer host resolves in-cluster to the Envoy gateway Service, looked up
-# by owning-gateway labels (common/tasks/lookup_gateway_service.yml).
-openbao_oidc_resolver_host: "{{ openbao_oidc_issuer_url | urlsplit('hostname') }}"
 
 # Keycloak settings
 openbao_oidc_keycloak_realm: "{{ keycloak_realm | default('armory') }}"
