@@ -295,24 +295,7 @@
   changed_when: false
   when: readiness_check_strict_tls_checks_enabled | bool
 
-# The DB URL lives in different places depending on how Keycloak was deployed:
-# the operator path puts it in the Keycloak CR's spec.db.url; the operator-less
-# path (no CR) sets it as KC_DB_URL on the Deployment. Read whichever exists so
-# this check means the same thing on both edges.
-- name: Read Keycloak DB URL from the Keycloak CR
-  kubernetes.core.k8s_info:
-    api_version: k8s.keycloak.org/v2alpha1
-    kind: Keycloak
-    name: "{{ readiness_check_keycloak_cr_name }}"
-    namespace: "{{ readiness_check_keycloak_namespace }}"
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_keycloak_cr_info
-  changed_when: false
-  failed_when: false
-  when:
-    - readiness_check_keycloak_pg_tls_enabled | bool
-    - readiness_check_keycloak_workload_kind == 'statefulset'
-
+# Operatorless path sets DB URL via KC_DB_URL on the Deployment.
 - name: Read Keycloak DB URL from the Deployment
   kubernetes.core.k8s_info:
     api_version: apps/v1
@@ -323,19 +306,12 @@
   register: _rc_keycloak_deploy_info
   changed_when: false
   failed_when: false
-  when:
-    - readiness_check_keycloak_pg_tls_enabled | bool
-    - readiness_check_keycloak_workload_kind == 'deployment'
+  when: readiness_check_keycloak_pg_tls_enabled | bool
 
-- name: Build Keycloak DB URL from whichever source exists
+- name: Build Keycloak DB URL from Deployment env
   ansible.builtin.set_fact:
-    _rc_keycloak_db_url_info: "{{ _rc_keycloak_cr_info if (readiness_check_keycloak_workload_kind == 'statefulset') else _rc_keycloak_deploy_info }}"
-    _rc_keycloak_db_url: >-
-      {%- if readiness_check_keycloak_workload_kind == 'statefulset' -%}
-      {{ (_rc_keycloak_cr_info.resources | default([]) | first | default({})).spec.db.url | default('') }}
-      {%- else -%}
-      {{ (((_rc_keycloak_deploy_info.resources | default([]) | first | default({})).spec.template.spec.containers | default([]) | first | default({})).env | default([]) | selectattr('name', 'eq', 'KC_DB_URL') | map(attribute='value') | first | default('')) }}
-      {%- endif -%}
+    _rc_keycloak_db_url_info: "{{ _rc_keycloak_deploy_info }}"
+    _rc_keycloak_db_url: "{{ (((_rc_keycloak_deploy_info.resources | default([]) | first | default({})).spec.template.spec.containers | default([]) | first | default({})).env | default([]) | selectattr('name', 'eq', 'KC_DB_URL') | map(attribute='value') | first | default('')) }}"
   changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
@@ -346,7 +322,7 @@
         'component': 'Keycloak',
         'check_name': 'DB URL enforces verify-full TLS mode',
         'status': 'pass' if ('sslmode=' + readiness_check_keycloak_pg_verify_mode) in (_rc_keycloak_db_url | default('')) else 'fail',
-        'detail': (_rc_keycloak_db_url | default('missing db.url in Keycloak CR')),
+        'detail': (_rc_keycloak_db_url | default('missing KC_DB_URL env on Keycloak Deployment')),
         'error': _rc_keycloak_db_url_info.msg | default('')
       }] }}
   changed_when: false

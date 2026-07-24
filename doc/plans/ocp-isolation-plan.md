@@ -33,6 +33,34 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed the remaining Phase 3 Keycloak collapse slice.
+  Finished the `keycloak_operator_install_method` / `keycloak_workload_kind`
+  cleanup by deleting the temporary `realmimport.yaml.j2` scaffolding,
+  deleting the operator-era `keycloak.yaml.j2` template, collapsing
+  `roles/keycloak/tasks/main.yml` to the operatorless Deployment path only,
+  and making `deploy_operatorless.yml` consume the new direct
+  `roles/keycloak/templates/realm.json.j2` realm body template. Also removed
+  the now-dead operator selector vars from the OpenShift inventory and the
+  readiness-check Keycloak workload selector, and updated teardown/comments to
+  match the deployment-only shape. Local Vagrant validation passed again for
+  `playbooks/site.yml` and `playbooks/bootstrap.yml` syntax-check plus
+  `--check` (`failed=0`), and the task-list diff showed only the expected
+  Keycloak operator/CR/realm-import task removals.
+
+- [x] 2026-07-24: Advanced the remaining Phase 3 Keycloak refactor with a
+  low-risk realm-body transition slice in the operatorless path.
+  Added a new direct `roles/keycloak/templates/realm.json.j2` canonical realm
+  body template and switched
+  `roles/keycloak/tasks/deploy_operatorless.yml` to render/import from it, while
+  adding an explicit local safety assertion that compares the new direct JSON
+  render to the legacy `realmimport.yaml.j2` lift-out output and fails fast on
+  any byte drift. This implements the requested cheap guard for the highest-risk
+  part of the remaining Keycloak work (Secret-fed `--import-realm` payload)
+  without touching live-cluster state or claiming the full
+  `keycloak_operator_install_method` selector collapse complete yet.
+  Local Vagrant validation passed (`playbooks/site.yml` and
+  `playbooks/bootstrap.yml` syntax-check and `--check`, both `failed=0`).
+
 - [x] 2026-07-24: Corrected a post-Phase-2 regression where
   `ansible/roles/envoy_gateway/defaults/main.yml` had been accidentally
   resurrected in commit `eb24a2e` after the role-tree deletion in `f6d8911`.

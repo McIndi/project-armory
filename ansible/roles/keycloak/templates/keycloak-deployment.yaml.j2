@@ -1,16 +1,10 @@
 ---
 # Keycloak server, deployed WITHOUT the Keycloak Operator.
 #
-# The k3s path (keycloak.yaml.j2) creates a `Keycloak` CR and lets the operator
-# render this Deployment for us. That is not available on a shared cluster: the
-# Keycloak CRDs are cluster-scoped and already owned by another tenant's
-# OLM-managed operator, whose Keycloak the whole Cloud Pak depends on. Rather
-# than co-own those CRDs — and inherit that tenant's upgrade cadence — this runs
-# the same server with no CRDs and no operator at all.
+# This branch runs the same server with no CRDs and no operator.
 #
-# Everything the CR configured is reproduced here as `KC_*` env vars, and the
-# Service deliberately keeps the exact name the operator would have given it
-# ({{ keycloak_cr_name }}-service), so every consumer's internal FQDN,
+# The Service keeps the historic `{{ keycloak_cr_name }}-service` name so every
+# consumer's internal FQDN,
 # certificate SAN, and OpenBao policy keeps working untouched.
 #
 # No securityContext: the Keycloak image is built to run as an arbitrary

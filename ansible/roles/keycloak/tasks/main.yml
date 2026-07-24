@@ -4,7 +4,7 @@
     armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
-- name: Deploy standalone Keycloak (Operator + PostgreSQL StatefulSet)
+- name: Deploy standalone Keycloak (Deployment + PostgreSQL StatefulSet)
   tags: [keycloak, keycloak_install, keycloak_oidc]
   block:
     # ── Namespace ──────────────────────────────────────────────────────────────
@@ -155,8 +155,8 @@
         - not ansible_check_mode
         - (_keycloak_bootstrap_admin_current.status | default(404)) != 200
 
-    # The Secret must exist before the Keycloak CR is applied: the operator reads
-    # spec.bootstrapAdmin.user.secret at first creation.
+    # The Secret must exist before the Deployment is applied so bootstrap can
+    # read KC_BOOTSTRAP_ADMIN_* on first boot.
     - name: Apply master bootstrap-admin Secret in the Keycloak namespace
       kubernetes.core.k8s:
         kubeconfig: "{{ keycloak_kubeconfig_path }}"
@@ -337,121 +337,6 @@
         - keycloak_postgresql_enabled | bool
         - keycloak_pg_tls_enabled | bool
 
-    # ── Keycloak Operator: CRDs + operator Deployment ───────────────────────────
-    # These CRDs are CLUSTER-SCOPED. Applying them is only safe where armory owns
-    # the cluster outright. Where the platform already provides a Keycloak
-    # operator via OLM (keycloak_operator_install_method: olm), another tenant's
-    # Keycloak may depend on these exact CRDs — server-side-applying the upstream
-    # community copies over theirs can mutate the schema and break their SSO.
-    - name: Install Keycloak CRDs (cluster-scoped, pinned version)
-      ansible.builtin.command:
-        cmd: "{{ kubectl_bin }} apply --server-side -f {{ keycloak_k8s_resources_base_url }}/{{ item }}"
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      loop:
-        - "{{ keycloak_crd_keycloaks }}-v1.yml"
-        - "{{ keycloak_crd_realmimports }}-v1.yml"
-      register: _keycloak_crd_apply
-      changed_when: >-
-        'configured' in (_keycloak_crd_apply.stdout | default('')) or
-        'created' in (_keycloak_crd_apply.stdout | default(''))
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
-    - name: Wait for Keycloak CRDs to be established
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} wait --for=condition=Established
-          crd/{{ item }} --timeout=120s
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      loop:
-        - "{{ keycloak_crd_keycloaks }}"
-        - "{{ keycloak_crd_realmimports }}"
-      changed_when: false
-      when: not ansible_check_mode
-
-    - name: Read current Keycloak Operator deployment
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kubeconfig: "{{ keycloak_kubeconfig_path }}"
-        kind: Deployment
-        namespace: "{{ keycloak_namespace }}"
-        name: "{{ keycloak_operator_deployment_name }}"
-      register: _keycloak_operator_deployment
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
-    - name: Install Keycloak Operator into the Keycloak namespace
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} apply -n {{ keycloak_namespace }}
-          -f {{ keycloak_k8s_resources_base_url }}/kubernetes.yml
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_operator_apply
-      changed_when: >-
-        'configured' in (_keycloak_operator_apply.stdout | default('')) or
-        'created' in (_keycloak_operator_apply.stdout | default(''))
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-        - >-
-          (_keycloak_operator_deployment.resources | default([]) | length == 0) or
-          (
-            _keycloak_operator_deployment.resources[0].metadata.labels['app.kubernetes.io/version'] | default('')
-            != keycloak_operator_version
-          )
-
-    # The upstream operator Deployment ships a short startup probe
-    # (delay 5s + 3x10s ~= 35s) and a 700m CPU limit. On slow/CPU-throttled
-    # hosts the Quarkus operator boots in ~45s+, so kubelet kills it before it
-    # listens, causing an endless restart loop. Raise the startup window and
-    # CPU limit so the operator can finish booting.
-    - name: Patch Keycloak Operator startup probe and CPU for slow-JVM hosts
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} patch deployment {{ keycloak_operator_deployment_name }}
-          --namespace {{ keycloak_namespace }}
-          --type=strategic
-          --patch
-          {{ ({
-               "spec": {
-                 "template": {
-                   "spec": {
-                     "containers": [{
-                       "name": keycloak_operator_deployment_name,
-                       "startupProbe": {"failureThreshold": keycloak_operator_startup_probe_failurethreshold},
-                       "resources": {"limits": {"cpu": keycloak_operator_cpu_limit}}
-                     }]
-                   }
-                 }
-               }
-             }) | to_json | quote }}
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_operator_patch
-      changed_when: "'(no change)' not in (_keycloak_operator_patch.stdout | default(''))"
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
-    - name: Wait for Keycloak Operator deployment to be available
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} rollout status deployment/{{ keycloak_operator_deployment_name }}
-          --namespace {{ keycloak_namespace }}
-          --timeout={{ keycloak_operator_rollout_timeout_seconds }}s
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_operator_rollout
-      changed_when: false
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
     - name: Provision Keycloak internal service TLS certificate
       ansible.builtin.import_role:
         name: common
@@ -468,137 +353,24 @@
       when:
         - not ansible_check_mode
 
-    # ── Server: operator-less ───────────────────────────────────────────────────
-    # Where the Keycloak CRDs belong to another tenant, run the server as a plain
-    # Deployment instead of a Keycloak CR. Produces the same Service name and the
-    # same realm, so everything downstream is unaffected.
+    # ── Server (operatorless) ───────────────────────────────────────────────────
     - name: Deploy Keycloak without the operator
       ansible.builtin.include_tasks: deploy_operatorless.yml
-      when:
-        - keycloak_operator_install_method | default('manifests') != 'manifests'
-        - not ansible_check_mode
-
-    # ── Keycloak custom resource ────────────────────────────────────────────────
-    - name: Apply Keycloak custom resource
-      kubernetes.core.k8s:
-        kubeconfig: "{{ keycloak_kubeconfig_path }}"
-        state: present
-        definition: "{{ lookup('template', 'keycloak.yaml.j2') | from_yaml_all | list }}"
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
-    - name: Wait for Keycloak custom resource to become Ready
-      block:
-        - name: Wait for Keycloak custom resource to become Ready (initial)
-          ansible.builtin.command:
-            cmd: >-
-              {{ kubectl_bin }} wait --for=condition=Ready
-              keycloak/{{ keycloak_cr_name }}
-              --namespace {{ keycloak_namespace }}
-              --timeout={{ keycloak_ready_timeout_seconds }}s
-          environment:
-            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-          register: _keycloak_cr_ready
-          changed_when: false
-      rescue:
-        - name: Read Keycloak StatefulSet rollout revisions
-          ansible.builtin.command:
-            cmd: >-
-              {{ kubectl_bin }} get statefulset/{{ keycloak_cr_name }}
-              --namespace {{ keycloak_namespace }}
-              -o jsonpath='{.status.currentRevision} {.status.updateRevision}'
-          environment:
-            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-          register: _keycloak_statefulset_revisions
-          changed_when: false
-
-        - name: Force restart Keycloak StatefulSet when its revision is stale
-          ansible.builtin.command:
-            cmd: >-
-              {{ kubectl_bin }} rollout restart statefulset/{{ keycloak_cr_name }}
-              --namespace {{ keycloak_namespace }}
-          environment:
-            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-          register: _keycloak_force_restart
-          changed_when: >-
-            'restarted' in (_keycloak_force_restart.stdout | default(''))
-          when: >-
-            (_keycloak_statefulset_revisions.stdout | default('') | trim | length) > 0 and
-            (_keycloak_statefulset_revisions.stdout.split() | length) == 2 and
-            (_keycloak_statefulset_revisions.stdout.split()[0] != _keycloak_statefulset_revisions.stdout.split()[1])
-
-        - name: Wait for Keycloak StatefulSet rollout after forced restart
-          ansible.builtin.command:
-            cmd: >-
-              {{ kubectl_bin }} rollout status statefulset/{{ keycloak_cr_name }}
-              --namespace {{ keycloak_namespace }}
-              --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
-          environment:
-            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-          register: _keycloak_cr_rollout_recovery
-          changed_when: false
-          when: _keycloak_force_restart is defined and (_keycloak_force_restart is changed)
-
-        - name: Wait for Keycloak custom resource to become Ready (recovery)
-          ansible.builtin.command:
-            cmd: >-
-              {{ kubectl_bin }} wait --for=condition=Ready
-              keycloak/{{ keycloak_cr_name }}
-              --namespace {{ keycloak_namespace }}
-              --timeout={{ keycloak_ready_timeout_seconds }}s
-          environment:
-            KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-          register: _keycloak_cr_ready
-          changed_when: false
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
-    # ── Realm import ────────────────────────────────────────────────────────────
-    # Operator path only. Without the operator the same realm body is imported by
-    # Keycloak itself at first boot (--import-realm), from the Secret staged in
-    # deploy_operatorless.yml.
-    - name: Apply Keycloak realm import
-      kubernetes.core.k8s:
-        kubeconfig: "{{ keycloak_kubeconfig_path }}"
-        state: present
-        definition: "{{ lookup('template', 'realmimport.yaml.j2') | from_yaml_all | list }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
-
-    - name: Wait for Keycloak realm import to complete
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} wait --for=condition=Done
-          keycloakrealmimport/{{ keycloak_realm }}-realm
-          --namespace {{ keycloak_namespace }}
-          --timeout={{ keycloak_ready_timeout_seconds }}s
-      environment:
-        KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_realm_done
-      changed_when: false
-      when:
-        - not ansible_check_mode
-        - keycloak_operator_install_method | default('manifests') == 'manifests'
+      when: not ansible_check_mode
 
     # Gate realm reconciliation on a settled workload. On a fresh deploy the
     # DB Secret, the server bootstrap, and the admin-REST calls below all need a
     # stable target, so wait until the rollout is complete before reconciling.
-    # The operator renders a StatefulSet; the operator-less path a Deployment.
-    # The race this guards against is the same either way, so the workload kind
-    # is a variable rather than the task being duplicated.
+    # Operatorless path always renders a Deployment.
     - name: Wait for Keycloak rollout before realm reconciliation
       ansible.builtin.command:
         cmd: >-
-          {{ kubectl_bin }} rollout status {{ keycloak_workload_kind }}/{{ keycloak_cr_name }}
+          {{ kubectl_bin }} rollout status deployment/{{ keycloak_cr_name }}
           --namespace {{ keycloak_namespace }}
-          --timeout={{ keycloak_statefulset_rollout_timeout_seconds }}s
+          --timeout={{ keycloak_deployment_rollout_timeout_seconds }}s
       environment:
         KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-      register: _keycloak_statefulset_rollout
+      register: _keycloak_deployment_rollout
       changed_when: false
       when: not ansible_check_mode
 

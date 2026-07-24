@@ -4,35 +4,35 @@
     teardown_role_target_namespaces: >-
       {{ (teardown_role_target_namespaces | default([])) + [keycloak_namespace] | unique }}
 
-- name: Delete KeycloakRealmImport (ignore if absent)
+- name: Delete Keycloak Deployment (ignore if absent)
   ansible.builtin.command:
     cmd: >-
-      {{ kubectl_bin }} delete keycloakrealmimport {{ keycloak_realm }}-realm
-      -n {{ keycloak_namespace }} --ignore-not-found
-  environment:
-    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_td_realm
-  changed_when: "'deleted' in (_kc_td_realm.stdout | default(''))"
-  failed_when: false
-
-- name: Delete Keycloak custom resource (ignore if absent)
-  ansible.builtin.command:
-    cmd: >-
-      {{ kubectl_bin }} delete keycloak {{ keycloak_cr_name }}
+      {{ kubectl_bin }} delete deployment {{ keycloak_cr_name }}
       -n {{ keycloak_namespace }} --ignore-not-found --timeout=120s
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_td_cr
-  changed_when: "'deleted' in (_kc_td_cr.stdout | default(''))"
+  register: _kc_td_deploy
+  changed_when: "'deleted' in (_kc_td_deploy.stdout | default(''))"
   failed_when: false
 
-- name: Delete Keycloak Operator (ignore if absent)
+- name: Delete Keycloak Service (ignore if absent)
   ansible.builtin.command:
     cmd: >-
-      {{ kubectl_bin }} delete -n {{ keycloak_namespace }}
-      -f {{ keycloak_k8s_resources_base_url }}/kubernetes.yml --ignore-not-found
+      {{ kubectl_bin }} delete service {{ keycloak_service_name }}
+      -n {{ keycloak_namespace }} --ignore-not-found
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_td_operator
-  changed_when: "'deleted' in (_kc_td_operator.stdout | default(''))"
+  register: _kc_td_service
+  changed_when: "'deleted' in (_kc_td_service.stdout | default(''))"
+  failed_when: false
+
+- name: Delete Keycloak realm import Secret (ignore if absent)
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} delete secret {{ keycloak_realm_import_secret_name }}
+      -n {{ keycloak_namespace }} --ignore-not-found
+  environment:
+    KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
+  register: _kc_td_realm_secret
+  changed_when: "'deleted' in (_kc_td_realm_secret.stdout | default(''))"
   failed_when: false

@@ -6,31 +6,9 @@ keycloak_enabled: false
 keycloak_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
 keycloak_work_dir: /opt/keycloak
 
-# ── Keycloak server: operator vs operator-less ──────────────────────────────────
-# How the Keycloak server is deployed.
-#
-#   manifests — apply the upstream community operator AND its CRDs from
-#               keycloak-k8s-resources, then drive it with Keycloak and
-#               KeycloakRealmImport CRs. Correct only on a cluster armory owns
-#               outright, because those CRDs are CLUSTER-SCOPED.
-#   none      — no operator and no CRDs. Run the server as a plain Deployment
-#               (keycloak-deployment.yaml.j2) and let Keycloak import the realm
-#               itself at first boot via --import-realm. Produces the same
-#               Service name and realm, so nothing downstream can tell.
-#
-# DANGER: on a shared cluster, `manifests` server-side-applies community CRDs
-# over whatever already owns keycloaks.k8s.keycloak.org. If another tenant's
-# Keycloak (e.g. an OLM-managed Red Hat build) depends on those CRDs, this can
-# mutate their schema and break that tenant's SSO. Never set `manifests` on a
-# cluster you do not own end to end.
-#
-# `none` is also what severs the coupling: co-owning those CRDs would tie
-# armory's Keycloak to the other tenant's operator upgrade cadence.
-keycloak_operator_install_method: manifests
-
-# Workload kind the chosen path produces. The operator renders a StatefulSet;
-# the operator-less path a Deployment. Consumed by the rollout gate.
-keycloak_workload_kind: statefulset
+# ── Keycloak server (operatorless-only) ───────────────────────────────────────
+# The OpenShift-isolated branch always deploys Keycloak as a plain Deployment
+# (no operator, no Keycloak CRDs).
 
 # Server image, operator-less path only (the operator picks its own).
 keycloak_image: "quay.io/keycloak/keycloak:26.5.2"
@@ -53,35 +31,19 @@ keycloak_resources_requests_cpu: 500m
 keycloak_resources_requests_memory: 1Gi
 keycloak_resources_limits_cpu: "2"
 keycloak_resources_limits_memory: 2Gi
-
-# Pin to a keycloak-k8s-resources tag (matches the Keycloak server version the
-# operator deploys). Operator, CRDs, and server image all track this tag.
-# Only consulted when keycloak_operator_install_method == 'manifests'.
-keycloak_operator_version: "26.5.2"
-keycloak_k8s_resources_base_url: "https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/{{ keycloak_operator_version }}/kubernetes"
-keycloak_operator_deployment_name: keycloak-operator
-keycloak_crd_keycloaks: keycloaks.k8s.keycloak.org
-keycloak_crd_realmimports: keycloakrealmimports.k8s.keycloak.org
-# Upstream operator startup probe (~35s) + 700m CPU limit are too tight for
-# slow/CPU-throttled hosts where the Quarkus operator boots in ~45s+. Patch both.
-keycloak_operator_startup_probe_failurethreshold: 40
-keycloak_operator_cpu_limit: "2"
-keycloak_operator_rollout_timeout_seconds: 600
+keycloak_deployment_rollout_timeout_seconds: 600
 
 # ── Keycloak custom resource ────────────────────────────────────────────────────
 keycloak_cr_name: keycloak
 keycloak_instances: 1
-# Operator-created Service derives from the CR name.
+# Service name is intentionally preserved for downstream compatibility.
 keycloak_service_name: "{{ keycloak_cr_name }}-service"
 keycloak_service_port: 8080
 keycloak_service_https_port: 8443
 
 # ── Master bootstrap admin (OpenBao-generated) ──────────────────────────────────
-# By default the operator auto-creates a `<cr-name>-initial-admin` Secret with a
-# throwaway `temp-admin` user. Instead we provision the bootstrap admin from an
-# OpenBao-generated credential and point spec.bootstrapAdmin.user.secret at it, so
-# no platform credential lives outside OpenBao. Consumers (headlamp, readiness)
-# read this Secret. Only consumed at first Keycloak creation.
+# Bootstrap admin is provisioned from OpenBao-generated credentials. The
+# Deployment consumes this Secret via KC_BOOTSTRAP_ADMIN_* env vars.
 keycloak_bootstrap_admin_secret_name: keycloak-bootstrap-admin
 keycloak_bootstrap_admin_username: armory-admin
 keycloak_openbao_bootstrap_admin_path: keycloak/bootstrap-admin
@@ -89,7 +51,7 @@ keycloak_openbao_bootstrap_admin_path: keycloak/bootstrap-admin
 # ClusterIP service) are not redirected to the public host. Equivalent to the
 # old KC_HOSTNAME_STRICT=false patch.
 keycloak_hostname_strict: false
-# Timeout (seconds) waiting for the Keycloak CR to reach Ready (cold-JVM start).
+# Timeout (seconds) waiting for Keycloak availability (cold-JVM start).
 keycloak_ready_timeout_seconds: 900
 keycloak_statefulset_rollout_timeout_seconds: 900
 
