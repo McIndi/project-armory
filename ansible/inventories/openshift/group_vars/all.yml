@@ -31,12 +31,6 @@ kubectl_bin: oc
 # being a stylistic split.
 armory_privileged_tasks: false
 
-# The controller is OUTSIDE the cluster network, so it cannot reach a ClusterIP
-# or resolve *.svc.cluster.local. common/tasks/prepare_internal_https_caller.yml
-# therefore tunnels with `oc port-forward` and aliases the internal FQDN to
-# loopback, which keeps the TLS SAN (and every *_api_addr) unchanged.
-internal_https_caller_mode: port_forward
-
 # --- Components the cluster already provides: DO NOT INSTALL -----------------
 # cert-manager is installed cluster-wide (openshift-cert-manager-operator
 # v1.20.0) and its CRDs are cluster-scoped singletons. A second install would

@@ -84,9 +84,9 @@ readiness_check_http_redirect_status_codes:
 readiness_check_http_redirect_hosts:
   - "{{ readiness_check_public_domain }}"
 readiness_check_ingress_http_policy: "{{ ingress_http_policy | default('redirect-only') }}"
-# firewalld zone the envoy_gateway role manages the HTTP port in; used to verify
-# the 80/tcp closure when ingress_http_policy is 'disabled'.
-readiness_check_ingress_firewall_zone: "{{ envoy_gateway_firewall_zone | default('public') }}"
+# firewalld zone the node-level edge exposure used to manage on k3s; retained
+# here only as a harmless fallback for the host-path readiness check.
+readiness_check_ingress_firewall_zone: public
 
 # ── Trace-context trust boundary verification ─────────────────────────────────
 # Deploys an ephemeral header-echo backend behind the gateway, sends a forged
@@ -111,9 +111,9 @@ readiness_check_edge_port: "{{ envoy_proxy_listen_port | default(8443) }}"
 readiness_check_edge_probe_via_port_forward: true
 readiness_check_edge_probe_ip: 127.0.0.1
 readiness_check_edge_probe_port: "{{ envoy_proxy_listen_port | default(8443) }}"
-# Matches envoy_gateway role defaults (invisible across roles).
-readiness_check_tracing_enabled: "{{ envoy_gateway_tracing_enabled | default(true) }}"
-readiness_check_trace_forensic_header: "{{ envoy_gateway_trace_forensic_header | default('x-external-traceparent') }}"
+# Matches envoy_proxy role defaults (invisible across roles).
+readiness_check_tracing_enabled: "{{ envoy_proxy_tracing_enabled | default(true) }}"
+readiness_check_trace_forensic_header: "{{ envoy_proxy_trace_forensic_header | default('x-external-traceparent') }}"
 # Deliberately recognizable forged identifiers.
 readiness_check_trace_forged_trace_id: "11111111111111111111111111111111"
 readiness_check_trace_forged_traceparent: "00-{{ readiness_check_trace_forged_trace_id }}-2222222222222222-01"

@@ -17,7 +17,6 @@
   changed_when: _common_port_forward_reap.rc == 0
   failed_when: false
   when:
-    - internal_https_caller_mode | default('cluster_ip') == 'port_forward'
     - not ansible_check_mode
 
 - name: Drop the loopback aliases added for internal HTTPS callers
@@ -27,6 +26,5 @@
     state: absent
   become: true
   when:
-    - internal_https_caller_mode | default('cluster_ip') == 'port_forward'
     - common_port_forward_clear_hosts | default(true) | bool
     - not ansible_check_mode

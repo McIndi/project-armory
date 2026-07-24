@@ -4,14 +4,10 @@
 #
 # The FQDN is always preserved — it is the name in the server certificate's SAN,
 # and every caller addresses the service by it. Only what the name RESOLVES TO
-# differs by mode, so no certificate, URL, or *_addr variable ever has to change:
-#
-#   cluster_ip   — the controller is itself a cluster node (k3s), so it can route
-#                  straight to the Service ClusterIP.
-#   port_forward — the controller sits outside the cluster (OpenShift), where
-#                  ClusterIPs are unroutable and *.svc.cluster.local does not
-#                  resolve. Tunnel in with `port-forward` and alias the FQDN to
-#                  loopback.
+# differs by network path, so no certificate, URL, or *_addr variable ever has to
+# change. In this OpenShift-only branch the controller is outside the cluster,
+# so ClusterIPs are unroutable and *.svc.cluster.local does not resolve. Tunnel
+# in with `port-forward` and alias the FQDN to loopback.
 #
 # Inputs:
 #   common_internal_https_dns_kubeconfig_path
@@ -40,38 +36,8 @@
       }}
   changed_when: false
 
-- name: Reach the internal HTTPS service by ClusterIP
-  when:
-    - internal_https_caller_mode | default('cluster_ip') == 'cluster_ip'
-    - not ansible_check_mode
-  block:
-    - name: Get the service ClusterIP
-      ansible.builtin.command:
-        cmd: >-
-          {{ kubectl_bin }} get service {{ common_internal_https_dns_service_name }}
-          --namespace {{ common_internal_https_dns_service_namespace }}
-          -o jsonpath={.spec.clusterIP}
-      environment:
-        KUBECONFIG: "{{ common_internal_https_dns_kubeconfig_path }}"
-      register: _common_internal_https_dns_cluster_ip
-      changed_when: false
-      until: (_common_internal_https_dns_cluster_ip.stdout | trim | length) > 0
-      retries: 30
-      delay: 2
-
-    - name: Point the internal FQDN at the service ClusterIP
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        regexp: '^\S+\s+{{ _common_internal_https_dns_fqdn | regex_escape }}\s*$'
-        line: "{{ _common_internal_https_dns_cluster_ip.stdout | trim }} {{ _common_internal_https_dns_fqdn }}"
-        owner: root
-        group: root
-        mode: "0644"
-      become: true
-
 - name: Reach the internal HTTPS service through a port-forward tunnel
   when:
-    - internal_https_caller_mode | default('cluster_ip') == 'port_forward'
     - not ansible_check_mode
   block:
     - name: Resolve the service port to tunnel

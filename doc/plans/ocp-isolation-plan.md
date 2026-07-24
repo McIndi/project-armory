@@ -33,6 +33,38 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Corrected a post-Phase-2 regression where
+  `ansible/roles/envoy_gateway/defaults/main.yml` had been accidentally
+  resurrected in commit `eb24a2e` after the role-tree deletion in `f6d8911`.
+  Deleted the orphaned defaults file again so no partial `envoy_gateway` role
+  remains on disk, and updated
+  `roles/readiness_check/defaults/main.yml` to stop reading deleted
+  `envoy_gateway_*` trace/firewall vars, using the live `envoy_proxy_*`
+  trace defaults instead. Local Vagrant validation passed for
+  `playbooks/site.yml` and `playbooks/bootstrap.yml` (`--syntax-check` and
+  `--check`, both `failed=0`), and the task-list diff
+  (`/tmp/now-site-step11.txt` -> `/tmp/now-site-step12.txt`) was empty for
+  both playbooks as expected for inert-code cleanup. Remaining `envoy_gateway`
+  mentions under `ansible/` are doc-only comments/README text, to be handled
+  in the later comment scrub.
+
+- [x] 2026-07-24: Completed the Phase 3 `internal_https_caller_mode`
+  selector collapse to the OpenShift-only port-forward path.
+  Removed the dead ClusterIP branch from
+  `roles/common/tasks/prepare_internal_https_caller_dns.yml`, removed
+  `internal_https_caller_mode` gating from
+  `roles/common/tasks/stop_port_forwards.yml`, and deleted the now-obsolete
+  selector vars/comments from both inventories plus
+  `roles/common/defaults/main.yml`. Local validation passed for
+  `playbooks/site.yml` and `playbooks/bootstrap.yml` (`--syntax-check` and
+  `--check`, both `failed=0`). Task-list diff
+  (`/tmp/now-site-step10.txt` -> `/tmp/now-site-step11.txt`) showed only the
+  expected removal of the two ClusterIP helper tasks in the two include call
+  sites (no `bootstrap.yml` delta), and static include/import target checks
+  found no missing referenced files.
+  Next intended Phase 3 slice: collapse `keycloak_operator_install_method`
+  to the `none` / operatorless Keycloak path.
+
 - [x] 2026-07-24: Completed the Phase 2 `envoy_gateway` role-tree deletion.
   Deleted the complete `roles/envoy_gateway/` tree (defaults, meta, tasks,
   templates, and README). This closes the last k3s-only role directory that
