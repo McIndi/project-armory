@@ -33,6 +33,50 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed the Phase 2 close-out boundary items.
+  Merged `playbooks/site.yml` back to a single play after confirming the old
+  split no longer served any handler-flush purpose: the surviving early roles
+  (`env_guard`, `helm`) declare no `notify` or `handlers`, so the removed k3s
+  restart rationale was dead. Also removed the leftover empty directory
+  skeletons `ansible/roles/delve/`, `ansible/roles/headlamp/`, and
+  `charts/delve/`. Local validation in Vagrant passed:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift
+  playbooks/site.yml --syntax-check`, `... playbooks/bootstrap.yml
+  --syntax-check`, `... playbooks/site.yml --check`, and
+  `... playbooks/bootstrap.yml --check` all completed with `failed=0`.
+  The `site.yml --list-tasks` diff versus the Phase 1 baseline showed the
+  expected cumulative Phase 2 removals plus the disappearance of the obsolete
+  second-play wrapper, with no unexpected task loss.
+
+- [x] 2026-07-24: Teardown follow-up hardening after review.
+  Updated `playbooks/teardown_openshift.yml` so namespace deletion now waits
+  for completion (`wait: true`, `wait_timeout: 300`) to avoid immediate
+  bootstrap reruns failing on namespaces still in `Terminating`. Also added a
+  header callout that tearing down the OpenBao namespace deletes its PVC and
+  stored PKI/KV data. Local validation in Vagrant passed:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift
+  playbooks/teardown_openshift.yml --syntax-check`,
+  `... --list-tasks -e teardown_confirm=true`, plus unchanged syntax-check
+  passes for `playbooks/site.yml` and `playbooks/bootstrap.yml`.
+
+- [x] 2026-07-23: Completed the remaining additive Phase 2 playbook step
+  (`teardown_openshift.yml`).
+  Added `playbooks/teardown_openshift.yml` with a hard confirmation gate
+  (`teardown_confirm=true`) plus a cluster-admin preflight, and explicit
+  deletion scope for armory-owned resources only: the five `tex26-*`
+  namespaces, `tex26-automation` ClusterRole/ClusterRoleBinding,
+  `openbao-tokenreview` ClusterRoleBinding, ClusterIssuers
+  `tex26-openbao-pki-internal` and `tex26-openbao-pki-external`,
+  cross-namespace Role/RoleBinding pairs (`tex26-automation-ca-writer`,
+  `cert-manager-tokenrequest`, `tex26-automation-root-ca-reader`), and the
+  armory-managed OpenBao CA secret copy in namespace `cert-manager`.
+  The playbook intentionally does not helm-uninstall or mutate the shared
+  cert-manager installation. Local validation in Vagrant passed:
+  `ANSIBLE_ROLES_PATH=roles ansible-playbook -i inventories/openshift
+  playbooks/teardown_openshift.yml --syntax-check`,
+  `... --list-tasks -e teardown_confirm=true`, plus unchanged syntax-check
+  passes for `playbooks/site.yml` and `playbooks/bootstrap.yml`.
+
 - [x] 2026-07-23: Completed a eighth Phase 2 slice (remove `delve`).
   Deleted `roles/delve/` and `charts/delve/`, removed the `delve` role entry
   from `playbooks/site.yml`, and scrubbed the leftover Delve inventory knobs

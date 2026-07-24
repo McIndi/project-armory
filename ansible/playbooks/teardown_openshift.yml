@@ -1,0 +1,136 @@
+---
+# Destructive OpenShift teardown for armory-owned resources only.
+#
+# RUN THIS AS A CLUSTER-ADMIN and only when teardown_confirm=true is set.
+# Deleting the OpenBao namespace also deletes its PVC and all stored PKI/KV data.
+# This playbook intentionally avoids helm-uninstalling cert-manager or mutating
+# the shared cluster cert-manager install.
+- name: Teardown armory OpenShift footprint
+  hosts: all
+  gather_facts: false
+  vars:
+    teardown_target_namespaces:
+      - "{{ keycloak_namespace | default('tex26-oidc') }}"
+      - "{{ openbao_namespace | default('tex26-vault') }}"
+      - "{{ envoy_proxy_namespace | default('tex26-gateway') }}"
+      - "{{ registry_namespace | default('tex26-oci-registry') }}"
+      - "{{ automation_rbac_sa_namespace | default('tex26-automation') }}"
+
+  pre_tasks:
+    - name: Require explicit teardown confirmation
+      ansible.builtin.assert:
+        that:
+          - teardown_confirm | default(false) | bool
+        fail_msg: >-
+          Refusing teardown. Re-run with -e teardown_confirm=true to confirm
+          destructive deletion of armory OpenShift resources.
+        success_msg: teardown_confirm=true acknowledged.
+
+    - name: Confirm this is running with cluster-admin rights
+      ansible.builtin.command:
+        cmd: "{{ kubectl_bin | default('oc') }} auth can-i create clusterrolebindings"
+      environment:
+        KUBECONFIG: "{{ k3s_kubeconfig_path | default(armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true), true) }}"
+      register: _teardown_admin_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail early if this is not a cluster-admin session
+      ansible.builtin.assert:
+        that:
+          - _teardown_admin_check.stdout is search('^yes')
+        fail_msg: >-
+          teardown_openshift.yml must run as cluster-admin because it deletes
+          cluster-scoped RBAC and ClusterIssuers.
+        success_msg: Running with cluster-admin rights.
+      when: not ansible_check_mode
+
+  tasks:
+    - name: Delete armory ClusterIssuers
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k3s_kubeconfig_path | default(armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true), true) }}"
+        state: absent
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: "{{ item }}"
+      loop:
+        - "{{ certmanager_openbao_internal_clusterissuer_name | default('tex26-openbao-pki-internal') }}"
+        - "{{ certmanager_openbao_external_clusterissuer_name | default('tex26-openbao-pki-external') }}"
+      when: not ansible_check_mode
+
+    - name: Delete namespace-scoped RBAC grants outside armory namespaces
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k3s_kubeconfig_path | default(armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true), true) }}"
+        state: absent
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: "{{ item.kind }}"
+          metadata:
+            name: "{{ item.name }}"
+            namespace: "{{ item.namespace }}"
+      loop:
+        - kind: RoleBinding
+          name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-ca-writer"
+          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+        - kind: Role
+          name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-ca-writer"
+          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+        - kind: RoleBinding
+          name: "{{ certmanager_release_name | default('cert-manager') }}-tokenrequest"
+          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+        - kind: Role
+          name: "{{ certmanager_release_name | default('cert-manager') }}-tokenrequest"
+          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+        - kind: RoleBinding
+          name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-root-ca-reader"
+          namespace: "{{ automation_rbac_kube_public_namespace | default('kube-public') }}"
+        - kind: Role
+          name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-root-ca-reader"
+          namespace: "{{ automation_rbac_kube_public_namespace | default('kube-public') }}"
+      when: not ansible_check_mode
+
+    - name: Delete armory-managed CA secret copy in cert-manager namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k3s_kubeconfig_path | default(armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true), true) }}"
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
+            namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+      when: not ansible_check_mode
+
+    - name: Delete armory cluster-scoped RBAC
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k3s_kubeconfig_path | default(armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true), true) }}"
+        state: absent
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: "{{ item.kind }}"
+          metadata:
+            name: "{{ item.name }}"
+      loop:
+        - kind: ClusterRoleBinding
+          name: openbao-tokenreview
+        - kind: ClusterRoleBinding
+          name: "{{ automation_rbac_sa_name | default('tex26-automation') }}"
+        - kind: ClusterRole
+          name: "{{ automation_rbac_sa_name | default('tex26-automation') }}"
+      when: not ansible_check_mode
+
+    - name: Delete armory namespaces
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k3s_kubeconfig_path | default(armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true), true) }}"
+        state: absent
+        wait: true
+        wait_timeout: 300
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ item }}"
+      loop: "{{ teardown_target_namespaces | unique }}"
+      when: not ansible_check_mode

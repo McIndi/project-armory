@@ -43,16 +43,6 @@
       tags:
         - helm
         - helm_install
-
-# k3s's "restart k3s" handler (notified by config/install changes above) does not
-# flush until the end of a play. Ending the play here guarantees any pending k3s
-# restart happens now, before later roles deploy workloads and before
-# readiness_check runs — otherwise readiness_check can pass against a control
-# plane that is about to be bounced out from under every running pod.
-- name: Deploy platform workloads onto a stable k3s control plane
-  hosts: all
-  gather_facts: false
-  roles:
     - role: openbao
       tags:
         - openbao
