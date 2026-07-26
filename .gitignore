@@ -1,3 +1,4 @@
+.trailhead/
 log/hosts/*
 !log/hosts/.empty
 .images
