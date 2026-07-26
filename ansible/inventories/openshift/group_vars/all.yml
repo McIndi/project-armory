@@ -228,16 +228,6 @@ registry_storage_class: "{{ armory_storage_class }}"
 registry_pull_secret_namespaces: []
 
 # --- Readiness ---------------------------------------------------------------
-# Checks that probe the node or the k3s control plane have nothing to look at:
-# the nodes are RHCOS and not ours, and there is no k3s. Everything else still
-# runs.
-readiness_check_host_enabled: false
-readiness_check_k3s_enabled: false
-# check_gateway inspects Envoy Gateway's Gateway/GatewayClass objects, which do
-# not exist here. The trace-boundary check below is what actually proves the edge
-# works, and it is far more informative than a "the Gateway is Programmed" probe.
-readiness_check_gateway_enabled: false
-
 readiness_check_keycloak_enabled: true
 
 # These two carry hardcoded defaults with no fallback through the shared vars, so

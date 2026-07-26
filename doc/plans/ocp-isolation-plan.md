@@ -31,15 +31,37 @@ Ground rules for the implementer:
 - Delete, don't comment out. Remove `when:`s that become tautological.
 - Commit per phase, message prefix `isolate(ocp):`.
 
-## Current position (2026-07-24)
+## Current position (2026-07-26)
 
-Phases 0–3 complete. **Next work: Phase 4, slice 1** (delete the readiness_check
-k3s/host/gateway checks — the largest live-code chunk). Phase 4 slices are ordered
-and independent; do them one commit at a time, §V gate between each. Then Phase 5.
+Phases 0–3 complete; **Phase 4 slice 1 is now complete**. **Next work: Phase 4,
+slice 2** (delete the dead `edge_gateway_*` family and `resolve_edge_gateway_ip`
+invocation chain). Phase 4 slices are ordered and independent; do them one commit
+at a time, §V gate between each. Then Phase 5.
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-26: Completed Phase 4 slice 1 (readiness_check k3s/host/gateway
+  removal).
+  Deleted `roles/readiness_check/tasks/check_host.yml`,
+  `roles/readiness_check/tasks/check_k3s.yml`, and
+  `roles/readiness_check/tasks/check_gateway.yml`; removed the three matching
+  includes from `roles/readiness_check/tasks/main.yml`; dropped the associated
+  readiness toggles/defaults (`readiness_check_{host,k3s,gateway}_enabled`,
+  `readiness_check_required_packages`, gateway label/namespace vars,
+  `readiness_check_ingress_probe_ip`, and
+  `readiness_check_ingress_firewall_zone`) from
+  `roles/readiness_check/defaults/main.yml`; and removed the now-dead OpenShift
+  inventory overrides for those toggles from
+  `inventories/openshift/group_vars/all.yml`.
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  `site.yml --list-tasks` diff (`/tmp/now-site-step13.txt` ->
+  `/tmp/now-site-step14.txt`) showed only the expected removal of the three
+  readiness includes; `bootstrap.yml --list-tasks` diff
+  (`/tmp/now-bootstrap-step13.txt` -> `/tmp/now-bootstrap-step14.txt`) was
+  empty; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`.
 
 - [x] 2026-07-24: Completed a Phase 3 kubeconfig-selector cleanup slice
   (`k3s_kubeconfig_path` -> `armory_kubeconfig_path`).
