@@ -31,6 +31,14 @@ Ground rules for the implementer:
 - Delete, don't comment out. Remove `when:`s that become tautological.
 - Commit per phase, message prefix `isolate(ocp):`.
 
+## Current position (2026-07-24)
+
+Phases 0–3 complete. **Next work: Phase 4, slice 1** (delete the readiness_check
+k3s/host/gateway checks — the largest live-code chunk). Phase 4 slices are ordered
+and independent; do them one commit at a time, §V gate between each. Then Phase 5.
+Objective progress metric is the k3s burn-down grep in §V — it is high right now
+and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
+
 ## Progress log
 
 - [x] 2026-07-24: Completed a Phase 3 kubeconfig-selector cleanup slice
@@ -561,63 +569,117 @@ Playbooks:
   shared cert-manager install.** (VSO handling: none needed — Phase 1 removed it
   before anything was ever deployed.)
 
-## Phase 3 — Collapse the platform selectors
+## Phase 3 — Collapse the platform selectors — ✅ COMPLETE (2026-07-24)
 
-Keep only the OCP branch, delete the variable and tautological `when:`s:
+All eight selector rows collapsed to their OCP value and the variable deleted.
+Verified: no `target_platform`, `edge_kind`, `armory_scheduler_kind`,
+`internal_https_caller_mode`, `keycloak_operator_install_method`,
+`keycloak_workload_kind`, or `k3s_kubeconfig_path` remain anywhere in `ansible/`;
+`kubectl_bin` defaults to `oc`. Kept for cause: `keycloak_cr_name` (names the
+Deployment and stems `keycloak-service`, which is load-bearing per handoff — the
+name is now a misnomer, flagged for a Phase 5 rename, not a deletion).
 
-| Variable | Keep | Delete |
-|---|---|---|
-| `target_platform` | (gone) | all 6 `== 'k3s'` gates in site.yml; the assert in `keycloak/tasks/main.yml:16` |
-| `edge_kind` | `route` / `route_envoy` | `httproute` branches in `openbao/tasks/route.yml`, keycloak HTTPRoute apply, `readiness_check/tasks/main.yml`; `*/templates/httproute.yaml.j2`; `common/tasks/apply_backend_ca_configmap.yml` **iff** grep shows no remaining caller |
-| `armory_scheduler_kind` | `cronjob` | systemd/host-script halves of `openbao/tasks/audit_rotate.yml`, `keycloak/tasks/admin_events_prune.yml`; systemd tasks in `openbao/tasks/teardown.yml` |
-| `internal_https_caller_mode` | `port_forward` | `cluster_ip` branch in `common/tasks/prepare_internal_https_caller_dns.yml` |
-| `keycloak_operator_install_method` | `none` | operator/manifest install paths in keycloak main.yml; `keycloak.yaml.j2`; `keycloak_k8s_resources_base_url`; operator tasks in `keycloak/tasks/teardown.yml`. Refactor `deploy_operatorless.yml`: realm body moves from `realmimport.yaml.j2` lift-out to a direct `realm.json.j2`; delete `realmimport.yaml.j2` |
-| `keycloak_workload_kind` | `deployment` | any other branch |
-| `kubectl_bin` | keep var, default `oc` | the `k3s kubectl` default; grep-fix stray hardcoded `k3s kubectl` |
-| `k3s_kubeconfig_path` | rename `armory_kubeconfig_path` everywhere (incl. bootstrap.yml `KUBECONFIG:`) | the alias line in the inventory |
+Record of what each row became (for audit; do not re-do):
 
-## Phase 4 — Inventory collapse + per-role residue
+| Variable | Outcome |
+|---|---|
+| `target_platform` | gone; `envoy_gateway` role + Keycloak assert deleted |
+| `edge_kind` | gone; both `route.yml` files + `httproute.yaml.j2` + `apply_backend_ca_configmap.yml` deleted; live edge is `envoy_proxy/templates/routes.yaml.j2` |
+| `armory_scheduler_kind` | gone; CronJob-only; host-timer scripts + systemd teardown removed |
+| `internal_https_caller_mode` | gone; port-forward is unconditional |
+| `keycloak_operator_install_method` / `keycloak_workload_kind` | gone; `keycloak.yaml.j2` + `realmimport.yaml.j2` deleted; realm body now `realm.json.j2` (YAML source → `to_json`) |
+| `kubectl_bin` | default now `oc` |
+| `k3s_kubeconfig_path` | renamed `armory_kubeconfig_path` across ~11 roles + `bootstrap.yml`/`teardown_openshift.yml`; k3s fallback path removed |
 
-- Delete `inventories/development/` entirely. `inventories/openshift/` remains (no rename).
-- Move now-only-possible values into role defaults (`postgres-openshift.yaml.j2`
-  becomes the only `postgres.yaml.j2`; `keycloak_pg_image`; `openbao_disable_mlock`;
-  `openbao_scc_name`). Keep cluster facts in inventory (apps domain, hostnames,
-  `tex26-*` namespaces, storage class, labels, break-glass/watcher toggles,
-  `keycloak_openbao_*_path` KV paths).
-- **openbao**: delete `openbao_firewall_*` + firewalld task; `openbao_node_port`;
-  the "UI host resolves to gateway IP" `/etc/hosts` task + `openbao_ingress_ip_effective`.
-- **cert_manager**: delete `install.yml`, helm/chart vars, `certmanager_install_enabled`
-  (reuse-only is the only mode); keep `rbac.yml` + `issuer.yml`.
-- **readiness_check**: delete `check_k3s.yml`, `check_host.yml`, `check_gateway.yml`,
-  `check_trace_boundary.yml` (Gateway-API variant) + their toggles; keep
-  `check_trace_boundary_envoy.yml`, openbao/keycloak/helm checks.
-- **openbao_oidc — the one genuine unknown**: the Envoy-Gateway data-plane lookup +
-  StatefulSet hostAlias patch/pod-recreate chain looks k3s-only (public Route hosts
-  should resolve from pods via ordinary DNS on OCP). **Verify how
-  `openbao_oidc_resolver_host` is set for OCP before deleting; if ambiguous, flag to
-  Cliff — do not guess.**
-- **common**: delete helpers left with zero callers (candidates:
-  `resolve_edge_gateway_ip.yml`, `lookup_gateway_service.yml`,
-  `apply_backend_ca_configmap.yml`); keep `bind_scc.yml`, `apply_certificate.yml`,
-  `copy_openbao_ca_secret.yml`, `write_ca_file_from_secret.yml`,
-  `prepare_internal_https_caller*.yml`, `stop_port_forwards.yml`,
-  `load_openbao_*_token.yml`.
-- **helm**: delete dnf-install path + `helm_package_*` vars; keep version check +
-  diff-plugin install.
-- **automation_rbac**: default kubeconfig off `/etc/rancher/k3s/k3s.yaml`.
-- **filter_plugins/edge_network.py**: delete if grep shows k3s-only usage.
-- **scripts/capture_run_snapshot.sh**: remove k3s references.
+## Phase 4 — Residue sweep (k3s code + inventory collapse) — IN PROGRESS
+
+> **Reality check (2026-07-24):** the four selector *families* are gone, but ~90
+> `k3s` hits remain — most are comments (Phase 5), but several are **live k3s
+> code still on disk**, inert only because an `_enabled` toggle is false on OCP.
+> Track progress by the objective burn-down, not by "the selector is gone":
+> ```bash
+> grep -rc "k3s" ansible/ --include="*.yml" --include="*.j2" | grep -v ':0' | sort -t: -k2 -rn
+> ```
+> Phase 4 drives the *code* hits to zero; Phase 5 drives the *comment* hits to zero.
+
+**Already done opportunistically during Phase 3 (do not re-do):**
+- `common/tasks/apply_backend_ca_configmap.yml` — deleted (edge_kind slice).
+- `common/tasks/lookup_gateway_service.yml` — deleted (hostAlias slice).
+- `readiness_check/tasks/check_trace_boundary.yml` (Gateway-API variant) — deleted.
+- **openbao_oidc hostAlias/gateway-lookup "unknown" — RESOLVED.** The chain was
+  dead on OCP (gated on a Service that only `envoy_gateway` created) and is
+  deleted. The *operational* question it papered over — can the OpenBao pod
+  hairpin to the public Keycloak issuer — is now recorded as handoff §7 #10 with
+  the in-namespace-Envoy fallback. No code action remains; do not reintroduce.
+- `readiness_check` trace vars already repointed `envoy_gateway_* → envoy_proxy_*`.
+
+**Remaining — suggested slice order (one commit each, §V gate between):**
+
+1. **readiness_check k3s/host/gateway checks (biggest live-code chunk).**
+   Delete `check_k3s.yml` (~114 lines), `check_host.yml`, `check_gateway.yml`;
+   remove their three `include_tasks` from `readiness_check/tasks/main.yml`
+   (lines ~22/26/44) and the `readiness_check_{host,k3s,gateway}_enabled` toggles
+   + `readiness_check_k3s_*` / `readiness_check_gateway_*` / `_ingress_firewall_zone`
+   / `_ingress_probe_ip` defaults. Drop `k3s`/`host` from any default component
+   list. This clears ~48 of the k3s hits in one slice.
+
+2. **The `edge_gateway_*` family (fully dead now, but still invoked).**
+   Delete `common/tasks/resolve_edge_gateway_ip.yml` and its **two** invocation
+   sites (`playbooks/site.yml` pre_tasks, `playbooks/readiness_check.yml`);
+   remove `edge_gateway_ip_resolution_enabled` (both inventories); delete the
+   openbao "Resolve effective gateway IP …" + "UI host resolves to gateway IP"
+   tasks in `openbao/tasks/install.yml` and `openbao_ingress_ip_effective`;
+   delete `readiness_check_ingress_probe_ip`. Then delete **both** copies of the
+   filter plugin (`ansible/filter_plugins/edge_network.py` and
+   `ansible/roles/common/filter_plugins/edge_network.py` — its only consumer was
+   `resolve_edge_gateway_ip.yml`'s `armory_ip_in_any_cidr`; grep-confirm first).
+
+3. **openbao firewall/NodePort residue.** Delete the firewalld task in
+   `openbao/tasks/install.yml`, `openbao_firewall_*` and `openbao_node_port`
+   defaults. (`openbao_firewall_manage: false` is already set in the OCP
+   inventory; this removes the mechanism it disables.)
+
+4. **cert_manager install path.** Delete `cert_manager/tasks/install.yml`, its
+   helm/chart vars, and `certmanager_install_enabled` (reuse-only is the only
+   mode). Keep `rbac.yml` + `issuer.yml`. Remove the `install.yml` import from
+   `cert_manager/tasks/main.yml`.
+
+5. **helm dnf path.** Delete the dnf-install task + `helm_package_*` vars in the
+   `helm` role; keep the version check + diff-plugin install.
+
+6. **Delete `inventories/development/` entirely.** This is the k3s inventory;
+   removing it clears a large block of remaining k3s hits at once. (Confirm no
+   tooling references it — grep `inventories/development` across repo + scripts.)
+
+7. **Move now-only-possible values into role defaults.** Rename
+   `postgres-openshift.yaml.j2` → `postgres.yaml.j2` (delete the old k3s one if
+   any remains) and drop the `keycloak_pg_manifest_template` override; fold
+   `keycloak_pg_image`, `openbao_disable_mlock`, `openbao_scc_name` into defaults.
+   Keep genuine cluster facts in the inventory (apps domain, hostnames, `tex26-*`
+   namespaces, storage class, labels, break-glass/watcher toggles,
+   `keycloak_openbao_*_path`).
+- **scripts/capture_run_snapshot.sh**: remove k3s references (can ride any slice).
 
 ## Phase 5 — Hygiene
 
 - Add `ansible/ansible.cfg` (default inventory, `interpreter_python=auto_silent`);
   fix `INJECT_FACTS_AS_VARS` deprecations (`ansible_env.HOME` →
   `ansible_facts.env.HOME`, `ansible_user_id` → `ansible_facts.user_id`).
-- Retitle plays ("Base configuration for local Fedora VM", "…k3s control plane").
-- **Comment scrub**: rewrite comments that explain OCP choices by contrast with k3s
-  (envoy_proxy defaults/main.yml header, openbao route.yml, site.yml role comments,
-  inventory prose). Keep genuinely historical rationale in `doc/decisions/`, not in
-  task files. This step is what makes the strict §V grep gate passable.
+- Play retitle: `site.yml` play 1 already renamed to "Base configuration for
+  OpenShift deployment" (and the second k3s-control-plane play was merged out in
+  Phase 2). Nothing left here unless another play name surfaces.
+- Rename `keycloak_cr_name` → a non-CR name (e.g. `keycloak_deployment_name`);
+  it drives `keycloak-service`, so update every reference in one pass.
+- **Comment scrub (this is what makes the final `grep -rn "k3s"` gate pass).**
+  After Phase 4, the remaining k3s hits are all comments — rewrite them to
+  describe OCP behavior directly rather than by contrast with k3s. Known sites:
+  `envoy_proxy/defaults` header, `keycloak-deployment.yaml.j2`,
+  `postgres-openshift.yaml.j2`, `admin-events-prune-cronjob.yaml.j2`,
+  `audit-rotate-cronjob.yaml.j2`, `openbao/defaults` + break-glass task headers,
+  `openbao/tasks/configure.yml` "Get k3s cluster CA" (rename to "cluster CA" —
+  `kube-root-ca.crt` exists on OCP, the task is correct, only the label is wrong),
+  `helm` role headers, `cert_manager/defaults`, OCP inventory prose. Keep genuine
+  historical rationale in `doc/decisions/`, not in task files.
 - `ansible-lint`: fix findings introduced by this work only (handoff §9 stands).
 - Docs: README deploy flow; `doc/architecture.md`; `doc/operations.md` gains the
   manual-rotation runbook (Phase 1.4) and `teardown_openshift.yml`; a
@@ -631,13 +693,22 @@ cd ansible
 ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check
 ansible-playbook -i inventories/openshift playbooks/bootstrap.yml --syntax-check
 ansible-playbook -i inventories/openshift playbooks/site.yml --list-tasks > /tmp/now-site.txt
-diff /tmp/base-site-p<prev>.txt /tmp/now-site.txt      # every disappearance must be explained by this phase's table
+diff /tmp/prev-site.txt /tmp/now-site.txt   # vs the PREVIOUS slice's snapshot; every disappearance explained by this slice
 ansible-playbook -i inventories/openshift playbooks/site.yml --check      # failed=0 (templating oracle only)
 ansible-playbook -i inventories/openshift playbooks/bootstrap.yml --check # failed=0
 # include_tasks blindness compensation: no file may be referenced that no longer exists
 grep -rn "include_tasks\|import_tasks\|tasks_from" roles/ playbooks/ --include="*.yml" \
   | grep -oP "(include_tasks|import_tasks|tasks_from)[:=]?\s*\K[\w./]+\.yml" | sort -u \
   | while read f; do find roles -name "$(basename $f)" | grep -q . || echo "MISSING: $f"; done
+```
+
+Three cheap checks that catch the failure modes the gates above miss (all three
+have produced findings this run — orphan files, resurrected files, garbled
+comments are invisible to Ansible's own tooling):
+```bash
+find roles -type d -empty                          # empty role skeletons after a deletion
+git log --stat -1                                  # did this commit touch ONLY what the slice intended?
+grep -rc "k3s" ansible/ --include="*.yml" --include="*.j2" | grep -v ':0' | sort -t: -k2 -rn  # burn-down
 ```
 
 Final gates (after Phase 5; must return nothing outside `doc/`):
