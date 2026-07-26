@@ -3,7 +3,7 @@
 keycloak_enabled: false
 
 # ── General ───────────────────────────────────────────────────────────────────
-keycloak_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+keycloak_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 keycloak_work_dir: /opt/keycloak
 
 # ── Keycloak server (operatorless-only) ───────────────────────────────────────

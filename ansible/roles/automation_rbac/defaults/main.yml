@@ -12,7 +12,7 @@
 # drift apart — a grant that is missing shows up as a named error before the run
 # starts rather than a failure halfway through.
 
-automation_rbac_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+automation_rbac_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 
 # Where the ServiceAccount itself lives. Its own project, so it is not entangled
 # with any workload's namespace.

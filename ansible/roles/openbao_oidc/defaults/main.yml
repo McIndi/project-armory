@@ -1,6 +1,6 @@
 ---
 # openbao_oidc role defaults
-openbao_oidc_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+openbao_oidc_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 openbao_oidc_role_enabled: "{{ openbao_ui_enabled | default(false) | bool }}"
 
 # OpenBao deployment coordinates

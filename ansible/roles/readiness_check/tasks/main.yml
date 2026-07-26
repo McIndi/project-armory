@@ -6,7 +6,7 @@
 
 - name: Resolve kubeconfig path for readiness checks
   ansible.builtin.set_fact:
-    _readiness_kubeconfig_path: "{{ k3s_kubeconfig_path | default(readiness_check_k3s_kubeconfig) }}"
+    _readiness_kubeconfig_path: "{{ armory_kubeconfig_path | default(readiness_check_kubeconfig_path) }}"
   changed_when: false
 
 - name: Run readiness checks with diagnostics

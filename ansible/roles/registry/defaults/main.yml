@@ -17,7 +17,7 @@
 
 registry_namespace: armory-registry
 registry_name: registry
-registry_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+registry_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 
 registry_image: "docker.io/library/registry:2"
 registry_replicas: 1

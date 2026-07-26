@@ -33,6 +33,25 @@ Ground rules for the implementer:
 
 ## Progress log
 
+- [x] 2026-07-24: Completed a Phase 3 kubeconfig-selector cleanup slice
+  (`k3s_kubeconfig_path` -> `armory_kubeconfig_path`).
+  Removed the legacy alias line from
+  `inventories/openshift/group_vars/all.yml`, switched
+  `playbooks/bootstrap.yml` and `playbooks/teardown_openshift.yml` to direct
+  `armory_kubeconfig_path` usage, and updated remaining role defaults
+  (`automation_rbac`, `cert_manager`, `common`, `envoy_proxy`, `keycloak`,
+  `openbao`, `openbao_oidc`, `readiness_check`, `registry`) so they no longer
+  default through `k3s_kubeconfig_path`. Also renamed
+  `readiness_check_k3s_kubeconfig` to `readiness_check_kubeconfig_path` and
+  rewired `roles/readiness_check/tasks/main.yml` accordingly.
+  Local Vagrant validation passed for `playbooks/site.yml` and
+  `playbooks/bootstrap.yml` syntax-check plus `--check` (`failed=0` in both
+  recaps). The `site.yml --list-tasks` diff against `/tmp/now-site-step12.txt`
+  still showed the previously expected Keycloak operator/CR removal set,
+  indicating step12 was stale relative to the already-completed Keycloak
+  collapse; `/tmp/now-site-step13.txt` and `/tmp/now-bootstrap-step13.txt` are
+  the new snapshots for subsequent diffs.
+
 - [x] 2026-07-24: Completed the remaining Phase 3 Keycloak collapse slice.
   Finished the `keycloak_operator_install_method` / `keycloak_workload_kind`
   cleanup by deleting the temporary `realmimport.yaml.j2` scaffolding,

@@ -14,9 +14,6 @@
 # On k3s the Ansible controller WAS a cluster node. Here it is an external
 # workstation, so all cluster access goes through a kubeconfig + `oc`.
 armory_kubeconfig_path: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(ansible_env.HOME + '/.kube/config', true) }}"
-# Roles still reference the legacy `k3s_kubeconfig_path` name. Aliasing it here
-# means zero role edits (and therefore zero merge conflicts) for kubeconfig.
-k3s_kubeconfig_path: "{{ armory_kubeconfig_path }}"
 
 # Cluster CLI. k3s bundles kubectl behind `k3s kubectl`; OpenShift uses `oc`.
 # Roles shell out via this var instead of hardcoding the binary.

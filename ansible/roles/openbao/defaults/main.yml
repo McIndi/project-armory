@@ -1,6 +1,6 @@
 ---
 # Kubeconfig used for all cluster access from this role.
-openbao_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+openbao_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 
 # Disable OpenBao's mlock of its in-memory secret store.
 #

@@ -17,7 +17,7 @@
 
 envoy_proxy_namespace: armory-edge
 envoy_proxy_name: armory-edge
-envoy_proxy_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+envoy_proxy_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 
 envoy_proxy_image: "docker.io/envoyproxy/envoy:v1.31-latest"
 envoy_proxy_replicas: 2

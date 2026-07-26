@@ -12,7 +12,7 @@ common_openbao_provisioner_token_file: /opt/openbao/provisioner-token.yml
 armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
 
 # Shared kubeconfig path for common kubectl-based helper tasks.
-common_kubeconfig_path: "{{ k3s_kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+common_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
 
 # Lifetime of a fire-and-forget port-forward tunnel. Must comfortably outlast the
 # longest play, since the tunnel has to stay up for every task that follows the
