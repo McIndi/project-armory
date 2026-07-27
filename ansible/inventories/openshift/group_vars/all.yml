@@ -69,13 +69,6 @@ openbao_storage_class: "{{ armory_storage_class }}"
 keycloak_pg_image: quay.io/sclorg/postgresql-16-c9s
 keycloak_pg_manifest_template: postgres-openshift.yaml.j2
 
-# OpenBao's "remove legacy firewall port exposure" task manages a NodePort
-# firewall rule on the k3s node itself. OpenBao has no NodePort exposure on
-# OpenShift (it's reached via a Route -> in-namespace Envoy), and the
-# controller here is an off-cluster workstation, not the node whose firewall
-# would matter anyway -- it doesn't even have python3-firewall installed.
-openbao_firewall_manage: false
-
 # OpenBao wants the IPC_LOCK capability to mlock its memory, which restricted-v2
 # strips — granting it would mean a custom SCC carrying a privileged capability.
 # Kubernetes nodes run with swap disabled, so locking memory against swap buys

@@ -371,13 +371,3 @@
       delay: 5
       changed_when: false
   when: not ansible_check_mode
-
-- name: Remove legacy OpenBao firewall port exposure
-  ansible.posix.firewalld:
-    zone: "{{ openbao_firewall_zone }}"
-    port: "{{ openbao_node_port }}/tcp"
-    permanent: true
-    immediate: true
-    state: disabled
-  register: _openbao_firewall_port_result
-  when: openbao_firewall_manage | bool

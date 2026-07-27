@@ -29,7 +29,6 @@ Defined in `defaults/main.yml`:
 | `openbao_chart_version` | `""` | Chart version override; empty uses latest. |
 | `openbao_startup_wait_timeout` | `300s` | Timeout for pod startup wait. |
 | `openbao_ready_wait_timeout` | `600s` | Timeout for readiness checks. |
-| `openbao_node_port` | `32200` | Legacy NodePort value retained so the role can remove obsolete firewall openings on upgraded hosts. |
 | `openbao_api_addr` | `https://openbao.openbao.svc.cluster.local:8200` | API endpoint used by Ansible tasks after the role maps the service DNS name to the Service ClusterIP locally on the VM. |
 | `openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao address for integrations. |
 | `openbao_key_shares` | `5` | Shamir secret share count for initialization. |
@@ -44,8 +43,6 @@ Defined in `defaults/main.yml`:
 | `openbao_pki_cert_ttl` | `8760h` | Issued certificate max TTL. |
 | `openbao_certmanager_namespace` | `cert-manager` | Namespace used for cert-manager auth role binding. |
 | `openbao_certmanager_sa_name` | `cert-manager` | cert-manager service account bound to PKI policy. |
-| `openbao_firewall_manage` | `true` | Whether to remove obsolete public firewalld openings for legacy OpenBao NodePorts. |
-| `openbao_firewall_zone` | `public` | firewalld zone cleaned up for legacy OpenBao NodePort exposure. |
 
 ## Task flow
 1. Create local working directory.

@@ -113,10 +113,6 @@ openbao_resources_requests_memory: 256Mi
 openbao_resources_limits_cpu: "1"
 openbao_resources_limits_memory: 512Mi
 
-# Legacy NodePort that older installs may still have opened in firewalld.
-# Kept only so the role can remove the obsolete public firewall opening.
-openbao_node_port: 32200
-
 # OpenBao server TLS settings.
 openbao_tls_enabled: true
 openbao_tls_server_name: openbao.openbao.svc.cluster.local
@@ -276,13 +272,6 @@ openbao_provisioner_token_display_name: ansible-provisioner
 openbao_provisioner_kv_prefixes:
   - keycloak
   - openbao
-
-# Whether this role manages firewalld rules for OpenBao access.
-# Disable if firewall is managed externally.
-openbao_firewall_manage: true
-
-# firewalld zone used when firewall management is enabled.
-openbao_firewall_zone: public
 
 # Audit device settings. When enabled, a `file` audit device is mounted on a
 # dedicated PVC. WARNING: OpenBao blocks all requests if no enabled audit

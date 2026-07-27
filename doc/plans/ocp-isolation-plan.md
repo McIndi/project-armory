@@ -31,16 +31,31 @@ Ground rules for the implementer:
 - Delete, don't comment out. Remove `when:`s that become tautological.
 - Commit per phase, message prefix `isolate(ocp):`.
 
-## Current position (2026-07-26)
+## Current position (2026-07-27)
 
-Phases 0–3 complete; **Phase 4 slices 1 and 2 are now complete**. **Next work:
-Phase 4, slice 3** (openbao firewall/NodePort residue). Phase 4 slices are
+Phases 0–3 complete; **Phase 4 slices 1, 2, and 3 are now complete**. **Next
+work: Phase 4, slice 4** (cert_manager install path). Phase 4 slices are
 ordered and independent; do them one commit at a time, §V gate between each.
 Then Phase 5.
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-27: Completed Phase 4 slice 3 (openbao firewall/NodePort
+  residue removal).
+  Deleted the dead firewalld cleanup task from
+  `roles/openbao/tasks/install.yml`; removed the now-unused legacy defaults
+  `openbao_node_port`, `openbao_firewall_manage`, and `openbao_firewall_zone`
+  from `roles/openbao/defaults/main.yml`; removed the obsolete OpenShift
+  inventory override/comment block for `openbao_firewall_manage` from
+  `inventories/openshift/group_vars/all.yml`; and removed the matching stale
+  variable docs from `roles/openbao/README.md`.
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  fresh task snapshots were captured to `/tmp/now-site-step16.txt` and
+  `/tmp/now-bootstrap-step16.txt` and grepping those snapshots found no
+  remaining "legacy OpenBao firewall" task entry; and `--check` recaps for
+  both playbooks were `failed=0` after exporting `.env` with `set -a`.
 
 - [x] 2026-07-26: Completed Phase 4 slice 2 (`edge_gateway_*` family and
   resolver chain removal).
