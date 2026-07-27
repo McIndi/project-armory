@@ -25,10 +25,10 @@ credentials and a declarative bootstrap of the `armory` realm.
 ## Credentials
 - **Keycloak master admin** is generated in OpenBao and materialized as
   `keycloak-bootstrap-admin` (keys `username` / `password`) before first deploy
-  creation. Consumers (Headlamp, readiness) read this Secret.
-- **Realm end-user `admin`** (logs into Headlamp; bound to `cluster-admin` by k3s
-  via the `<issuer>#admin` User subject) is seeded by the realm import with the
-  password from `secret/keycloak/realm-admin`.
+  creation. Consumers (readiness and other in-cluster callers) read this Secret.
+- **Realm end-user `admin`** (logs into the cluster-admin-equivalent role via the
+  `<issuer>#admin` User subject) is seeded by the realm import with the password
+  from `secret/keycloak/realm-admin`.
 
 ## Internal TLS caller standard
 - Internal Keycloak control-plane callers must use
@@ -40,7 +40,7 @@ credentials and a declarative bootstrap of the `armory` realm.
 
 ## Activation
 Staged off by default. Enable **globally** (inventory/group_vars or extra-vars) so
-consumer roles (headlamp, k3s, readiness) switch their coordinates too:
+consumer roles that read Keycloak defaults switch their coordinates too:
 
 ```yaml
 keycloak_enabled: true

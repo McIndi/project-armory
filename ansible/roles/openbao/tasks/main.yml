@@ -30,7 +30,7 @@
 
     # On a controller that does not persist the break-glass files (an ephemeral
     # workstation), restore them from the cluster Secret before init/unseal need
-    # them. No-ops on k3s and on first deploy, where the Secret does not exist.
+    # them. No-ops on first deploy, where the Secret does not exist.
     - name: OpenBao break-glass restore
       ansible.builtin.import_tasks: break_glass_restore.yml
       tags: [openbao, openbao_break_glass]

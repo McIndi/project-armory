@@ -54,7 +54,7 @@ spec:
             - start
             # Imports the realm on first boot only; if the realm already exists
             # Keycloak skips it. Ongoing realm configuration is applied over the
-            # admin REST API by this role's other tasks, exactly as on k3s.
+            # admin REST API by this role's other tasks.
             - --import-realm
           env:
             # --- Database -----------------------------------------------------
@@ -92,7 +92,7 @@ spec:
 
             # --- HTTP / TLS ---------------------------------------------------
             # HTTPS all the way to the pod: the edge Route re-encrypts rather
-            # than terminating in the clear, matching the k3s Envoy behaviour.
+            # than terminating in the clear before upstream routing.
             - name: KC_HTTP_ENABLED
               value: "false"
             - name: KC_HTTPS_PORT

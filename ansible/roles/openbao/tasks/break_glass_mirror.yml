@@ -9,8 +9,7 @@
 #
 # THE TRADEOFF, stated plainly: anyone who can read Secrets in the OpenBao
 # namespace can now obtain the root token. That is a real widening of custody --
-# it is roughly the same trust boundary as the k3s setup, where the files sat on
-# the OpenBao host, but it is a deliberate choice, not a free win. Set
+# it is a deliberate choice, not a free win. Set
 # openbao_break_glass_k8s_secret_enabled=false to keep the keys off the cluster,
 # and take responsibility for backing up the local files another way.
 #

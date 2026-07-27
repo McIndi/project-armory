@@ -4,7 +4,7 @@
 #
 # The break-glass files (the ansible-vault password, and the vault-encrypted
 # unseal keys + root token) are the ONLY way to unseal OpenBao. On a controller
-# that persists them (the k3s node) this never runs. On an ephemeral controller
+# that persists them this never runs. On an ephemeral controller
 # (a workstation that can be rebuilt) they would otherwise be lost, and a rebuilt
 # controller could never unseal a running OpenBao. Mirroring them into a Secret
 # (break_glass_mirror.yml) lets us pull them back here.

@@ -47,9 +47,9 @@ keycloak_service_https_port: 8443
 keycloak_bootstrap_admin_secret_name: keycloak-bootstrap-admin
 keycloak_bootstrap_admin_username: armory-admin
 keycloak_openbao_bootstrap_admin_path: keycloak/bootstrap-admin
-# Loosen hostname strict mode so in-cluster callers (Headlamp admin REST on the
-# ClusterIP service) are not redirected to the public host. Equivalent to the
-# old KC_HOSTNAME_STRICT=false patch.
+# Loosen hostname strict mode so in-cluster callers on the ClusterIP service
+# are not redirected to the public host. Equivalent to the old
+# KC_HOSTNAME_STRICT=false patch.
 keycloak_hostname_strict: false
 # Timeout (seconds) waiting for Keycloak availability (cold-JVM start).
 keycloak_ready_timeout_seconds: 900
@@ -65,7 +65,7 @@ keycloak_realm: armory
 keycloak_ingress_enabled: true
 keycloak_ingress_host: "{{ keycloak_public_host }}"
 
-# ── Realm seed: admin end-user (logs into Headlamp; bound to cluster-admin by k3s) ─
+# ── Realm seed: admin end-user (logs into the cluster-admin-equivalent role) ─
 # This is a realm user, distinct from the operator's master bootstrap admin.
 keycloak_realm_admin_username: admin
 keycloak_realm_admin_email: "{{ lookup('ansible.builtin.env', 'ARMORY_ADMIN_EMAIL') | default('admin@armory.dev', true) }}"

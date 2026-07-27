@@ -1,10 +1,8 @@
 ---
 # Keycloak admin-events pruning, in-cluster.
 #
-# The k3s path is a systemd timer on the node that runs `kubectl exec` into the
-# Postgres pod and deletes old rows. On OpenShift there is no node to schedule
-# on, so the same exec runs from a CronJob whose ServiceAccount is granted
-# pods/exec in this namespace. The DELETE is unchanged; only the scheduler moves.
+# A CronJob runs `kubectl exec` into the Postgres pod and deletes old rows.
+# Its ServiceAccount is granted `pods/exec` in this namespace only.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

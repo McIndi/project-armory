@@ -290,13 +290,13 @@
         - not ansible_check_mode
         - "'kubernetes/' not in (_openbao_auth_mounts.json | default({}))"
 
-    - name: Get k3s cluster CA certificate
+    - name: Get cluster CA certificate
       ansible.builtin.command:
         cmd: >-
           {{ kubectl_bin }} get configmap kube-root-ca.crt
           -n kube-public
           -o jsonpath={.data.ca\\.crt}
-      register: _k3s_ca_cert
+      register: _cluster_ca_cert
       changed_when: false
       when: not ansible_check_mode
 
@@ -320,7 +320,7 @@
         body_format: json
         body:
           kubernetes_host: "https://kubernetes.default.svc.cluster.local:443"
-          kubernetes_ca_cert: "{{ _k3s_ca_cert.stdout }}"
+          kubernetes_ca_cert: "{{ _cluster_ca_cert.stdout }}"
           token_reviewer_jwt: "{{ _openbao_sa_token.stdout | trim }}"
           disable_iss_validation: true
         status_code: [200, 204]

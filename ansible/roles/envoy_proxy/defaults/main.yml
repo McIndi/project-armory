@@ -1,19 +1,14 @@
 ---
 # In-namespace Envoy that restores the trace boundary on OpenShift.
 #
-# On k3s the edge is Envoy Gateway (Gateway API). That is not available here:
-# OpenShift ships and actively manages the Gateway API CRDs through its Cluster
-# Ingress Operator, so a second Gateway controller would contend with a core
-# platform operator. And an OpenShift Route alone cannot replace it -- the router
-# is HAProxy, which has no notion of W3C trace context and cannot mint one.
+# OpenShift Routes provide external exposure + TLS termination/re-encryption, but
+# the router (HAProxy) cannot mint trace context. Envoy provides the L7 trace
+# boundary in-namespace, so the edge stays split:
+#   Route  -> external exposure + TLS, using the router wildcard certificate
+#   Envoy  -> trace boundary and upstream forwarding
 #
-# So the edge splits in two:
-#   Route  -> external exposure + TLS, using the router's wildcard certificate
-#   Envoy  -> the L7 trace boundary, exactly as on k3s
-#
-# Envoy runs as a plain Deployment: no Gateway API CRDs, no GatewayClass, nothing
-# cluster-scoped, and therefore nothing that can collide with the IBM API Connect
-# gateway stack sharing this cluster.
+# Envoy runs as a plain Deployment: no Gateway API CRDs, no GatewayClass, and no
+# cluster-scoped controller footprint that could collide with other tenants.
 
 envoy_proxy_namespace: armory-edge
 envoy_proxy_name: armory-edge

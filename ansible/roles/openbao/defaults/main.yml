@@ -12,7 +12,7 @@ openbao_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.bu
 openbao_disable_mlock: true
 
 # StorageClass for the OpenBao data and audit PVCs.
-# Empty uses the cluster default (k3s: local-path).
+# Empty uses the cluster default.
 openbao_storage_class: ""
 openbao_data_storage_size: 1Gi
 
@@ -38,9 +38,9 @@ openbao_init_keys_file: "{{ openbao_work_dir }}/init-keys.yml"
 # Vault password file used to encrypt/decrypt local vaulted artifacts.
 openbao_vault_pass_file: "{{ openbao_work_dir }}/.vault-pass"
 
-# Owner/group for the local state files (work dir, vault-pass, init-keys). root
-# where the controller is a cluster node run as root (k3s). On a workstation
-# controller the connection user cannot chown to root, so set these to that user.
+# Owner/group for the local state files (work dir, vault-pass, init-keys).
+# On a workstation controller the connection user often cannot chown to root,
+# so set these to that user when needed.
 openbao_file_owner: root
 openbao_file_group: root
 
@@ -48,7 +48,7 @@ openbao_file_group: root
 # init-keys into a cluster Secret so they survive loss of the controller, and
 # restore them from it when the controller lacks a local copy. Read the tradeoff
 # in break_glass_mirror.yml before enabling: it places root-equivalent material
-# in a namespace Secret. Off by default (k3s persists the files on its own node).
+# in a namespace Secret. Off by default.
 openbao_break_glass_k8s_secret_enabled: false
 openbao_break_glass_secret_name: openbao-break-glass
 

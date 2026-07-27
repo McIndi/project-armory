@@ -17,7 +17,7 @@
           capabilities = ["create", "read", "update"]
         }
         {% endfor %}
-        # Root CA PEM read for Headlamp OIDC trust (headlamp/tasks/oidc_client.yml)
+        # Root CA PEM read for Keycloak OIDC trust and other in-cluster callers
         path "{{ openbao_pki_external_mount }}/ca/pem" {
           capabilities = ["read"]
         }

@@ -112,8 +112,7 @@ readiness_check_keycloak_host_header: "{{ readiness_check_public_domain }}"
 readiness_check_keycloak_admin_secret_name: keycloak-bootstrap-admin
 # Fallback list mirrors the keycloak role's seeded defaults so these checks
 # still run from the standalone readiness_check.yml playbook, where keycloak
-# role defaults are not in scope (same reason the headlamp group-binding
-# checks below carry a hardcoded fallback). Only username/groups are needed.
+# role defaults are not in scope. Only username/groups are needed.
 readiness_check_keycloak_realm_users: >-
   {{
     keycloak_realm_users | default([

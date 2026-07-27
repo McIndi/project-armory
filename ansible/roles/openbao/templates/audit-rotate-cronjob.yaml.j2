@@ -1,10 +1,8 @@
 ---
 # OpenBao audit-log rotation, in-cluster.
 #
-# The k3s path is a systemd timer on the node that runs `kubectl exec` into the
-# OpenBao pod. On OpenShift there is no node to schedule on, so the same exec
-# logic runs from a CronJob whose ServiceAccount is granted pods/exec in this
-# namespace. The rotation itself is unchanged: it happens INSIDE the OpenBao pod
+# A CronJob runs `kubectl exec` into the OpenBao pod. Its ServiceAccount is
+# granted `pods/exec` in this namespace only. Rotation happens inside the pod
 # (move the live audit file, SIGHUP bao so its file audit device reopens, prune
 # old files), because only the pod can touch its own filesystem and process.
 apiVersion: v1

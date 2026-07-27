@@ -34,11 +34,48 @@ Ground rules for the implementer:
 ## Current position (2026-07-27)
 
 Phases 0–4 complete; **Phase 5 is in progress**.
-**Next work: Phase 5 slice 3** (comment scrub + stale prose cleanup).
-Objective progress metric is the k3s burn-down grep in §V — it is high right now
-and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
+**Next work: Phase 5 slice 4** (ansible-lint pass + remaining docs refresh).
+Objective progress metric is the k3s burn-down grep in §V — it now returns zero
+hits under `ansible/` for `*.yml`, `*.j2`, and `*.cfg`.
 
 ## Progress log
+
+- [x] 2026-07-27: Follow-up cleanup after the Phase 5 comment scrub review.
+  Removed the stale Headlamp references left in comments/docs under
+  `ansible/roles/{keycloak,openbao,readiness_check}` and the `openbao`
+  provisioner-token policy comment, then removed the remaining dead edge-gateway
+  rows from `doc/configuration.md` (`ARMORY_EDGE_GATEWAY_IP`,
+  `ARMORY_EDGE_GATEWAY_INTERFACE`) so the documentation no longer mentions the
+  deleted selector family at all. Validation in Vagrant stayed clean: the
+  earlier `site.yml` / `bootstrap.yml` syntax-check and `--check` results still
+  stand, and the follow-up greps for `headlamp` under `ansible/` and
+  `edge_gateway_(ip|interface|excluded_cidrs|excluded_ifname_patterns)` in
+  `doc/configuration.md` both returned no matches.
+
+- [x] 2026-07-27: Completed Phase 5 slice 3 (comment scrub + stale prose cleanup).
+  Rewrote stale k3s-by-contrast comments into direct OpenShift behavior prose
+  across the known remaining Ansible sites: OpenShift inventory header and
+  controller/CLI/storage notes (`inventories/openshift/group_vars/all.yml`),
+  Envoy edge rationale header (`roles/envoy_proxy/defaults/main.yml`), Keycloak
+  realm/admin-prune/deployment comments
+  (`roles/keycloak/defaults/main.yml`,
+  `roles/keycloak/templates/{admin-events-prune-cronjob,keycloak-deployment}.yaml.j2`),
+  and OpenBao defaults/break-glass/audit rotation comments
+  (`roles/openbao/defaults/main.yml`, `roles/openbao/tasks/{main,break_glass_mirror,break_glass_restore}.yml`,
+  `roles/openbao/templates/audit-rotate-cronjob.yaml.j2`). Also renamed the
+  OpenBao Kubernetes auth CA retrieval task/variable from k3s-specific naming
+  to neutral naming in `roles/openbao/tasks/configure.yml`
+  (`Get cluster CA certificate`, `_cluster_ca_cert`) with no behavioral change.
+  Removed the stale deleted-variable row
+  `edge_gateway_excluded_ifname_patterns` from `doc/configuration.md`.
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  `--list-tasks` diff (`/tmp/now-site-step21.txt` -> `/tmp/now-site-step22.txt`)
+  showed only the expected task-name label rename, while
+  `bootstrap.yml --list-tasks` diff
+  (`/tmp/now-bootstrap-step21.txt` -> `/tmp/now-bootstrap-step22.txt`) was empty;
+  `--check` recaps for both playbooks were `failed=0` after exporting `.env`
+  with `set -a`; and `grep -R -n --include=*.yml --include=*.j2 --include=*.cfg k3s ansible/`
+  returned no matches.
 
 - [x] 2026-07-27: Completed Phase 5 slice 2 (`keycloak_cr_name` rename pass).
   Renamed `keycloak_cr_name` to `keycloak_deployment_name` across the live

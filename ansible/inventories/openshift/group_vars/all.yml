@@ -6,17 +6,15 @@
 # stay inside our own namespaces and never mutate a cluster-wide singleton that
 # other tenants depend on. Every override below exists to honour that rule.
 #
-# Deltas from inventories/development are grouped and justified. Roles are NOT
-# forked for OpenShift — they are steered from here, so that role task files
-# stay mergeable with `main`.
+# This file is the canonical shared configuration for the OpenShift deployment.
+# Roles are steered from here so role task files remain environment-agnostic.
 
 # --- Control-host / cluster access -------------------------------------------
-# On k3s the Ansible controller WAS a cluster node. Here it is an external
-# workstation, so all cluster access goes through a kubeconfig + `oc`.
+# The Ansible controller is an external workstation, so all cluster access goes
+# through a kubeconfig + `oc`.
 armory_kubeconfig_path: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(ansible_facts.env.HOME + '/.kube/config', true) }}"
 
-# Cluster CLI. k3s bundles kubectl behind `k3s kubectl`; OpenShift uses `oc`.
-# Roles shell out via this var instead of hardcoding the binary.
+# Cluster CLI binary used by role shell-outs.
 kubectl_bin: oc
 
 # site.yml runs as the project-scoped automation account, not as a cluster-admin,
@@ -43,8 +41,8 @@ certmanager_openbao_internal_clusterissuer_name: tex26-openbao-pki-internal
 certmanager_openbao_external_clusterissuer_name: tex26-openbao-pki-external
 
 # --- Storage -----------------------------------------------------------------
-# k3s's local-path provisioner does not exist here. The cluster default is ODF
-# Ceph RBD (RWO block), which is what the databases want.
+# The cluster default is ODF Ceph RBD (RWO block), which is what the
+# databases want.
 # `ocs-storagecluster-cephfs` is available if anything ever needs RWX.
 armory_storage_class: ocs-storagecluster-ceph-rbd
 keycloak_pg_storage_class: "{{ armory_storage_class }}"
