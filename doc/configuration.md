@@ -25,23 +25,19 @@ invisible to other roles.
 | `ARMORY_ANSIBLE_ROOT` | `${ARMORY_PROJECT_ROOT}/ansible` | Where playbooks run from |
 | `ARMORY_PUBLIC_DOMAIN` | `armory.local` | External domain; drives ingress hosts, PKI allowed domains, cert role names |
 | `ARMORY_PUBLIC_BASE_URL` | `https://armory.local` | Base URL consumed by OIDC redirect configuration |
-| `ARMORY_HEADLAMP_HOST` | `headlamp.armory.local` | Headlamp ingress hostname |
 | `ARMORY_OPENBAO_HOST` | `openbao.armory.local` | OpenBao UI ingress hostname |
 | `ARMORY_EDGE_EXTRA_SAN_HOSTS` | empty | Optional comma-separated extra DNS SANs appended to the consolidated edge certificate |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
-| `VSO_CHART_PATH` | `/vagrant/project-armory/charts/vso-hardened` | Local hardened VSO chart (preferred for the demo) |
-| `VSO_CHART_REPO` / `VSO_CHART_NAME` / `VSO_CHART_VERSION` | empty | Alternative: published hardened chart coordinates |
-| `ANSIBLE_*` | see `.env.example` | Replaces `ansible.cfg` (inventory path, become, logging to `log/ansible.log`, `timer` callback, etc.) — the repo deliberately has no checked-in `ansible.cfg` because `/vagrant` is world-writable |
+| `ANSIBLE_*` | see `.env.example` | Controller-side Ansible behavior (log path, callback, ssh/pipelining, etc.); local runs in `/vagrant` should set `ANSIBLE_CONFIG=/vagrant/project-armory/ansible/ansible.cfg` because `/vagrant` is world-writable |
 
 ## group_vars/all.yml
 
 | Variable | Current | Purpose |
 |---|---|---|
-| `keycloak_enabled` | `true` | Switches all consumers to the standalone Keycloak deployment |
-| `trust_manager_enabled` | `true` | Installs trust-manager and the CA `Bundle` |
-| `use_declarative_ca_distribution` | `true` | Consumers read CA from trust-manager target Secrets instead of per-role copies (cert-manager excepted) |
-| `trust_manager_internal_ca_bundle_name` / `..._target_secret_name` | `openbao-ca-bundle` | Bundle and target Secret naming |
-| `trust_manager_internal_ca_target_namespaces` | cert-manager, vso, keycloak | Namespaces receiving the CA Secret |
+| `armory_privileged_tasks` | `false` | Keeps cluster-scoped privilege grants in `bootstrap.yml`; `site.yml` runs scoped |
+| `armory_apps_domain` | cluster-specific | Shared apps domain used to derive public hosts |
+| `keycloak_enabled` | `true` | Enables standalone Keycloak deployment |
+| `keycloak_public_base_url` | `https://<armory_keycloak_host>` | Canonical external Keycloak URL for issuer/redirects |
 | `keycloak_pg_tls_enabled` | `true` | Keycloak↔Postgres TLS with `sslmode=verify-full` |
 | `ingress_http_policy` | `disabled` | `redirect-only` (HTTP→HTTPS redirect) or `disabled` (close 80/tcp in firewalld) |
 | `openbao_ui_enabled` | `true` (OpenShift inventory) | Enables OpenBao UI ingress exposure and OIDC follow-on wiring |
@@ -58,20 +54,16 @@ Authoritative list: each role's `defaults/main.yml`. Frequently relevant:
 | `openbao_pki_root_ttl` / `..._intermediate_ttl` / `..._cert_ttl` (openbao) | ~10y / ~5y / ~1y | Certificate lifetimes |
 | `openbao_audit_enabled` (openbao) | `true` | File audit device on dedicated PVC |
 | `openbao_audit_storage_size` (openbao) | `2Gi` | Audit PVC size |
-| `openbao_audit_rotate_on_calendar` / `..._rotate_keep` (openbao) | `daily` / 7 | Host-side rotation cadence and retention |
+| `openbao_audit_rotate_cron_schedule` / `..._rotate_keep` (openbao) | `17 2 * * *` / 7 | In-cluster CronJob rotation cadence and retention |
 | `openbao_ui_enabled` / `openbao_ingress_enabled` (openbao) | `false` / `{{ openbao_ui_enabled }}` | Feature flag and ingress toggle for OpenBao UI exposure |
 | `openbao_ingress_host` / `openbao_ingress_tls_secret_name` (openbao) | `openbao.<domain>` / `openbao-ui-tls` | OpenBao UI ingress host and cert secret |
 | `openbao_ingress_tls_issuer_name` (openbao) | `openbao-pki-external` | cert-manager ClusterIssuer used by ingress-shim |
 | `openbao_oidc_client_id` / `openbao_oidc_secret_path` (openbao_oidc) | `openbao` / `openbao/ui-oidc` | Keycloak client id and OpenBao KV path for persisted client secret |
 | `openbao_oidc_redirect_uris` (openbao_oidc) | UI callback pair | Required redirect URI list for OpenBao UI OIDC login |
-| `keycloak_operator_version` (keycloak) | pinned (e.g. `26.5.2`) | Operator manifest version |
+| `keycloak_deployment_name` (keycloak) | `keycloak` | Deployment identity root; service defaults to `<name>-service` |
 | `keycloak_realm_groups` (keycloak) | admin/operator/viewer groups | Top-level groups ensured in realm import + admin REST reconciliation |
 | `keycloak_realm_users` (keycloak) | admin/operator/viewer users | Seeded realm users with OpenBao-backed passwords and expected group memberships |
-| `keycloak_realm_admin_rotation_enabled` / `..._schedule` (keycloak) | `true` / ~monthly | Realm-admin password rotation CronJob |
-| `headlamp_chart_version` (headlamp) | pinned | Headlamp Helm chart |
-| `headlamp_oidc_group_bindings` (headlamp) | admins→cluster-admin, operators→edit, viewers→view | ClusterRoleBindings rendered per OIDC group |
-| `k3s_version` (k3s) | `""` (latest) | k3s release channel default |
-| `k3s_oidc_username_prefix` / `k3s_oidc_groups_prefix` (k3s) | `oidc:` / `oidc:` | Prefixes for OIDC usernames/groups to prevent RBAC identity collisions |
+| `keycloak_admin_events_prune_enabled` / `..._cron_schedule` (keycloak) | `true` / weekly | Admin-event retention prune CronJob control |
 | `readiness_check_fail_on_issues` (readiness_check) | see defaults | Whether readiness failures fail the play |
 
 Note: `openbao_audit_enabled` is also read by `readiness_check` (with a

@@ -34,11 +34,45 @@ Ground rules for the implementer:
 ## Current position (2026-07-27)
 
 Phases 0–4 complete; **Phase 5 is in progress**.
-**Next work: Phase 5 slice 4** (ansible-lint pass + remaining docs refresh).
+**Next work: Phase 5 slice 5** (README/architecture refresh + stable ansible-lint pass capture).
 Objective progress metric is the k3s burn-down grep in §V — it now returns zero
 hits under `ansible/` for `*.yml`, `*.j2`, and `*.cfg`.
 
 ## Progress log
+
+- [x] 2026-07-27: Follow-up corrections after review of the Phase 5
+  operations/configuration doc refresh.
+  Fixed two factual doc bugs in `doc/operations.md` by replacing the
+  nonexistent env var `ARMORY_KEYCLOAK_HOST` with the real
+  `ARMORY_PUBLIC_DOMAIN` reference, and replacing the nonexistent
+  `keycloak_oidc` tag with the real `openbao_oidc` tag in both the targeted
+  rerun commands and troubleshooting guidance. Also completed the previously
+  open stale-row cleanup in `doc/configuration.md` by removing deleted
+  component rows (`VSO_*`, Headlamp, trust-manager, k3s/OIDC selectors,
+  realm-admin-rotator toggles, operator-version wording) and replacing them
+  with current OpenShift-only knobs (`armory_privileged_tasks`,
+  `armory_apps_domain`, `keycloak_public_base_url`,
+  `openbao_audit_rotate_cron_schedule`, `keycloak_deployment_name`,
+  `keycloak_admin_events_prune_*`).
+
+- [x] 2026-07-27: Completed a Phase 5 slice 4 documentation refresh in
+  `doc/operations.md` (manual-rotation + OpenShift teardown runbook updates).
+  Removed stale k3s/VSO/headlamp/trust-manager workflow commands from the
+  targeted rerun section, rewrote the readiness summary to match current checks,
+  updated access and credential-retrieval guidance to OpenShift-only
+  `kubectl`/`vagrant ssh default -c` commands, replaced the removed
+  realm-admin rotator workflow with the manual `site.yml --tags keycloak_install`
+  runbook, switched OpenBao audit rotation guidance from host `systemd` to the
+  in-cluster `openbao-audit-rotate` CronJob, replaced teardown usage with
+  `playbooks/teardown_openshift.yml -e teardown_confirm=true`, and refreshed the
+  TLS troubleshooting note to CA-secret copy behavior. Validation in Vagrant:
+  `site.yml` and `bootstrap.yml` syntax-check passed; `--list-tasks` snapshots
+  (`/tmp/now-site-step22.txt` -> `/tmp/now-site-step23.txt`,
+  `/tmp/now-bootstrap-step22.txt` -> `/tmp/now-bootstrap-step23.txt`) were both
+  empty diffs; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`. Attempted `ansible-lint` remains an open item:
+  in this VM it repeatedly stalled around collection/setup output (including
+  `--offline`), so the lint-pass capture is deferred to the next slice.
 
 - [x] 2026-07-27: Follow-up cleanup after the Phase 5 comment scrub review.
   Removed the stale Headlamp references left in comments/docs under
