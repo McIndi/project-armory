@@ -33,7 +33,6 @@ armory_privileged_tasks: false
 # v1.20.0) and its CRDs are cluster-scoped singletons. A second install would
 # fight the existing controller and break other tenants. We reuse it and only
 # create our own issuers/certificates.
-certmanager_install_enabled: false
 certmanager_namespace: cert-manager
 # The issuers stay ClusterIssuers. They are consumed by Certificates in several
 # namespaces; making them namespaced would mean replicating an Issuer AND its

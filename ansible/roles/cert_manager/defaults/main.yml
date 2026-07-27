@@ -1,64 +1,13 @@
 ---
-# Whether this role installs cert-manager itself.
-# True on a cluster armory owns end to end (k3s). Set false where the platform
-# already provides cert-manager — installing a second copy would contend over
-# the cluster-scoped cert-manager CRDs and disrupt other tenants. When false,
-# the role still provisions issuers and TokenRequest RBAC against the existing
-# installation.
-certmanager_install_enabled: true
-
 # Kubeconfig used for all cluster access from this role.
 certmanager_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
-
-# Working directory for rendered Helm values files.
-certmanager_tofu_work_dir: /opt/cert-manager
 
 # Namespace for cert-manager installation.
 certmanager_namespace: cert-manager
 
-# Helm release name for cert-manager.
+# ServiceAccount name stem used by the cert-manager TokenRequest RBAC and
+# ClusterIssuer ambient Kubernetes auth configuration.
 certmanager_release_name: cert-manager
-
-# Helm repository URL for cert-manager chart.
-certmanager_chart_repo: https://charts.jetstack.io
-
-# Chart name in the cert-manager repository.
-certmanager_chart_name: cert-manager
-
-# cert-manager chart version.
-# Empty string lets Helm choose the latest available version.
-certmanager_chart_version: ""
-
-# Helm wait timeout (seconds) for cert-manager release apply.
-certmanager_tofu_timeout_seconds: 600
-
-# Helm values passed to cert-manager release.
-certmanager_tofu_chart_values:
-  crds:
-    enabled: true
-  resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-    limits:
-      cpu: 100m
-      memory: 128Mi
-  webhook:
-    resources:
-      requests:
-        cpu: 10m
-        memory: 32Mi
-      limits:
-        cpu: 100m
-        memory: 128Mi
-  cainjector:
-    resources:
-      requests:
-        cpu: 10m
-        memory: 32Mi
-      limits:
-        cpu: 100m
-        memory: 128Mi
 
 # OpenBao in-cluster API address used by cert-manager issuer integration.
 # Must match openbao_cluster_addr in openbao defaults.

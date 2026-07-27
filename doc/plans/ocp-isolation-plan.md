@@ -33,14 +33,34 @@ Ground rules for the implementer:
 
 ## Current position (2026-07-27)
 
-Phases 0–3 complete; **Phase 4 slices 1, 2, and 3 are now complete**. **Next
-work: Phase 4, slice 4** (cert_manager install path). Phase 4 slices are
+Phases 0–3 complete; **Phase 4 slices 1, 2, 3, and 4 are now complete**. **Next
+work: Phase 4, slice 5** (helm dnf path). Phase 4 slices are
 ordered and independent; do them one commit at a time, §V gate between each.
 Then Phase 5.
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-27: Completed Phase 4 slice 4 (cert_manager install path).
+  Deleted `roles/cert_manager/tasks/install.yml`, removed the install import
+  from `roles/cert_manager/tasks/main.yml`, and removed now-dead
+  install/Helm chart defaults from `roles/cert_manager/defaults/main.yml`
+  (`certmanager_install_enabled`, `certmanager_tofu_work_dir`,
+  `certmanager_chart_repo`, `certmanager_chart_name`,
+  `certmanager_chart_version`, `certmanager_tofu_timeout_seconds`, and
+  `certmanager_tofu_chart_values`). Also removed obsolete
+  `certmanager_install_enabled` inventory overrides from both
+  `inventories/openshift/group_vars/all.yml` and
+  `inventories/development/group_vars/all.yml`, and updated
+  `roles/cert_manager/README.md` to document reuse-only behavior.
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  `site.yml --list-tasks` diff (`/tmp/now-site-step16.txt` ->
+  `/tmp/now-site-step17.txt`) showed only expected removal of the four
+  cert-manager install tasks; `bootstrap.yml --list-tasks` snapshot was
+  recaptured to `/tmp/now-bootstrap-step17.txt` with no observed delta; and
+  `--check` recaps for both playbooks were `failed=0` after exporting `.env`
+  with `set -a`.
 
 - [x] 2026-07-27: Completed Phase 4 slice 3 (openbao firewall/NodePort
   residue removal).
