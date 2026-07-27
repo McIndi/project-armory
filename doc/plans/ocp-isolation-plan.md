@@ -33,14 +33,30 @@ Ground rules for the implementer:
 
 ## Current position (2026-07-27)
 
-Phases 0–3 complete; **Phase 4 slices 1, 2, 3, 4, and 5 are now complete**.
-**Next work: Phase 4, slice 6** (delete `inventories/development/`). Phase 4 slices are
-ordered and independent; do them one commit at a time, §V gate between each.
-Then Phase 5.
+Phases 0–3 complete; **Phase 4 slices 1, 2, 3, 4, 5, and 6 are now complete**.
+**Next work: Phase 5**. Phase 4 slices are ordered and independent; do them one
+commit at a time, §V gate between each.
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-27: Completed Phase 4 slice 6 (delete `inventories/development/`).
+  Removed the two remaining development inventory files,
+  `ansible/inventories/development/hosts.yml` and
+  `ansible/inventories/development/group_vars/all.yml`, and repointed
+  `.env.example` at the OpenShift inventory so the repo no longer ships a dead
+  default inventory path. Validation in Vagrant: `site.yml` and
+  `bootstrap.yml` syntax-check passed; `site.yml --list-tasks` diff was empty;
+  `bootstrap.yml --list-tasks` diff was empty; and `--check` recaps for both
+  playbooks were `failed=0` after exporting `.env` with `set -a`.
+
+- [x] 2026-07-27: Cleaned up the now-stale live documentation references to
+  the deleted development inventory. Updated `AGENTS.md` and
+  `doc/configuration.md` to point at the OpenShift inventory's
+  `group_vars/all.yml` instead. The Phase 5 comment-scrub item in
+  `ansible/inventories/openshift/group_vars/all.yml` was intentionally left
+  untouched for the later comment phase.
 
 - [x] 2026-07-27: Completed Phase 4 slice 5 (helm dnf path).
   Removed the host-package install path from `roles/helm/tasks/main.yml`

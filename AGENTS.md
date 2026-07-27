@@ -66,8 +66,8 @@ Match these exactly; staged migration rules are in
   `main.yml` with role tag + a specific tag.
 - **Variable scoping**: role defaults are invisible to other roles. A value
   read by more than one role goes in
-  `inventories/development/group_vars/all.yml`; when another role must read
-  a foreign role's default anyway, use an explicit `| default(...)`.
+  `inventories/openshift/group_vars/all.yml`; when another role must read a
+  foreign role's default anyway, use an explicit `| default(...)`.
 - **Generated credentials**: read-from-OpenBao-before-generate, never
   regenerate on re-run.
 

@@ -5,14 +5,15 @@ Three layers of configuration, from broadest to narrowest:
 1. **`.env`** — environment for the Ansible CLI itself plus a small set of
    cross-cutting values. Copied from `.env.example`, sourced before every
    run. The `env_guard` role refuses to run if it isn't loaded.
-2. **`ansible/inventories/development/group_vars/all.yml`** — deployment
-   toggles that multiple roles must agree on.
+2. **`ansible/inventories/openshift/group_vars/all.yml`** — deployment toggles
+   that multiple roles must agree on.
 3. **Role defaults** (`ansible/roles/<role>/defaults/main.yml`) — per-role
    tunables. The defaults files are commented and are the authoritative
    reference; this page lists only the values most likely to be overridden.
 
-A variable needed by more than one role must live in `group_vars/all.yml`,
-not in a role's defaults — role defaults are invisible to other roles.
+A variable needed by more than one role must live in the OpenShift
+inventory's `group_vars/all.yml`, not in a role's defaults — role defaults are
+invisible to other roles.
 
 ## .env
 
@@ -49,7 +50,7 @@ not in a role's defaults — role defaults are invisible to other roles.
 | `edge_gateway_excluded_ifname_patterns` | `^lo$`, `^cni.*`, `^flannel.*`, `^docker.*`, `^virbr.*` | Interface name patterns excluded from automatic edge-IP candidate selection |
 | `keycloak_pg_tls_enabled` | `true` | Keycloak↔Postgres TLS with `sslmode=verify-full` |
 | `ingress_http_policy` | `disabled` | `redirect-only` (HTTP→HTTPS redirect) or `disabled` (close 80/tcp in firewalld) |
-| `openbao_ui_enabled` | `true` (development inventory) | Enables OpenBao UI ingress exposure and OIDC follow-on wiring |
+| `openbao_ui_enabled` | `true` (OpenShift inventory) | Enables OpenBao UI ingress exposure and OIDC follow-on wiring |
 
 These were staged-rollout toggles during the TLS build-out; all are now
 enabled. They remain toggles so a regression can be bisected by flipping one
