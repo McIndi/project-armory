@@ -57,7 +57,7 @@ ansible-playbook playbooks/site.yml --tags keycloak_install
 |---|---|---|
 | `keycloak_enabled` | `false` | Master switch (set globally). |
 | `keycloak_realm` | `armory` | Armory's own realm. |
-| `keycloak_cr_name` | `keycloak` | Drives the Keycloak service and bootstrap admin secret. |
+| `keycloak_deployment_name` | `keycloak` | Drives the Keycloak deployment name and the derived service name. |
 | `keycloak_public_base_url` | `$ARMORY_PUBLIC_BASE_URL` / `https://armory.local` | Issuer + ingress host. |
 | `keycloak_route_gateway_name` / `_namespace` | `armory` / `envoy-gateway-system` | HTTPRoute parentRef (group_vars). |
 | `keycloak_pg_image` | `quay.io/sclorg/postgresql-16-c9s` | Backing DB. |

@@ -3,7 +3,7 @@
 #
 # This branch runs the same server with no CRDs and no operator.
 #
-# The Service keeps the historic `{{ keycloak_cr_name }}-service` name so every
+# The Service keeps the historic `{{ keycloak_deployment_name }}-service` name so every
 # consumer's internal FQDN,
 # certificate SAN, and OpenBao policy keeps working untouched.
 #
@@ -30,7 +30,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ keycloak_cr_name }}
+  name: {{ keycloak_deployment_name }}
   namespace: {{ keycloak_namespace }}
   labels:
     app.kubernetes.io/name: keycloak

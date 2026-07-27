@@ -33,11 +33,11 @@ keycloak_resources_limits_cpu: "2"
 keycloak_resources_limits_memory: 2Gi
 keycloak_deployment_rollout_timeout_seconds: 600
 
-# ── Keycloak custom resource ────────────────────────────────────────────────────
-keycloak_cr_name: keycloak
+# ── Keycloak deployment identity ───────────────────────────────────────────────
+keycloak_deployment_name: keycloak
 keycloak_instances: 1
 # Service name is intentionally preserved for downstream compatibility.
-keycloak_service_name: "{{ keycloak_cr_name }}-service"
+keycloak_service_name: "{{ keycloak_deployment_name }}-service"
 keycloak_service_port: 8080
 keycloak_service_https_port: 8443
 

@@ -7,7 +7,7 @@
 - name: Delete Keycloak Deployment (ignore if absent)
   ansible.builtin.command:
     cmd: >-
-      {{ kubectl_bin }} delete deployment {{ keycloak_cr_name }}
+      {{ kubectl_bin }} delete deployment {{ keycloak_deployment_name }}
       -n {{ keycloak_namespace }} --ignore-not-found --timeout=120s
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"

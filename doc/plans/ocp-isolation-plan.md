@@ -34,11 +34,26 @@ Ground rules for the implementer:
 ## Current position (2026-07-27)
 
 Phases 0–4 complete; **Phase 5 is in progress**.
-**Next work: Phase 5 slice 2** (`keycloak_cr_name` rename pass).
+**Next work: Phase 5 slice 3** (comment scrub + stale prose cleanup).
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-27: Completed Phase 5 slice 2 (`keycloak_cr_name` rename pass).
+  Renamed `keycloak_cr_name` to `keycloak_deployment_name` across the live
+  Keycloak role path (`roles/keycloak/defaults/main.yml`,
+  `roles/keycloak/tasks/{main,deploy_operatorless,teardown}.yml`, and
+  `roles/keycloak/templates/keycloak-deployment.yaml.j2`) so the variable name
+  now matches the concrete workload kind. Renamed readiness-check's deployment
+  selector to `readiness_check_keycloak_deployment_name` and rewired
+  `roles/readiness_check/tasks/check_keycloak.yml` to use it. Updated the
+  Keycloak role variable table in `roles/keycloak/README.md` accordingly.
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  `--list-tasks` diffs (`/tmp/now-site-step20.txt` ->
+  `/tmp/now-site-step21.txt`, `/tmp/now-bootstrap-step20.txt` ->
+  `/tmp/now-bootstrap-step21.txt`) were empty; and `--check` recaps for both
+  playbooks were `failed=0` after exporting `.env` with `set -a`.
 
 - [x] 2026-07-27: Post-slice follow-up cleanup after Phase 4 slice 7 review.
   Rewrote the misleading header in
@@ -739,9 +754,8 @@ All eight selector rows collapsed to their OCP value and the variable deleted.
 Verified: no `target_platform`, `edge_kind`, `armory_scheduler_kind`,
 `internal_https_caller_mode`, `keycloak_operator_install_method`,
 `keycloak_workload_kind`, or `k3s_kubeconfig_path` remain anywhere in `ansible/`;
-`kubectl_bin` defaults to `oc`. Kept for cause: `keycloak_cr_name` (names the
-Deployment and stems `keycloak-service`, which is load-bearing per handoff — the
-name is now a misnomer, flagged for a Phase 5 rename, not a deletion).
+`kubectl_bin` defaults to `oc`. Follow-on hygiene in Phase 5 then renamed
+`keycloak_cr_name` to `keycloak_deployment_name` without changing behavior.
 
 Record of what each row became (for audit; do not re-do):
 
@@ -832,8 +846,9 @@ Record of what each row became (for audit; do not re-do):
 - Play retitle: `site.yml` play 1 already renamed to "Base configuration for
   OpenShift deployment" (and the second k3s-control-plane play was merged out in
   Phase 2). Nothing left here unless another play name surfaces.
-- Rename `keycloak_cr_name` → a non-CR name (e.g. `keycloak_deployment_name`);
-  it drives `keycloak-service`, so update every reference in one pass.
+- Rename `keycloak_cr_name` → `keycloak_deployment_name` — ✅ complete
+  (2026-07-27); behavior unchanged (`keycloak-service` remains derived from
+  the deployment name).
 - **Comment scrub (this is what makes the final `grep -rn "k3s"` gate pass).**
   After Phase 4, the remaining k3s hits are all comments — rewrite them to
   describe OCP behavior directly rather than by contrast with k3s. Known sites:

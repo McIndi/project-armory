@@ -44,7 +44,7 @@
 - name: Wait for the Keycloak Deployment to become available
   ansible.builtin.command:
     cmd: >-
-      {{ kubectl_bin }} rollout status deployment/{{ keycloak_cr_name }}
+      {{ kubectl_bin }} rollout status deployment/{{ keycloak_deployment_name }}
       --namespace {{ keycloak_namespace }}
       --timeout={{ keycloak_deployment_rollout_timeout_seconds }}s
   environment:

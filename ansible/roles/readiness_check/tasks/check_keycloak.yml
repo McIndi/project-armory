@@ -300,7 +300,7 @@
   kubernetes.core.k8s_info:
     api_version: apps/v1
     kind: Deployment
-    name: "{{ readiness_check_keycloak_cr_name }}"
+    name: "{{ readiness_check_keycloak_deployment_name }}"
     namespace: "{{ readiness_check_keycloak_namespace }}"
     kubeconfig: "{{ _readiness_kubeconfig_path }}"
   register: _rc_keycloak_deploy_info
