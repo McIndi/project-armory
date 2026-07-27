@@ -121,30 +121,15 @@ keycloak_admin_events_prune_image: "docker.io/bitnami/kubectl:1.33"
 
 # ── PostgreSQL StatefulSet (single-node backing store) ───────────────────────────
 keycloak_postgresql_enabled: true
-keycloak_pg_image: "postgres:16"
+keycloak_pg_image: "quay.io/sclorg/postgresql-16-c9s"
 keycloak_pg_service: postgres
 keycloak_db_name: keycloak
 keycloak_db_username: keycloak
 
-# Which PostgreSQL manifest to render.
-#
-#   postgres.yaml.j2           — official `postgres:16`. Starts as root (its
-#                                entrypoint chowns PGDATA then drops privileges
-#                                via gosu), so it needs a cluster that permits
-#                                root containers.
-#   postgres-openshift.yaml.j2 — an image that runs as an arbitrary unprivileged
-#                                UID, as OpenShift's default SCC requires. Pair
-#                                it with keycloak_pg_image below.
-#
-# These are separate templates rather than one branchy file because the image
-# choice changes the env vars, the data directory, and how server config is fed
-# in — not just a few values.
-keycloak_pg_manifest_template: postgres.yaml.j2
-
 # Where the server TLS material is mounted (OpenShift manifest).
 keycloak_pg_tls_mount_path: /etc/postgresql/tls
 keycloak_pg_storage_size: "8Gi"
-# Empty = use the cluster default StorageClass (k3s local-path).
+# Empty = use the cluster default StorageClass.
 keycloak_pg_storage_class: ""
 keycloak_pg_rollout_timeout_seconds: 300
 

@@ -13,7 +13,7 @@ credentials and a declarative bootstrap of the `armory` realm.
      into the realm import; never synced to a k8s Secret).
 3. Applies namespace `Secret`s directly from those OpenBao-backed facts
   (`keycloak-db-secret`, `keycloak-realm-admin`, and `keycloak-bootstrap-admin`).
-5. Deploys a PostgreSQL StatefulSet + Service (`postgres:16`, local-path PVC).
+5. Deploys a PostgreSQL StatefulSet + Service (`quay.io/sclorg/postgresql-16-c9s`).
   When `keycloak_pg_tls_enabled=true`, PostgreSQL serves TLS with a cert-manager
   certificate and Keycloak connects with `sslmode=verify-full`.
 6. Deploys Keycloak as a `Deployment` + `Service` using `--import-realm`, with
@@ -60,10 +60,10 @@ ansible-playbook playbooks/site.yml --tags keycloak_install
 | `keycloak_cr_name` | `keycloak` | Drives the Keycloak service and bootstrap admin secret. |
 | `keycloak_public_base_url` | `$ARMORY_PUBLIC_BASE_URL` / `https://armory.local` | Issuer + ingress host. |
 | `keycloak_route_gateway_name` / `_namespace` | `armory` / `envoy-gateway-system` | HTTPRoute parentRef (group_vars). |
-| `keycloak_pg_image` | `postgres:16` | Backing DB. |
+| `keycloak_pg_image` | `quay.io/sclorg/postgresql-16-c9s` | Backing DB. |
 | `keycloak_pg_tls_enabled` | `true` | Enable Postgres TLS + Keycloak verify-full DB connection. |
 | `keycloak_pg_tls_verify_mode` | `verify-full` | JDBC SSL verification mode enforced by Keycloak. |
-| `keycloak_pg_storage_size` | `8Gi` | local-path PVC. |
+| `keycloak_pg_storage_size` | `8Gi` | Backing PVC size. |
 | `keycloak_hostname_strict` | `false` | Lets in-cluster callers use the ClusterIP service. |
 
 ## Notes / limitations

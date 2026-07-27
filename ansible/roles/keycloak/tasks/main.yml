@@ -239,15 +239,11 @@
         - keycloak_pg_tls_enabled | bool
 
     # ── PostgreSQL StatefulSet ──────────────────────────────────────────────────
-    # The manifest differs by platform, not just by values: OpenShift needs an
-    # image that runs as an arbitrary UID, which changes the env vars, the data
-    # directory, and how server config is supplied. Selecting a whole template
-    # keeps each one readable and keeps the k3s manifest untouched.
     - name: Apply PostgreSQL StatefulSet and Service
       kubernetes.core.k8s:
         kubeconfig: "{{ keycloak_kubeconfig_path }}"
         state: present
-        definition: "{{ lookup('template', keycloak_pg_manifest_template) | from_yaml_all | list }}"
+        definition: "{{ lookup('template', 'postgres.yaml.j2') | from_yaml_all | list }}"
       when:
         - not ansible_check_mode
         - keycloak_postgresql_enabled | bool

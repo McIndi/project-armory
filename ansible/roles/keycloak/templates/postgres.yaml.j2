@@ -1,4 +1,17 @@
 ---
+# Keycloak PostgreSQL, built for OpenShift's restricted-v2 SCC.
+#
+# This manifest intentionally assumes OpenShift-only posture: an image that runs
+# as an arbitrary, unprivileged UID under restricted-v2 SCC, rather than an
+# image that starts as root to chown PGDATA before dropping privileges.
+#
+# Consequences of that image choice:
+#   * env vars are POSTGRESQL_* (not POSTGRES_*)
+#   * PGDATA lives under /var/lib/pgsql/data, not /var/lib/postgresql/data
+#   * extra server config is supplied as files in postgresql-cfg/, not as `-c` args
+#   * no securityContext at all: OpenShift assigns the UID (random) and GID (0)
+#   * the TLS init container is gone — see the key-permission note below
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,6 +28,26 @@ spec:
     - name: postgres
       port: 5432
       targetPort: 5432
+{% if keycloak_pg_tls_enabled | bool %}
+---
+# The sclorg image sources any *.conf here into postgresql.conf, which is how
+# server settings are supplied — it does not take `-c` arguments the way the
+# official image's entrypoint does.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ keycloak_pg_service }}-tls-config
+  namespace: {{ keycloak_namespace }}
+  labels:
+    app.kubernetes.io/name: keycloak-postgres
+    app.kubernetes.io/part-of: keycloak
+data:
+  ssl.conf: |
+    ssl = on
+    ssl_cert_file = '{{ keycloak_pg_tls_mount_path }}/tls.crt'
+    ssl_key_file = '{{ keycloak_pg_tls_mount_path }}/tls.key'
+    ssl_ca_file = '{{ keycloak_pg_tls_mount_path }}/ca.crt'
+{% endif %}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -36,68 +69,38 @@ spec:
         app.kubernetes.io/name: keycloak-postgres
         app.kubernetes.io/part-of: keycloak
     spec:
-      securityContext:
-        fsGroup: 999
-{% if keycloak_pg_tls_enabled | bool %}
-      initContainers:
-        - name: postgres-tls-permissions
-          image: {{ keycloak_pg_tls_init_image }}
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              cp /tls-src/tls.crt /tls/tls.crt
-              cp /tls-src/tls.key /tls/tls.key
-              if [ -f /tls-src/ca.crt ]; then cp /tls-src/ca.crt /tls/ca.crt; fi
-              chmod 600 /tls/tls.key
-              chmod 644 /tls/tls.crt
-              if [ -f /tls/ca.crt ]; then chmod 644 /tls/ca.crt; fi
-              chown 999:999 /tls/tls.key /tls/tls.crt /tls/ca.crt 2>/dev/null || true
-          volumeMounts:
-            - name: postgres-tls-source
-              mountPath: /tls-src
-              readOnly: true
-            - name: postgres-tls
-              mountPath: /tls
-{% endif %}
+      # Deliberately no securityContext. OpenShift assigns a random UID from the
+      # namespace range with GID 0, and the image is built to tolerate that.
+      # Pinning fsGroup/runAsUser here is what would get the pod REJECTED.
       containers:
         - name: postgres
           image: {{ keycloak_pg_image }}
           imagePullPolicy: IfNotPresent
-{% if keycloak_pg_tls_enabled | bool %}
-          args:
-            - -c
-            - ssl=on
-            - -c
-            - ssl_cert_file=/etc/postgresql/tls/tls.crt
-            - -c
-            - ssl_key_file=/etc/postgresql/tls/tls.key
-{% endif %}
           ports:
             - name: postgres
               containerPort: 5432
           env:
-            - name: POSTGRES_DB
+            - name: POSTGRESQL_DATABASE
               value: "{{ keycloak_db_name }}"
-            - name: POSTGRES_USER
+            - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
                   name: {{ keycloak_db_secret_name }}
                   key: username
-            - name: POSTGRES_PASSWORD
+            - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ keycloak_db_secret_name }}
                   key: password
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
           volumeMounts:
             - name: data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/pgsql/data
 {% if keycloak_pg_tls_enabled | bool %}
             - name: postgres-tls
-              mountPath: /etc/postgresql/tls
+              mountPath: {{ keycloak_pg_tls_mount_path }}
+              readOnly: true
+            - name: postgres-tls-config
+              mountPath: /opt/app-root/src/postgresql-cfg
               readOnly: true
 {% endif %}
           readinessProbe:
@@ -123,11 +126,21 @@ spec:
               memory: 512Mi
 {% if keycloak_pg_tls_enabled | bool %}
       volumes:
-        - name: postgres-tls-source
+        # Mounted straight from the Secret — no init container copies and chowns
+        # it any more, because under an arbitrary UID that chown cannot succeed.
+        #
+        # PostgreSQL refuses to start if the private key is too permissive. Its
+        # rule: a key owned by root is accepted at 0640 or tighter (no group
+        # write/exec, no world bits). Kubernetes mounts Secret files root-owned,
+        # and OpenShift runs the container with GID 0, so 0640 is both readable
+        # by the server and accepted by its permission check.
+        - name: postgres-tls
           secret:
             secretName: {{ keycloak_pg_tls_secret_name }}
-        - name: postgres-tls
-          emptyDir: {}
+            defaultMode: 0640
+        - name: postgres-tls-config
+          configMap:
+            name: {{ keycloak_pg_service }}-tls-config
 {% endif %}
   volumeClaimTemplates:
     - metadata:

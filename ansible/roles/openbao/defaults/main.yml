@@ -9,7 +9,7 @@ openbao_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.bu
 # that strip IPC_LOCK (e.g. OpenShift's restricted-v2 SCC), where granting it
 # would mean minting a custom SCC carrying a privileged capability — Kubernetes
 # nodes run with swap disabled, so mlock protects against nothing there.
-openbao_disable_mlock: false
+openbao_disable_mlock: true
 
 # StorageClass for the OpenBao data and audit PVCs.
 # Empty uses the cluster default (k3s: local-path).
@@ -26,8 +26,7 @@ openbao_service_account_name: openbao
 # default restricted-v2 SCC rejects because it requires a UID from the
 # namespace's assigned range. nonroot-v2 permits any non-root UID and any
 # fsGroup while still forbidding root — the least-privileged SCC that fits.
-# Empty disables the binding entirely (k3s has no SCCs).
-openbao_scc_name: ""
+openbao_scc_name: nonroot-v2
 
 # Base directory used by this role for generated files and local state.
 openbao_work_dir: /opt/openbao

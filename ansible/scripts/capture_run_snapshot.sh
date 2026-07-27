@@ -28,7 +28,8 @@ if [[ -f /vagrant/.env ]]; then
   set +a
 fi
 
-KUBECONFIG_PATH="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/config}"
+K8S_CLI="${KUBECTL_BIN:-kubectl}"
 
 log() {
   printf '%s\n' "$*" >> "${OUTFILE}"
@@ -71,8 +72,8 @@ hash_jsonpath_field() {
   local field="$3"
   local label="$4"
 
-  if sudo -n k3s kubectl get secret -n "${ns}" "${secret}" --kubeconfig "${KUBECONFIG_PATH}" >/dev/null 2>&1; then
-    run_cmd "Secret hash: ${label}" "sudo -n k3s kubectl get secret -n ${ns} ${secret} --kubeconfig ${KUBECONFIG_PATH} -o jsonpath='{${field}}' | sha256sum"
+  if "${K8S_CLI}" get secret -n "${ns}" "${secret}" --kubeconfig "${KUBECONFIG_PATH}" >/dev/null 2>&1; then
+    run_cmd "Secret hash: ${label}" "${K8S_CLI} get secret -n ${ns} ${secret} --kubeconfig ${KUBECONFIG_PATH} -o jsonpath='{${field}}' | sha256sum"
   else
     progress "Skipping: Secret hash: ${label} (missing ${ns}/${secret})"
     header "Secret hash: ${label}"
@@ -87,18 +88,18 @@ log "Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 run_cmd "Host context" "hostnamectl; echo; date -u; echo; whoami; echo; pwd"
 run_cmd "Repository context" "if command -v git >/dev/null 2>&1; then cd '${REPO_ROOT}' && git rev-parse --short HEAD && git -c core.autocrlf=true status --short; else echo 'git not installed in VM PATH'; fi"
-run_cmd "Tool versions" "ansible --version 2>/dev/null | head -n 2; echo; helm version --short 2>/dev/null; echo; k3s --version 2>/dev/null | head -n 1; echo; sudo -n k3s kubectl version --client 2>/dev/null | head -n 1"
+run_cmd "Tool versions" "ansible --version 2>/dev/null | head -n 2; echo; helm version --short 2>/dev/null; echo; ${K8S_CLI} version --client 2>/dev/null | head -n 1"
 
-run_cmd "Kubernetes nodes" "sudo -n k3s kubectl get nodes --kubeconfig ${KUBECONFIG_PATH} -o wide"
-run_cmd "Kubernetes namespaces" "sudo -n k3s kubectl get ns --kubeconfig ${KUBECONFIG_PATH}"
-run_cmd "All pods" "sudo -n k3s kubectl get pods -A --kubeconfig ${KUBECONFIG_PATH} -o wide"
-run_cmd "All deployments" "sudo -n k3s kubectl get deploy -A --kubeconfig ${KUBECONFIG_PATH}"
-run_cmd "All statefulsets" "sudo -n k3s kubectl get sts -A --kubeconfig ${KUBECONFIG_PATH}"
-run_cmd "All jobs and cronjobs" "sudo -n k3s kubectl get jobs,cronjobs -A --kubeconfig ${KUBECONFIG_PATH}"
-run_cmd "Helm releases" "sudo -n helm list -A --kubeconfig ${KUBECONFIG_PATH}"
+run_cmd "Kubernetes nodes" "${K8S_CLI} get nodes --kubeconfig ${KUBECONFIG_PATH} -o wide"
+run_cmd "Kubernetes namespaces" "${K8S_CLI} get ns --kubeconfig ${KUBECONFIG_PATH}"
+run_cmd "All pods" "${K8S_CLI} get pods -A --kubeconfig ${KUBECONFIG_PATH} -o wide"
+run_cmd "All deployments" "${K8S_CLI} get deploy -A --kubeconfig ${KUBECONFIG_PATH}"
+run_cmd "All statefulsets" "${K8S_CLI} get sts -A --kubeconfig ${KUBECONFIG_PATH}"
+run_cmd "All jobs and cronjobs" "${K8S_CLI} get jobs,cronjobs -A --kubeconfig ${KUBECONFIG_PATH}"
+run_cmd "Helm releases" "helm list -A --kubeconfig ${KUBECONFIG_PATH}"
 
-run_cmd "OpenBao pod identity" "sudo -n k3s kubectl get pod -n openbao -l app.kubernetes.io/name=openbao --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
-run_cmd "Keycloak pod identity" "sudo -n k3s kubectl get pod -n keycloak keycloak-0 --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
+run_cmd "OpenBao pod identity" "${K8S_CLI} get pod -n openbao -l app.kubernetes.io/name=openbao --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
+run_cmd "Keycloak pod identity" "${K8S_CLI} get pod -n keycloak keycloak-0 --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
 
 run_cmd "OpenBao CA certificate fingerprint" "if [[ -f /opt/openbao/tls/ca.crt ]]; then openssl x509 -in /opt/openbao/tls/ca.crt -noout -fingerprint -sha256 -serial -enddate; else echo 'missing: /opt/openbao/tls/ca.crt'; exit 1; fi"
 run_cmd "OpenBao server certificate fingerprint" "if [[ -f /opt/openbao/tls/tls.crt ]]; then openssl x509 -in /opt/openbao/tls/tls.crt -noout -fingerprint -sha256 -serial -enddate; else echo 'missing: /opt/openbao/tls/tls.crt'; exit 1; fi"
@@ -106,7 +107,7 @@ run_cmd "OpenBao server certificate fingerprint" "if [[ -f /opt/openbao/tls/tls.
 hash_jsonpath_field "openbao" "openbao-ca" ".data.ca\\.crt" "openbao/openbao-ca ca.crt"
 hash_jsonpath_field "openbao" "openbao-server-tls" ".data.tls\\.crt" "openbao/openbao-server-tls tls.crt"
 
-run_cmd "Recent cluster events" "sudo -n k3s kubectl get events -A --sort-by=.lastTimestamp --kubeconfig ${KUBECONFIG_PATH} | tail -n 200"
+run_cmd "Recent cluster events" "${K8S_CLI} get events -A --sort-by=.lastTimestamp --kubeconfig ${KUBECONFIG_PATH} | tail -n 200"
 
 progress "Snapshot complete"
 echo "Snapshot written: ${OUTFILE}"

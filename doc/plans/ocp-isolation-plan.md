@@ -33,13 +33,60 @@ Ground rules for the implementer:
 
 ## Current position (2026-07-27)
 
-Phases 0–3 complete; **Phase 4 slices 1, 2, 3, 4, 5, and 6 are now complete**.
-**Next work: Phase 5**. Phase 4 slices are ordered and independent; do them one
-commit at a time, §V gate between each.
+Phases 0–4 complete; **Phase 5 is in progress**.
+**Next work: Phase 5 slice 2** (`keycloak_cr_name` rename pass).
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-27: Post-slice follow-up cleanup after Phase 4 slice 7 review.
+  Rewrote the misleading header in
+  `roles/keycloak/templates/postgres.yaml.j2` so it no longer describes itself
+  as a sibling to a removed k3s template, and updated
+  `roles/keycloak/README.md` to remove the stale `local-path PVC` wording from
+  the `keycloak_pg_storage_size` variable row.
+
+- [x] 2026-07-27: Completed Phase 4 slice 7 (OpenShift-only defaults fold-in
+  + snapshot script cleanup).
+  Collapsed now-only-possible OpenShift values into role defaults by setting
+  `keycloak_pg_image` in `roles/keycloak/defaults/main.yml` to
+  `quay.io/sclorg/postgresql-16-c9s`, deleting
+  `keycloak_pg_manifest_template`, and making
+  `roles/keycloak/tasks/main.yml` render `postgres.yaml.j2` directly. Replaced
+  `roles/keycloak/templates/postgres.yaml.j2` with the former OpenShift-safe
+  manifest and deleted `roles/keycloak/templates/postgres-openshift.yaml.j2`.
+  Moved OpenBao OpenShift posture into defaults
+  (`openbao_disable_mlock: true`, `openbao_scc_name: nonroot-v2`) and removed
+  those inventory overrides from
+  `inventories/openshift/group_vars/all.yml` along with removed
+  `keycloak_pg_*` override lines. Updated
+  `scripts/capture_run_snapshot.sh` to drop `k3s`-specific command paths and
+  use `kubectl`/`helm` with `KUBECONFIG` (plus optional `KUBECTL_BIN`) so it no
+  longer carries stale k3s assumptions. Validation in Vagrant: `site.yml` and
+  `bootstrap.yml` syntax-check passed; `--list-tasks` diffs
+  (`/tmp/now-site-step19.txt` -> `/tmp/now-site-step20.txt` and
+  `/tmp/now-bootstrap-step19.txt` -> `/tmp/now-bootstrap-step20.txt`) were
+  empty; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`. Grep checks confirmed no remaining
+  `inventories/development` or `k3s` references in
+  `scripts/capture_run_snapshot.sh`, and no remaining Ansible references to
+  `keycloak_pg_manifest_template` / `postgres-openshift.yaml.j2`.
+
+- [x] 2026-07-27: Completed Phase 5 slice 1 (Ansible hygiene start).
+  Added `ansible/ansible.cfg` with default OpenShift inventory
+  (`inventories/openshift`) and `interpreter_python=auto_silent`, and replaced
+  deprecated injected-fact usages in
+  `inventories/openshift/group_vars/all.yml`
+  (`ansible_env.HOME` -> `ansible_facts.env.HOME`, `ansible_user_id` ->
+  `ansible_facts.user_id`). Also added `!ansible/ansible.cfg` to
+  `.gitignore` so the new config is tracked. Validation in Vagrant: `site.yml` and
+  `bootstrap.yml` syntax-check passed; `site.yml --list-tasks` diff
+  (`/tmp/now-site-step18.txt` -> `/tmp/now-site-step19.txt`) was empty;
+  `bootstrap.yml --list-tasks` diff
+  (`/tmp/now-bootstrap-step18.txt` -> `/tmp/now-bootstrap-step19.txt`) was
+  empty; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`.
 
 - [x] 2026-07-27: Completed Phase 4 slice 6 (delete `inventories/development/`).
   Removed the two remaining development inventory files,
@@ -708,7 +755,7 @@ Record of what each row became (for audit; do not re-do):
 | `kubectl_bin` | default now `oc` |
 | `k3s_kubeconfig_path` | renamed `armory_kubeconfig_path` across ~11 roles + `bootstrap.yml`/`teardown_openshift.yml`; k3s fallback path removed |
 
-## Phase 4 — Residue sweep (k3s code + inventory collapse) — IN PROGRESS
+## Phase 4 — Residue sweep (k3s code + inventory collapse) — ✅ COMPLETE (2026-07-27)
 
 > **Reality check (2026-07-24):** the four selector *families* are gone, but ~90
 > `k3s` hits remain — most are comments (Phase 5), but several are **live k3s

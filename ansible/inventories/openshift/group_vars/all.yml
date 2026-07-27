@@ -13,7 +13,7 @@
 # --- Control-host / cluster access -------------------------------------------
 # On k3s the Ansible controller WAS a cluster node. Here it is an external
 # workstation, so all cluster access goes through a kubeconfig + `oc`.
-armory_kubeconfig_path: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(ansible_env.HOME + '/.kube/config', true) }}"
+armory_kubeconfig_path: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(ansible_facts.env.HOME + '/.kube/config', true) }}"
 
 # Cluster CLI. k3s bundles kubectl behind `k3s kubectl`; OpenShift uses `oc`.
 # Roles shell out via this var instead of hardcoding the binary.
@@ -50,41 +50,13 @@ armory_storage_class: ocs-storagecluster-ceph-rbd
 keycloak_pg_storage_class: "{{ armory_storage_class }}"
 openbao_storage_class: "{{ armory_storage_class }}"
 
-# --- Pod security (SCC) ------------------------------------------------------
-# OpenShift's default restricted-v2 SCC assigns a random UID from the namespace
-# range and forbids root. The official postgres:16 image STARTS as root (its
-# entrypoint chowns PGDATA, then drops to the postgres user), so it cannot run
-# here — and no non-root SCC can accommodate it.
-#
-# Rather than grant the database permission to run as root (the `anyuid` SCC),
-# use an image built to run as an arbitrary unprivileged UID. This needs NO SCC
-# grant at all, so armory adds nothing cluster-scoped and stays consistent with
-# its own hardening posture.
-keycloak_pg_image: quay.io/sclorg/postgresql-16-c9s
-keycloak_pg_manifest_template: postgres-openshift.yaml.j2
-
-# OpenBao wants the IPC_LOCK capability to mlock its memory, which restricted-v2
-# strips — granting it would mean a custom SCC carrying a privileged capability.
-# Kubernetes nodes run with swap disabled, so locking memory against swap buys
-# nothing here. Disabling mlock is the standard Vault/OpenBao-on-Kubernetes
-# posture and avoids the capability entirely.
-openbao_disable_mlock: true
-
-# The OpenBao chart pins a non-root UID (100) and fsGroup (1000), which
-# restricted-v2 rejects (it demands a UID from the namespace's range). nonroot-v2
-# permits any NON-ROOT UID and any fsGroup — the least-privileged SCC that fits,
-# and notably not `anyuid`, which would also permit root. Bound to OpenBao's
-# ServiceAccount alone via a namespaced RoleBinding, so nothing cluster-scoped is
-# created and no other workload is affected.
-openbao_scc_name: nonroot-v2
-
 # --- Break-glass / local state -----------------------------------------------
 # The controller here is the ocp-garrison workstation, not a cluster node, so
 # local state cannot be root-owned or live under /opt. Put it in the connection
 # user's home, owned by that user.
-openbao_work_dir: "{{ ansible_env.HOME }}/.armory/openbao"
-openbao_file_owner: "{{ ansible_user_id }}"
-openbao_file_group: "{{ ansible_user_id }}"
+openbao_work_dir: "{{ ansible_facts.env.HOME }}/.armory/openbao"
+openbao_file_owner: "{{ ansible_facts.user_id }}"
+openbao_file_group: "{{ ansible_facts.user_id }}"
 
 # The workstation is rebuildable (`vagrant destroy`), and the break-glass files
 # are the ONLY way to unseal OpenBao — losing them strands a running OpenBao
