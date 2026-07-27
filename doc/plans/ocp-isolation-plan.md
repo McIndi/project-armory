@@ -33,14 +33,39 @@ Ground rules for the implementer:
 
 ## Current position (2026-07-26)
 
-Phases 0–3 complete; **Phase 4 slice 1 is now complete**. **Next work: Phase 4,
-slice 2** (delete the dead `edge_gateway_*` family and `resolve_edge_gateway_ip`
-invocation chain). Phase 4 slices are ordered and independent; do them one commit
-at a time, §V gate between each. Then Phase 5.
+Phases 0–3 complete; **Phase 4 slices 1 and 2 are now complete**. **Next work:
+Phase 4, slice 3** (openbao firewall/NodePort residue). Phase 4 slices are
+ordered and independent; do them one commit at a time, §V gate between each.
+Then Phase 5.
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-26: Completed Phase 4 slice 2 (`edge_gateway_*` family and
+  resolver chain removal).
+  Deleted the edge-IP resolver chain end-to-end: removed the pre-task include of
+  `common/tasks/resolve_edge_gateway_ip.yml` from both
+  `playbooks/site.yml` and `playbooks/readiness_check.yml`; deleted
+  `roles/common/tasks/resolve_edge_gateway_ip.yml`; removed the coupled OpenBao
+  UI host-mapping tasks and `openbao_ingress_ip_effective` from
+  `roles/openbao/tasks/install.yml`; removed
+  `edge_gateway_ip_resolution_enabled` from OpenShift inventory; removed the
+  dead development inventory `edge_gateway_*` block; and deleted both
+  now-orphaned filter plugins (`ansible/filter_plugins/edge_network.py` and
+  `ansible/roles/common/filter_plugins/edge_network.py`).
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  `site.yml --list-tasks` diff (`/tmp/now-site-step14.txt` ->
+  `/tmp/now-site-step15.txt`) showed only expected task removals (resolver
+  include + the two OpenBao ingress-IP mapping tasks);
+  `bootstrap.yml --list-tasks` diff
+  (`/tmp/now-bootstrap-step14.txt` -> `/tmp/now-bootstrap-step15.txt`) was
+  empty; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`. Targeted grep gates found no remaining
+  Ansible references to `resolve_edge_gateway_ip.yml`,
+  `edge_gateway_ip_resolution_enabled`, `openbao_ingress_ip_effective`,
+  `armory_ip_in_any_cidr`, `edge_gateway_ip_resolved`, or the deleted
+  `edge_gateway_*` vars.
 
 - [x] 2026-07-26: Completed Phase 4 slice 1 (readiness_check k3s/host/gateway
   removal).

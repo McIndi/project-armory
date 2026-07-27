@@ -3,22 +3,6 @@
   hosts: all
   gather_facts: true
   pre_tasks:
-    # Autodetects the node IP the Envoy Gateway edge binds. Meaningless on a
-    # managed cluster, where traffic enters via a Route and there is no node we
-    # own — the OpenShift inventory turns this off.
-    - name: Resolve canonical edge gateway IP
-      ansible.builtin.include_role:
-        name: common
-        tasks_from: resolve_edge_gateway_ip.yml
-        apply:
-          tags:
-            - always
-            - edge_gateway_ip
-      when: edge_gateway_ip_resolution_enabled | default(true) | bool
-      tags:
-        - always
-        - edge_gateway_ip
-
     # Where the playbook runs as a project-scoped account, confirm up front that
     # it actually holds every permission the run needs. A missing grant would
     # otherwise surface partway through a deploy, indistinguishable from a bug in

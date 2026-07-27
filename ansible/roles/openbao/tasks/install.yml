@@ -290,33 +290,6 @@
     common_internal_https_dns_fqdn: "{{ openbao_tls_server_name }}"
   when: not ansible_check_mode
 
-# The gateway Service carries the node address as an externalIP, so the
-# public UI host maps straight to the node IP.
-- name: Resolve effective gateway IP for OpenBao UI host mapping
-  ansible.builtin.set_fact:
-    openbao_ingress_ip_effective: "{{ edge_gateway_ip_resolved | default(edge_gateway_ip | default('127.0.0.1')) }}"
-  changed_when: false
-  when:
-    - not ansible_check_mode
-    - openbao_ingress_enabled | bool
-
-# The HTTPRoute itself is applied by roles/openbao/tasks/route.yml, invoked
-# from the openbao_oidc role: this role runs before the Gateway API CRDs
-# exist on a fresh cluster.
-- name: Ensure OpenBao UI host resolves to gateway IP locally
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^\S+\s+{{ openbao_ingress_host | regex_escape }}\s*$'
-    line: "{{ openbao_ingress_ip_effective }} {{ openbao_ingress_host }}"
-    owner: root
-    group: root
-    mode: "0644"
-  become: true
-  register: _openbao_ui_hosts_result
-  when:
-    - not ansible_check_mode
-    - openbao_ingress_enabled | bool
-
 - name: Recreate OpenBao pod after Helm apply
   ansible.builtin.command:
     cmd: >-

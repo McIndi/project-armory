@@ -156,10 +156,6 @@ envoy_proxy_upstreams:
     tls: false
     expose: false
 
-# There is no node IP to bind and no LoadBalancer (no MetalLB, vSphere platform),
-# so the k3s edge-IP autodetection is meaningless here.
-edge_gateway_ip_resolution_enabled: false
-
 ingress_http_policy: disabled
 openbao_ui_enabled: true
 
