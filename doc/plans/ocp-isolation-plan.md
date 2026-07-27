@@ -33,14 +33,33 @@ Ground rules for the implementer:
 
 ## Current position (2026-07-27)
 
-Phases 0–3 complete; **Phase 4 slices 1, 2, 3, and 4 are now complete**. **Next
-work: Phase 4, slice 5** (helm dnf path). Phase 4 slices are
+Phases 0–3 complete; **Phase 4 slices 1, 2, 3, 4, and 5 are now complete**.
+**Next work: Phase 4, slice 6** (delete `inventories/development/`). Phase 4 slices are
 ordered and independent; do them one commit at a time, §V gate between each.
 Then Phase 5.
 Objective progress metric is the k3s burn-down grep in §V — it is high right now
 and must reach comments-only after Phase 4, zero after Phase 5's comment scrub.
 
 ## Progress log
+
+- [x] 2026-07-27: Completed Phase 4 slice 5 (helm dnf path).
+  Removed the host-package install path from `roles/helm/tasks/main.yml`
+  (deleted the `Ensure Helm is installed` dnf task and its gate), removed
+  now-dead package defaults from `roles/helm/defaults/main.yml`
+  (`helm_package_install_enabled`, `helm_package_name`, and
+  `helm_package_state`), removed the obsolete OpenShift inventory override
+  `helm_package_install_enabled` from
+  `inventories/openshift/group_vars/all.yml`, and updated
+  `roles/helm/README.md` to document validation + `helm-diff` behavior only.
+  Validation in Vagrant: `site.yml` and `bootstrap.yml` syntax-check passed;
+  `site.yml --list-tasks` diff (`/tmp/now-site-step17.txt` ->
+  `/tmp/now-site-step18.txt`) showed only expected removal of `helm : Ensure
+  Helm is installed`; `bootstrap.yml --list-tasks` diff
+  (`/tmp/now-bootstrap-step17.txt` -> `/tmp/now-bootstrap-step18.txt`) was
+  empty; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`. Static include/import target existence
+  gate returned no missing task files, and a fresh k3s burn-down snapshot was
+  captured after this slice.
 
 - [x] 2026-07-27: Completed Phase 4 slice 4 (cert_manager install path).
   Deleted `roles/cert_manager/tasks/install.yml`, removed the install import

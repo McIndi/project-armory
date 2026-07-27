@@ -6,22 +6,6 @@
 
 - name: Install and validate Helm with diagnostics
   block:
-    # Installs Helm from the host package manager, which needs root. On a
-    # controller that is a cluster node (k3s) the playbook runs as root and this
-    # is fine. Where the controller is a separate workstation (OpenShift), Helm
-    # is provided by the box's own provisioning, not by armory, and this task
-    # would fail as a non-root user — so it is gated off there. The helm-diff
-    # plugin below is still installed either way; it runs as the current user.
-    - name: Ensure Helm is installed
-      tags:
-        - helm
-        - helm_install
-      ansible.builtin.dnf:
-        name: "{{ helm_package_name }}"
-        state: "{{ helm_package_state }}"
-      register: _helm_install_result
-      when: helm_package_install_enabled | default(true) | bool
-
     - name: Check Helm version
       tags:
         - helm
