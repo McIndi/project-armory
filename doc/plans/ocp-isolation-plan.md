@@ -797,6 +797,13 @@ Record of what each row became (for audit; do not re-do):
   `kube-root-ca.crt` exists on OCP, the task is correct, only the label is wrong),
   `helm` role headers, `cert_manager/defaults`, OCP inventory prose. Keep genuine
   historical rationale in `doc/decisions/`, not in task files.
+- `ansible/inventories/openshift/group_vars/all.yml:9` — header comment still
+  reads "Deltas from inventories/development are grouped and justified"; that
+  inventory was deleted in slice 6. Rewrite to describe the OCP inventory on
+  its own terms, not as a diff against the removed k3s inventory.
+- `doc/configuration.md:50` — documents `edge_gateway_excluded_ifname_patterns`
+  as a live tunable; the variable was deleted in slice 2. Drop the row (or
+  replace it if a genuine OCP-relevant successor exists).
 - `ansible-lint`: fix findings introduced by this work only (handoff §9 stands).
 - Docs: README deploy flow; `doc/architecture.md`; `doc/operations.md` gains the
   manual-rotation runbook (Phase 1.4) and `teardown_openshift.yml`; a
