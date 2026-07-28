@@ -31,15 +31,62 @@ Ground rules for the implementer:
 - Delete, don't comment out. Remove `when:`s that become tautological.
 - Commit per phase, message prefix `isolate(ocp):`.
 
-## Current position (2026-07-27)
+## Current position (2026-07-28)
 
 Phases 0–4 complete; **Phase 5 is in progress**.
-**Next work: Phase 5 slice 6** (stabilize ansible-lint completion capture and
-close any lint findings introduced by this branch only).
+**Next work: Phase 5 slice 7** (re-run lint coverage capture with the fixed
+wrapper invocation, then publish the concrete input-vs-encountered file list
+and either close Phase 5 or open a narrow cleanup slice for residual findings).
 Objective progress metric is the k3s burn-down grep in §V — it now returns zero
 hits under `ansible/` for `*.yml`, `*.j2`, and `*.cfg`.
 
 ## Progress log
+
+- [x] 2026-07-28: Lint coverage root-cause isolation (input list vs encountered
+  diff) and wrapper argument fix.
+  We reproduced the coverage question with ansible-lint verbose tracing in VM
+  and compared the explicit input list against ansible-lint's own parsed
+  options/trace. Root cause: the prior wrapper invocation form allowed the 73
+  positional YAML paths to be absorbed into ansible-lint's `exclude_paths`
+  (visible in `DEBUG Options`), so every input path was explicitly excluded in
+  that run. This made the earlier `30 processed of 42 encountered` summary
+  non-evidence for full input coverage. We patched
+  `ansible/scripts/run_local_ansible_lint.sh` to pass excludes with
+  `--exclude=.ansible/`, terminate options with `--`, and send the discovered
+  YAML file list after option parsing. Post-fix startup trace now shows the 73
+  inputs in `lintables` and keeps `exclude_paths` to configured excludes only.
+  Final full-run post-fix summary capture remains open because verbose runs in
+  this VM still spend extended time in syntax-check before summary emission.
+
+- [x] 2026-07-28: Follow-up correction to Phase 5 slice 6 lint wording after
+  coverage review.
+  The earlier slice-6 summary over-read the lint result. We retained the local
+  lint wrapper but tightened it to discover and pass an explicit YAML input set,
+  and recorded measured coverage evidence: `Lint input YAML files: 73`, with
+  ansible-lint reporting `30 files processed of 42 encountered` and
+  `0 failure(s), 0 warning(s)` in that processed subset. Updated
+  `doc/handoffs/ocp-migration-handoff.md` §9 accordingly so the handoff no
+  longer implies a full-file recursive clean pass.
+
+- [x] 2026-07-28: Completed Phase 5 slice 6 (ansible-lint completion
+  stabilization + lint capture).
+  Added `ansible/scripts/run_local_ansible_lint.sh` to force a deterministic
+  local lint path in the Vagrant VM: it sources `.env`, exports
+  `ANSIBLE_CONFIG`, runs `ansible-lint --offline`, excludes the local
+  `.ansible/` cache tree, and lint-targets only
+  `playbooks`, `roles`, and `inventories/openshift` (the active OCP Ansible
+  content). Reproduced the old unstable behavior first (`ansible-lint` from
+  repo root stalls during root auto-discovery / dependency setup), then
+  validated the stabilized invocation in VM with `RC:0` and
+  `Passed: 0 failure(s), 0 warning(s)`. Local gate checks also passed:
+  `site.yml` and `bootstrap.yml` syntax-check, `--check` recaps with
+  `failed=0`, include/import target existence check with no missing files, and
+  an empty k3s burn-down grep result across `ansible/` `*.yml`/`*.j2`/`*.cfg`.
+  Because the VM had to be restarted during this slice, `/tmp` snapshots from
+  the previous step were unavailable; fresh baselines were recaptured to
+  `/tmp/now-site-step25.txt` and `/tmp/now-bootstrap-step25.txt` for the next
+  task-list diff.
+  No Ansible task graph or runtime behavior changed.
 
 - [x] 2026-07-28: Follow-up corrections after review of the Phase 5 slice 5
   README/architecture refresh.
