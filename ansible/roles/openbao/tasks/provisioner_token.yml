@@ -148,6 +148,8 @@
       --output {{ openbao_provisioner_token_file }}
       {{ openbao_provisioner_token_file }}.plain
   no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
+  # Only runs when a new token was minted, so it always writes the token file.
+  changed_when: true
   when:
     - not ansible_check_mode
     - not (_openbao_provisioner_token_valid | default(false))

@@ -22,7 +22,9 @@ readiness_check_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default
 readiness_check_openbao_pki_internal_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
 readiness_check_openbao_pki_external_mount: "{{ openbao_pki_external_mount | default('pki-ext') }}"
 readiness_check_keycloak_internal_fqdn: "{{ readiness_check_keycloak_service_name }}.{{ readiness_check_keycloak_namespace }}.svc.cluster.local"
-readiness_check_keycloak_internal_url: "https://{{ readiness_check_keycloak_internal_fqdn }}:8443/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
+readiness_check_keycloak_internal_url: >-
+  https://{{ readiness_check_keycloak_internal_fqdn }}:8443/realms/{{
+  readiness_check_keycloak_realm }}/.well-known/openid-configuration
 readiness_check_keycloak_ca_bundle_path: /tmp/readiness-keycloak-ca-bundle.crt
 readiness_check_keycloak_ca_source_namespace: "{{ readiness_check_keycloak_namespace }}"
 

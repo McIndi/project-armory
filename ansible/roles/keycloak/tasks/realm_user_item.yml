@@ -156,7 +156,9 @@
 
 - name: Ensure realm user group memberships
   ansible.builtin.uri:
-    url: "{{ _keycloak_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users/{{ _keycloak_realm_user_id }}/groups/{{ _keycloak_realm_group_id_map[group_name] }}"
+    url: >-
+      {{ _keycloak_realm_users_base_url }}/admin/realms/{{ keycloak_realm }}/users/{{ _keycloak_realm_user_id
+      }}/groups/{{ _keycloak_realm_group_id_map[group_name] }}
     method: PUT
     headers:
       Authorization: "Bearer {{ _keycloak_realm_users_admin_token }}"

@@ -11,8 +11,16 @@ openbao_oidc_auth_mount: oidc
 openbao_oidc_default_role_name: armory-ui
 
 # Public URL / issuer settings
-openbao_oidc_ingress_host: "{{ openbao_ingress_host | default(lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true)) }}"
-openbao_oidc_issuer_url: "{{ (keycloak_public_base_url | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true))) + '/realms/' + openbao_oidc_keycloak_realm }}"
+openbao_oidc_ingress_host: >-
+  {{ openbao_ingress_host
+  | default(lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST')
+  | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN')
+  | default('armory.local', true)), true)) }}
+openbao_oidc_issuer_url: >-
+  {{ (keycloak_public_base_url
+  | default(lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL')
+  | default('https://armory.local', true)))
+  + '/realms/' + openbao_oidc_keycloak_realm }}
 openbao_oidc_discovery_url: "{{ openbao_oidc_issuer_url }}"
 
 # Keycloak settings

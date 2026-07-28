@@ -94,6 +94,9 @@
       -addext basicConstraints=critical,CA:TRUE
       -addext keyUsage=critical,keyCertSign,cRLSign
   become: true
+  # _openbao_tls_regenerate is the "needs doing" test; reaching this task means
+  # the CA is missing or expiring, and running always rewrites it.
+  changed_when: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -107,6 +110,7 @@
       -out {{ openbao_tls_csr_host_path }}
       -config {{ openbao_tls_openssl_config_path }}
   become: true
+  changed_when: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -127,6 +131,7 @@
       -extfile {{ openbao_tls_openssl_config_path }}
       -extensions req_ext
   become: true
+  changed_when: true
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode
@@ -331,6 +336,7 @@
     - armory_privileged_tasks | default(true) | bool
 
 - name: Wait for OpenBao pod to be ready
+  when: not ansible_check_mode
   block:
     - name: Wait for OpenBao pod to be created
       ansible.builtin.command:
@@ -370,4 +376,3 @@
       retries: 60
       delay: 5
       changed_when: false
-  when: not ansible_check_mode

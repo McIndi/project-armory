@@ -97,7 +97,10 @@ openbao_ready_wait_timeout: 600s
 # Keep disabled by default; development inventory opts in.
 openbao_ui_enabled: false
 openbao_ingress_enabled: "{{ openbao_ui_enabled }}"
-openbao_ingress_host: "{{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST') | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)), true) }}"
+openbao_ingress_host: >-
+  {{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST')
+  | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN')
+  | default('armory.local', true)), true) }}
 openbao_cert_duration: "8760h"
 openbao_cert_renew_before: "720h"
 

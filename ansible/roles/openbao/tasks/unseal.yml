@@ -33,7 +33,10 @@
         - openbao_unseal_keys is not defined
         - not ansible_check_mode
 
-    - name: Set unseal key and root token facts from decrypted file
+    # common_openbao_root_token is deliberately common_-prefixed: it is the
+    # shared cross-role fact owned by roles/common (load_openbao_root_token.yml)
+    # and consumed by openbao, openbao_oidc, and readiness_check.
+    - name: Set unseal key and root token facts from decrypted file  # noqa: var-naming[no-role-prefix]
       ansible.builtin.set_fact:
         openbao_unseal_keys: "{{ (_openbao_decrypted.stdout | from_yaml).unseal_keys }}"
         common_openbao_root_token: "{{ (_openbao_decrypted.stdout | from_yaml).root_token }}"
@@ -73,7 +76,8 @@
         - common_openbao_root_token is not defined
         - not ansible_check_mode
 
-    - name: Set root token fact (vault already unsealed path)
+    # See note above: common_ prefix is the intended cross-role convention.
+    - name: Set root token fact (vault already unsealed path)  # noqa: var-naming[no-role-prefix]
       ansible.builtin.set_fact:
         common_openbao_root_token: "{{ (_openbao_decrypted_for_token.stdout | from_yaml).root_token }}"
       no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"

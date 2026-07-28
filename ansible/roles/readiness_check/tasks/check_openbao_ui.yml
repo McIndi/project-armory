@@ -37,7 +37,8 @@
         'status': 'pass'
           if (_readiness_check_openbao_ui_https.status | default(-1)) in [200, 301, 302, 307, 401, 403]
           else 'pass'
-          if (_readiness_check_openbao_ui_https_fallback is defined and (_readiness_check_openbao_ui_https_fallback.status | default(-1)) in [200, 301, 302, 307, 401, 403])
+          if (_readiness_check_openbao_ui_https_fallback is defined
+          and (_readiness_check_openbao_ui_https_fallback.status | default(-1)) in [200, 301, 302, 307, 401, 403])
           else 'warn'
           if ('name resolution' in ((_readiness_check_openbao_ui_https.msg | default('')) | lower))
           else 'fail',

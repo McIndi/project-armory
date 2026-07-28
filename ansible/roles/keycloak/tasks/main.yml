@@ -6,6 +6,7 @@
 
 - name: Deploy standalone Keycloak (Deployment + PostgreSQL StatefulSet)
   tags: [keycloak, keycloak_install, keycloak_oidc]
+  when: not ansible_check_mode
   block:
     # ── Namespace ──────────────────────────────────────────────────────────────
     - name: Ensure Keycloak namespace exists
@@ -387,4 +388,3 @@
       when:
         - not ansible_check_mode
         - keycloak_admin_events_prune_enabled | bool
-  when: not ansible_check_mode

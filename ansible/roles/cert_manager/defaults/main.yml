@@ -31,7 +31,10 @@ cert_manager_openbao_cluster_issuers:
     role: "{{ openbao_pki_internal_cert_role | default('armory-internal') }}"
   - name: "{{ cert_manager_openbao_external_clusterissuer_name }}"
     mount: "{{ openbao_pki_external_mount | default('pki-ext') }}"
-    role: "{{ openbao_pki_external_cert_role | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true)) | replace('.', '-dot-')) }}"
+    role: >-
+      {{ openbao_pki_external_cert_role
+      | default((lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN')
+      | default('armory.local', true)) | replace('.', '-dot-')) }}
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: Enabling this will print secrets/tokens into logs and output.

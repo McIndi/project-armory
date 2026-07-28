@@ -3,9 +3,10 @@
   ansible.builtin.set_fact:
     openbao_teardown_target_namespaces: >-
       {{
-        (openbao_teardown_target_namespaces | default([]))
-        + [openbao_namespace]
-        | unique
+        (
+          (openbao_teardown_target_namespaces | default([]))
+          + [openbao_namespace]
+        ) | unique
       }}
 
 - name: Uninstall OpenBao helm release

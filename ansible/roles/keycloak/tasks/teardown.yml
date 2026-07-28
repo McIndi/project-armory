@@ -2,7 +2,7 @@
 - name: Register Keycloak namespace for teardown checks
   ansible.builtin.set_fact:
     keycloak_teardown_target_namespaces: >-
-      {{ (keycloak_teardown_target_namespaces | default([])) + [keycloak_namespace] | unique }}
+      {{ ((keycloak_teardown_target_namespaces | default([])) + [keycloak_namespace]) | unique }}
 
 - name: Delete Keycloak Deployment (ignore if absent)
   ansible.builtin.command:

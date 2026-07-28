@@ -115,7 +115,9 @@
         'detail': 'HTTP ' + ((_readiness_check_keycloak_https_fallback.status | default(-1)) | string) + ' via ingress fallback'
           if ('name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)) and (_readiness_check_keycloak_https_fallback is defined)
           else 'HTTP ' + ((_readiness_check_keycloak_https.status | default(-1)) | string),
-        'error': (_readiness_check_keycloak_https.msg | default('')) + ' | ingress fallback HTTP ' + ((_readiness_check_keycloak_https_fallback.status | default(-1)) | string)
+        'error': (_readiness_check_keycloak_https.msg | default(''))
+          + ' | ingress fallback HTTP '
+          + ((_readiness_check_keycloak_https_fallback.status | default(-1)) | string)
           if ('name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)) and (_readiness_check_keycloak_https_fallback is defined)
           and (_readiness_check_keycloak_https_fallback.status | default(-1)) not in [200, 301, 302, 307]
           else (_readiness_check_keycloak_https.msg | default(''))
@@ -186,7 +188,9 @@
 
 - name: Check configured Keycloak realm users exist
   ansible.builtin.uri:
-    url: "https://{{ readiness_check_keycloak_internal_fqdn }}:8443/admin/realms/{{ readiness_check_keycloak_realm }}/users?username={{ item.username }}&exact=true"
+    url: >-
+      https://{{ readiness_check_keycloak_internal_fqdn }}:8443/admin/realms/{{
+      readiness_check_keycloak_realm }}/users?username={{ item.username }}&exact=true
     method: GET
     headers:
       Authorization: "Bearer {{ _readiness_check_keycloak_admin_token.json.access_token | default('') }}"
@@ -221,7 +225,9 @@
 - name: Check configured Keycloak realm user group memberships
   ansible.builtin.uri:
     url: >-
-      https://{{ readiness_check_keycloak_internal_fqdn }}:8443/admin/realms/{{ readiness_check_keycloak_realm }}/users/{{ (item.json | first).id }}/groups?briefRepresentation=true&max=1000
+      https://{{ readiness_check_keycloak_internal_fqdn }}:8443/admin/realms/{{
+      readiness_check_keycloak_realm }}/users/{{ (item.json | first).id
+      }}/groups?briefRepresentation=true&max=1000
     method: GET
     headers:
       Authorization: "Bearer {{ _readiness_check_keycloak_admin_token.json.access_token | default('') }}"
@@ -245,7 +251,8 @@
         'status': 'pass'
           if (((item.item.item.groups | default([])) | difference((item.json | default([]) | map(attribute='name') | list)) | length) == 0)
           else 'fail',
-        'detail': 'expected=' + ((item.item.item.groups | default([])) | join(',')) + '; actual=' + ((item.json | default([]) | map(attribute='name') | list) | join(',')),
+        'detail': 'expected=' + ((item.item.item.groups | default([])) | join(','))
+          + '; actual=' + ((item.json | default([]) | map(attribute='name') | list) | join(',')),
         'error': (item.msg | default(''))
       }] }}
   loop: "{{ _readiness_check_keycloak_realm_users_groups.results | default([]) }}"
@@ -311,7 +318,10 @@
 - name: Build Keycloak DB URL from Deployment env
   ansible.builtin.set_fact:
     _readiness_check_keycloak_db_url_info: "{{ _readiness_check_keycloak_deploy_info }}"
-    _readiness_check_keycloak_db_url: "{{ (((_readiness_check_keycloak_deploy_info.resources | default([]) | first | default({})).spec.template.spec.containers | default([]) | first | default({})).env | default([]) | selectattr('name', 'eq', 'KC_DB_URL') | map(attribute='value') | first | default('')) }}"
+    _readiness_check_keycloak_db_url: >-
+      {{ (((_readiness_check_keycloak_deploy_info.resources | default([]) | first | default({})).spec.template.spec.containers
+      | default([]) | first | default({})).env | default([])
+      | selectattr('name', 'eq', 'KC_DB_URL') | map(attribute='value') | first | default('')) }}
   changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
@@ -334,8 +344,11 @@
       {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'DB URL host matches Postgres TLS SAN FQDN',
-        'status': 'pass' if readiness_check_keycloak_pg_service_fqdn in (_readiness_check_keycloak_db_url | default('')) else 'fail',
-        'detail': readiness_check_keycloak_pg_service_fqdn,
+        'status': 'pass'
+          if (readiness_check_keycloak_pg_service_fqdn | default('') | string)
+          in (_readiness_check_keycloak_db_url | default('') | string)
+          else 'fail',
+        'detail': (readiness_check_keycloak_pg_service_fqdn | default('') | string),
         'error': ''
       }] }}
   changed_when: false

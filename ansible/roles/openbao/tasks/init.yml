@@ -57,7 +57,10 @@
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
 
-    - name: Set init key facts
+    # common_openbao_root_token is deliberately common_-prefixed: it is the
+    # shared cross-role fact owned by roles/common (load_openbao_root_token.yml)
+    # and consumed by openbao, openbao_oidc, and readiness_check.
+    - name: Set init key facts  # noqa: var-naming[no-role-prefix]
       ansible.builtin.set_fact:
         openbao_unseal_keys: "{{ _openbao_init_result.json.keys_base64 }}"
         common_openbao_root_token: "{{ _openbao_init_result.json.root_token }}"
@@ -94,6 +97,9 @@
           {{ openbao_init_keys_file }}.plain
       register: _openbao_encrypt_keys_result
       no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
+      # Guarded on first-init only, so reaching this task always writes the
+      # encrypted keys file.
+      changed_when: true
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode

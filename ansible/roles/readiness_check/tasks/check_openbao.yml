@@ -5,8 +5,12 @@
 - name: Resolve OpenBao API address from environment
   ansible.builtin.set_fact:
     _readiness_check_openbao_addr: "{{ lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true) }}"
-    _readiness_check_openbao_port: "{{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true)).split(':')[-1].split('/')[0] | int }}"
-    _readiness_check_openbao_host: "{{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR') | default(readiness_check_openbao_addr, true)).split('://')[1].split(':')[0] }}"
+    _readiness_check_openbao_port: >-
+      {{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR')
+      | default(readiness_check_openbao_addr, true)).split(':')[-1].split('/')[0] | int }}
+    _readiness_check_openbao_host: >-
+      {{ (lookup('ansible.builtin.env', 'OPENBAO_ADDR')
+      | default(readiness_check_openbao_addr, true)).split('://')[1].split(':')[0] }}
   changed_when: false
 
 - name: Add OpenBao HTTPS scheme check to results
@@ -70,11 +74,15 @@
       {{ _readiness_check_results + [{
         'component': 'OpenBao',
         'check_name': 'Plain HTTP endpoint rejected',
-        'status': 'fail' if (_readiness_check_openbao_plain_http.status is defined and _readiness_check_openbao_plain_http.status in [200, 429, 472, 473, 501, 503]) else 'pass',
+        'status': 'fail'
+          if (_readiness_check_openbao_plain_http.status is defined
+          and _readiness_check_openbao_plain_http.status in [200, 429, 472, 473, 501, 503])
+          else 'pass',
         'detail': (
           'no plaintext response' if (_readiness_check_openbao_plain_http.status is not defined)
           else (
-            ('unexpected HTTP ' + (_readiness_check_openbao_plain_http.status | string)) if (_readiness_check_openbao_plain_http.status in [200, 429, 472, 473, 501, 503])
+            ('unexpected HTTP ' + (_readiness_check_openbao_plain_http.status | string))
+            if (_readiness_check_openbao_plain_http.status in [200, 429, 472, 473, 501, 503])
             else ('plaintext rejected with HTTP ' + (_readiness_check_openbao_plain_http.status | string))
           )
         ),
@@ -110,8 +118,13 @@
       {{ _readiness_check_results + [{
         'component': 'OpenBao',
         'check_name': 'OpenBao unsealed',
-        'status': 'pass' if (_readiness_check_openbao_sealed is defined and not (_readiness_check_openbao_sealed | bool)) else ('fail' if _readiness_check_openbao_sealed is defined else 'warn'),
-        'detail': 'unsealed' if (_readiness_check_openbao_sealed is defined and not (_readiness_check_openbao_sealed | bool)) else ('sealed' if _readiness_check_openbao_sealed is defined else 'unknown (no sealed field in health response)'),
+        'status': 'pass'
+          if (_readiness_check_openbao_sealed is defined and not (_readiness_check_openbao_sealed | bool))
+          else ('fail' if _readiness_check_openbao_sealed is defined else 'warn'),
+        'detail': 'unsealed'
+          if (_readiness_check_openbao_sealed is defined and not (_readiness_check_openbao_sealed | bool))
+          else ('sealed' if _readiness_check_openbao_sealed is defined
+          else 'unknown (no sealed field in health response)'),
         'error': ''
       }] }}
   changed_when: false

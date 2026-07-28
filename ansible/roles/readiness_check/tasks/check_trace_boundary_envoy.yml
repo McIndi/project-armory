@@ -192,7 +192,8 @@
             (_readiness_check_trace_probe_headers[readiness_check_trace_forensic_header] | default('')) == readiness_check_trace_forged_traceparent
           ) else 'warn'
         ),
-        'detail': readiness_check_trace_forensic_header + '=' + (_readiness_check_trace_probe_headers[readiness_check_trace_forensic_header] | default('(none)')),
+        'detail': readiness_check_trace_forensic_header + '='
+          + (_readiness_check_trace_probe_headers[readiness_check_trace_forensic_header] | default('(none)')),
         'error': ''
       }] }}
   changed_when: false
