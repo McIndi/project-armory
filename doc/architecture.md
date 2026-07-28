@@ -1,183 +1,120 @@
 # Architecture
 
-How the components fit together and why they are ordered the way they are.
-For day-to-day commands see [operations.md](operations.md); for the security
-posture see [security.md](security.md); for tunables see
-[configuration.md](configuration.md).
+How the platform components fit together and why they are ordered this way.
+For day-to-day commands see [operations.md](operations.md). For tunables see
+[configuration.md](configuration.md). For security posture see
+[security.md](security.md).
 
 ## Overview
 
-Project Armory deploys a single-node Kubernetes platform on a Fedora VM
-(Vagrant) with centralized secrets, internal PKI, and OIDC identity. All
-provisioning is Ansible, running locally inside the VM against `localhost`.
+Project Armory deploys an OpenShift-focused platform with centralized secrets,
+internal PKI, and OIDC identity. Provisioning is Ansible-driven.
 
-Components and where they run:
+Components:
 
 | Component | Namespace | Deployed by role | Purpose |
 |---|---|---|---|
-| k3s | (host) | `k3s` | Kubernetes distribution; API server configured for Keycloak OIDC |
-| OpenBao | `openbao` | `openbao` | Secrets (KV v2) and PKI root of trust; audit log |
-| cert-manager | `cert-manager` | `cert_manager` | Issues TLS certificates from OpenBao PKI via ClusterIssuers |
-| trust-manager | `cert-manager` | `trust_manager` | Distributes the OpenBao CA bundle to consumer namespaces |
-| Envoy Gateway | `envoy-gateway-system` | `envoy_gateway` | Gateway API edge; HTTPS entry point and trace-context trust boundary |
-| Vault Secrets Operator | `vault-secrets-operator-system` | `vso` | Syncs OpenBao secrets into Kubernetes Secrets |
-| Keycloak + PostgreSQL | `keycloak` | `keycloak` | OIDC identity provider (operator + Keycloak CR + Postgres StatefulSet) |
-| Headlamp | `headlamp` | `headlamp` | Kubernetes web UI, authenticated via Keycloak OIDC |
-| metrics-server | `kube-system` | (bundled with k3s) | Resource metrics API (`kubectl top`, Headlamp graphs) |
+| OpenBao | `tex26-vault` (default) | `openbao` | Secrets (KV v2) + PKI root of trust + audit device |
+| cert-manager | `cert-manager` (shared cluster component) | `cert_manager` | Uses OpenBao-backed ClusterIssuers for certificate issuance |
+| Keycloak + PostgreSQL | `tex26-oidc` (default) | `keycloak` | OIDC identity provider and realm/user management |
+| OpenBao OIDC wiring | `tex26-vault`, `tex26-oidc` | `openbao_oidc` | Configures OpenBao OIDC auth against Keycloak |
+| Envoy edge | `tex26-gateway` (default) | `envoy_proxy` | Public edge for Keycloak/OpenBao traffic |
+| Optional registry | `tex26-oci-registry` (default) | `registry` | In-cluster OCI registry for armory-owned workflows |
+| Readiness checks | n/a | `readiness_check` | End-of-run platform verification |
+
+The `common` role provides shared helpers consumed by other roles (OpenBao root
+state loading, CA secret copy, internal HTTPS caller setup, and tunnel cleanup).
 
 ## Role execution order
 
 `playbooks/site.yml` runs roles in dependency order:
 
 ```
-env_guard → system_update → helm → k3s → openbao → cert_manager
-→ trust_manager → envoy_gateway → vso → keycloak → headlamp → readiness_check
+env_guard -> helm -> openbao -> cert_manager -> keycloak -> openbao_oidc -> envoy_proxy -> registry (optional) -> readiness_check
 ```
 
-The ordering constraints that matter:
+Ordering constraints that matter:
 
-- **openbao before cert_manager**: cert-manager's ClusterIssuers sign against
-  OpenBao's PKI mounts, which must exist first.
-- **cert_manager before trust_manager**: trust-manager is a cert-manager
-  subproject and depends on its CRDs/webhooks. cert-manager is also the one
-  consumer that cannot use trust-manager-distributed CA Secrets (it would be a
-  circular dependency), so it self-bootstraps from a direct copy of the
-  `openbao-ca` Secret.
-- **vso before keycloak/headlamp**: both consumers create VSO custom
-  resources; the CRDs and operator must exist.
-- **keycloak before headlamp**: the headlamp role provisions its OIDC client
-  in Keycloak and configures the k3s API server's OIDC flags (which need the
-  issuer to exist). See [decisions/](decisions/) for why k3s OIDC config
-  currently lives in the headlamp role.
-- **readiness_check last**: validates the whole stack; see
-  [operations.md](operations.md#readiness-checks).
+- `openbao` before `cert_manager`: ClusterIssuers depend on OpenBao PKI mounts.
+- `cert_manager` before `keycloak`/`envoy_proxy`: cert issuance must be available
+  before edge and workload TLS artifacts are applied.
+- `keycloak` before `openbao_oidc`: OpenBao OIDC wiring requires a live issuer.
+- `envoy_proxy` runs after upstream services exist so routes/clusters resolve
+  cleanly on first apply.
+- `readiness_check` runs last and is skipped in check mode.
 
-The `common` role is not in the sequence; it is a utility included by other
-roles (root-token loading, CA secret copying, internal HTTPS caller setup).
+`playbooks/bootstrap.yml` is intentionally separate and privileged: it creates
+projects, service accounts, and cluster-scoped grants needed before scoped
+automation can run safely.
 
 ## Secrets flow
 
-OpenBao KV v2 (mount `secret/`) is the source of truth for all generated
-credentials. Nothing is hand-set; passwords are generated once by Ansible,
-persisted to OpenBao, and reused on re-runs.
+OpenBao KV v2 (`secret/`) is the source of truth for generated credentials.
+The playbook writes KV values and then applies Kubernetes Secrets directly where
+needed.
 
 ```
-Ansible (generate once)                     consumers
-        │                                       ▲
-        ▼                                       │
-   OpenBao KV v2  ──►  VSO (VaultStaticSecret) ──►  k8s Secret
-   secret/keycloak/db          │                 keycloak-db-secret
-   secret/keycloak/realm-admin │                 keycloak-realm-admin
-   secret/headlamp/oidc        │                 (headlamp ns)
+Ansible (generate/read) -> OpenBao KV v2 -> Kubernetes Secret apply
+secret/keycloak/db                         -> keycloak-db-secret
+secret/keycloak/realm-admin                -> keycloak-realm-admin
+secret/keycloak/bootstrap-admin            -> keycloak-bootstrap-admin
 ```
 
-Per consumer, the VSO wiring is: a ServiceAccount, a `VaultConnection`
-(HTTPS endpoint + CA Secret ref), a `VaultAuth` (Kubernetes auth role), and
-one or more `VaultStaticSecret` resources. Each consumer gets its own OpenBao
-ACL policy and Kubernetes auth role (`keycloak-vso`, `headlamp-vso`,
-`keycloak-realm-admin-rotator`), scoped to its own KV paths. The duplication
-across consumers is a known refactor candidate
-([simplification-opportunities.md](simplification-opportunities.md) #3).
+This branch does not use Vault Secrets Operator resources for sync. Rotation
+sync loops are out of scope; re-run the relevant playbook tags to refresh
+secrets after a rotation event.
 
-OpenBao authentication for in-cluster consumers is the Kubernetes auth
-method: pods present their ServiceAccount token, OpenBao validates it against
-the API server, and grants the policy bound to that role.
+Ansible automation authenticates to OpenBao with a scoped periodic
+`ansible-provisioner` token (`/opt/openbao/provisioner-token.yml`, vaulted).
+Root token usage is reserved for bootstrap and break-glass paths.
 
-Ansible itself authenticates with a scoped periodic `ansible-provisioner`
-token (encrypted at `/opt/openbao/provisioner-token.yml`, minted and renewed
-by the openbao role). The root token is reserved for bootstrap and
-break-glass: [decisions/0007](decisions/0007-scoped-provisioner-token.md).
+## PKI and trust
 
-## PKI and trust distribution
+OpenBao is the CA source. cert-manager consumes OpenBao-backed ClusterIssuers
+for internal/external certificates.
 
-OpenBao is the certificate authority. Three PKI mounts form the hierarchy:
+High-level PKI model:
 
 ```
-pki-root  ("Armory Root CA", ~10y)
-  ├── pki-int  ("Armory Internal Issuing CA", ~5y)  → in-cluster service certs
-  │       allowed domains: svc.cluster.local
-  └── pki-ext  ("Armory External Issuing CA", ~5y)  → ingress certs
-          allowed domains: ARMORY_PUBLIC_DOMAIN (default armory.local)
+pki-root
+  |- pki-int  (internal service certs)
+  '- pki-ext  (public edge certs)
 ```
 
-cert-manager exposes these as ClusterIssuers (`openbao-pki-internal`,
-`openbao-pki-external`). Certificates:
-
-- The consolidated edge certificate (`armory-tls`, all public hosts + node IP
-  SAN, in the gateway namespace) is issued from `openbao-pki-external`.
-- Internal service certs (Keycloak HTTPS on 8443, Postgres TLS, VSO
-  kube-rbac-proxy) are issued from `openbao-pki-internal`.
-- OpenBao's own server certificate is self-managed by the `openbao` role
-  (openssl on the host) because OpenBao must serve TLS before its PKI
-  engine exists.
-
-CA distribution: trust-manager maintains a `Bundle` that copies the OpenBao
-CA into a target Secret (`openbao-ca-bundle`) in each consumer namespace
-(`cert-manager`, `vault-secrets-operator-system`, `keycloak`, `headlamp`).
-This is the declarative path enabled by `use_declarative_ca_distribution`;
-cert-manager is the exception noted above. The OpenBao CA is also installed
-into the VM's system trust store (`/etc/pki/ca-trust/source/anchors/`) so
-host-side automation can verify TLS.
+The OpenBao CA secret is copied into namespaces that need trust anchors for
+service-to-service or controller-to-service TLS validation.
 
 ## Identity and OIDC
 
-Keycloak (realm `armory`) is the identity provider for both the Kubernetes
-API server and Headlamp.
+Keycloak (realm `armory`) is the identity provider used by OpenBao OIDC auth.
+Keycloak bootstrap/admin and realm credentials are generated and stored in
+OpenBao KV, with required Kubernetes Secrets materialized by Ansible.
 
-- **k3s API server**: configured with `--oidc-*` flags pointing at the
-  `armory` realm (issuer URL, client, groups claim). Keycloak group
-  membership maps to Kubernetes RBAC: the `admin` group is bound to
-  `cluster-admin` via ClusterRoleBinding.
-- **Headlamp**: the headlamp role provisions a dedicated OIDC client in the
-  realm via the Keycloak admin REST API (client secret stored in OpenBao at
-  `secret/headlamp/oidc`, synced by VSO). Users log into Headlamp with realm
-  credentials; Headlamp forwards the OIDC token to the API server, which
-  validates it against Keycloak.
-- **Realm admin** (`admin`, the Headlamp login) is distinct from the
-  Keycloak **master bootstrap admin** (console only). The realm admin
-  password is rotated monthly by a CronJob; see
-  [operations.md](operations.md#password-rotation).
-
-Keycloak runs as: Keycloak Operator → `Keycloak` CR → pods, backed by a
-plain PostgreSQL StatefulSet provisioned by the `keycloak` role (not the
-operator). Realm and seed admin/group come from a `KeycloakRealmImport` CR;
-per-client config (e.g. the Headlamp client) is REST-managed by consumers.
+OpenBao UI authentication uses OIDC redirect to Keycloak and applies OpenBao
+policies according to configured user/group mapping.
 
 ## Network and edge
 
-- Envoy Gateway (Gateway API) is the HTTPS entry point. k3s disables both
-  `traefik` and `servicelb`, so the Envoy Service is ClusterIP patched with
-  the node IP as an `externalIP`; kube-proxy binds 443 (and 80 under
-  `redirect-only`) on the node.
-- The edge is the trust boundary for W3C trace context: inbound
-  `traceparent`/`tracestate`/`baggage`/`b3` are stripped early on all
-  external routes and the gateway mints the root span
-  (see [decisions/0009](decisions/0009-envoy-gateway-edge.md)).
-- `ingress_http_policy` controls port 80: `redirect-only` (HTTP→HTTPS
-  redirect listener) or `disabled` (no HTTP listener; 80/tcp closed in
-  firewalld).
-- External hostnames (hosts-file or DNS on the workstation):
-  `armory.local` (Keycloak) and `headlamp.armory.local` (Headlamp), both
-  HTTPS behind the shared `openbao-pki-external` edge certificate. Routes are
-  per-workload `HTTPRoute`s in the owning namespaces; the gateway re-encrypts
-  to backends with `BackendTLSPolicy` validation.
-- Internal traffic uses service FQDNs (`<svc>.<ns>.svc.cluster.local`) with
-  TLS and explicit CA bundles; see [security.md](security.md#tls) for the
-  per-path matrix.
-- OpenBao is ClusterIP-only. Host-side automation reaches it because the
-  `openbao` role maps `openbao.openbao.svc.cluster.local` to the Service
-  ClusterIP in the VM's `/etc/hosts`. There is no NodePort.
+OpenShift Routes are the external entry point, and each Route uses
+`termination: reencrypt` to hand traffic to the in-namespace Envoy service over
+TLS. This two-hop shape is deliberate: OpenShift's router is HAProxy-based and
+does not provide the trace-context boundary behavior this stack requires.
+
+The Envoy layer is therefore the explicit trust boundary for trace headers.
+Traffic enters through Route and lands on Envoy, where boundary behavior is
+enforced before proxying to Keycloak/OpenBao upstream services.
+
+This is why the OpenShift migration kept Envoy in front of workloads rather than
+replacing it with Route-only exposure.
+
+Operational hostnames/domains are inventory-driven (`ARMORY_PUBLIC_DOMAIN`,
+`armory_keycloak_host`, `armory_openbao_host`).
 
 ## Implementation conventions
 
-- Kubernetes objects are applied with `k3s kubectl` via `command` tasks;
-  Helm releases with `helm upgrade --install`. This is a deliberate
-  dependency-free choice; see [decisions/](decisions/) for the trade-off
-  against `kubernetes.core`.
-- Manifests are Jinja2 templates in each role's `templates/`, rendered and
-  piped to `kubectl apply -f -`, with `changed_when` keyed on
-  `created`/`configured` in stdout.
-- Idempotency: Helm owns external components; generated credentials are
-  read-before-write against OpenBao; OpenBao init is guarded by the presence
-  of the init-keys file.
-- Every role is tagged for targeted re-runs (`--tags openbao`, etc.).
+- Prefer declarative `kubernetes.core.k8s` object apply for Kubernetes resources.
+- Keep role defaults opinionated and move OpenShift-only invariants into defaults.
+- Keep inventory variables for environment facts (domains, namespaces, labels,
+  storage classes, and explicit feature toggles).
+- Keep local validation first: `--syntax-check`, `--list-tasks`, `--check`,
+  lint, and static grep gates before any real cluster execution.

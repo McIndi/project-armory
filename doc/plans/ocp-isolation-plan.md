@@ -34,11 +34,43 @@ Ground rules for the implementer:
 ## Current position (2026-07-27)
 
 Phases 0–4 complete; **Phase 5 is in progress**.
-**Next work: Phase 5 slice 5** (README/architecture refresh + stable ansible-lint pass capture).
+**Next work: Phase 5 slice 6** (stabilize ansible-lint completion capture and
+close any lint findings introduced by this branch only).
 Objective progress metric is the k3s burn-down grep in §V — it now returns zero
 hits under `ansible/` for `*.yml`, `*.j2`, and `*.cfg`.
 
 ## Progress log
+
+- [x] 2026-07-28: Follow-up corrections after review of the Phase 5 slice 5
+  README/architecture refresh.
+  Addressed two README loose ends and one architecture completeness gap:
+  replaced the misleading `${KEYCLOAK_NAMESPACE:-tex26-oidc}` examples with
+  concrete `tex26-oidc` namespace usage in credential retrieval commands (the
+  documented env var was never wired in `.env`), removed the stale `charts/`
+  repository-layout row now that the directory is empty, and restored the
+  OpenShift-specific edge rationale in `doc/architecture.md` by explicitly
+  documenting Route `reencrypt` fronting, HAProxy trace-boundary limits, and
+  the deliberate Route -> in-namespace Envoy two-hop design. This was a
+  docs-only correction slice; no Ansible task graph or runtime behavior changed.
+
+- [x] 2026-07-27: Completed a Phase 5 slice 5 documentation refresh for
+  top-level architecture/deploy guidance.
+  Rewrote `README.md` and `doc/architecture.md` to match the current
+  OpenShift-only shape: removed stale k3s/VSO/headlamp/delve/trust-manager
+  narratives, replaced the old role graph with the live
+  `env_guard -> helm -> openbao -> cert_manager -> keycloak -> openbao_oidc -> envoy_proxy -> registry? -> readiness_check`
+  flow, switched teardown references to `playbooks/teardown_openshift.yml`, and
+  documented direct playbook-materialized Secrets (no VSO sync loop). Local
+  Vagrant validation remained clean: `site.yml` and `bootstrap.yml`
+  syntax-check passed; `--list-tasks` snapshots
+  (`/tmp/now-site-step23.txt` -> `/tmp/now-site-step24.txt`,
+  `/tmp/now-bootstrap-step23.txt` -> `/tmp/now-bootstrap-step24.txt`) were both
+  empty diffs; and `--check` recaps for both playbooks were `failed=0` after
+  exporting `.env` with `set -a`. `ansible-lint` was retried with an explicit
+  timeout and still did not produce a stable pass/fail summary in this VM
+  (it consistently reaches collection install + syntax-check and then exits with
+  a multiprocessing semaphore warning), so lint stabilization remains the next
+  slice.
 
 - [x] 2026-07-27: Follow-up corrections after review of the Phase 5
   operations/configuration doc refresh.

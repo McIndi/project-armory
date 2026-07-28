@@ -1,253 +1,141 @@
 # Project Armory
 
-An Ansible-based reference architecture for a hardened, audit-ready platform
-on a single Fedora VM: k3s with OIDC authentication, OpenBao for secrets and
-PKI, Vault Secrets Operator, cert-manager and trust-manager for certificate
-issuance and CA distribution, Envoy Gateway (Gateway API edge), Keycloak as the identity
-provider, and Headlamp as the cluster UI. All components are open source.
-It is built as a demonstration: one VM, one command, every credential
-generated and stored centrally, TLS on every path, and an audit trail for
-secret access.
+Project Armory is an Ansible-driven reference deployment for a hardened,
+audit-ready OpenShift footprint with:
 
-A companion project (project-garrison) deploys an AI agent runtime against
-this platform's Keycloak; armory itself is the identity and secrets
-foundation.
+- OpenBao as the secrets and PKI source of truth
+- cert-manager issuance from OpenBao ClusterIssuers
+- Keycloak as the OIDC identity provider
+- Envoy-based edge routing for Keycloak and OpenBao
+- Optional in-cluster OCI registry
+
+A companion project (project-garrison) can integrate with this platform's
+identity and secrets foundation.
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
 | [doc/architecture.md](doc/architecture.md) | Component map, role order, secrets flow, PKI/trust chain, OIDC topology |
-| [doc/operations.md](doc/operations.md) | Runbook: deploy, readiness, credentials, audit log, rotation, break-glass, teardown, troubleshooting |
+| [doc/operations.md](doc/operations.md) | Runbook: deploy, readiness, credentials, audit log, break-glass, teardown, troubleshooting |
 | [doc/security.md](doc/security.md) | Credential model, TLS matrix, audit logging, demo-vs-production gaps |
-| [doc/configuration.md](doc/configuration.md) | `.env`, group_vars toggles, role-default override points |
-| [doc/decisions/](doc/decisions/) | Decision records (why things are the way they are) |
-| [AGENTS.md](AGENTS.md) | Conventions for agents/contributors working in the repo |
+| [doc/configuration.md](doc/configuration.md) | `.env`, inventory/group_vars toggles, role-default override points |
+| [doc/decisions/](doc/decisions/) | Decision records |
+| [AGENTS.md](AGENTS.md) | Conventions for agents/contributors |
 
-## Virtual machine requirements
+## Environment requirements
 
-The platform is deployed by Ansible onto a single Fedora VM. How you create that
-VM is your choice; it must meet the following spec before you run
-`playbooks/site.yml`.
+Project Armory targets an OpenShift cluster. This repo is commonly developed and
+validated from the provided Vagrant VM and local Ansible checks.
 
-**Resources** (single control-plane node):
+Runtime prerequisites:
 
-| Resource | Requirement |
-|---|---|
-| vCPUs | 8 |
-| Memory | 16 GB |
-| Disk | 60 GB |
-| OS | Fedora 44 (x86_64) |
-| Network | a routable IP reachable from your workstation (for the web UIs) |
+- `ansible-core`
+- `kubernetes.core` collection
+- `helm`
+- `helm-diff` plugin (managed idempotently by the `helm` role)
+- Access to an OpenShift kubeconfig for the target cluster
 
-`playbooks/site.yml` now installs project host dependencies via the
-`host_dependencies` role (`ansible`, `ansible-lint`, `yamllint`, `python3-pip`,
-`git`, `curl`, and `python3-kubernetes`).
+Install Ansible collections:
 
-**Runtime prerequisites** required by the `kubernetes.core` Ansible modules:
+```bash
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+```
 
-- `kubernetes.core` collection — `ansible-galaxy collection install -r ansible/requirements.yml`
-- `helm-diff` plugin — installed idempotently by the `helm` role, required for
-  `kubernetes.core.helm` no-op detection
+## Quickstart (Vagrant workflow)
 
-Helm, k3s, and all platform components are installed by `ansible-playbook
-playbooks/site.yml`.
-
-## Quickstart
-
+From the workstation:
 
 ```bash
 vagrant up
-vagrant ssh
+vagrant ssh default
 ```
 
 Inside the VM:
 
 ```bash
-cd /vagrant
-# cp .env.example .env            # first time only; defaults work for the demo
-# Clean up log files (except .empty) from previous runs
+cd /vagrant/project-armory
+# cp .env.example .env    # first run only
 find ./log -type f ! -name ".empty" -delete
 set -a; source .env; set +a
-cd "${ARMORY_ANSIBLE_ROOT}"
+cd ansible
 
-ansible-playbook playbooks/site.yml             # full deploy (~10–15 min)
-bash scripts/capture_run_snapshot.sh            # Create a snapshot of the current state (for audit, not for backup)
+# One-time privileged setup (cluster-admin context)
+ansible-playbook playbooks/bootstrap.yml
+
+# Main deployment (scoped automation account)
+ansible-playbook playbooks/site.yml
+
+# Optional local run snapshot (audit artifact, not backup)
+bash scripts/capture_run_snapshot.sh
 ```
-
-To use the web UIs, add hosts-file entries on your workstation for
-`armory.local`, `headlamp.armory.local`, and `openbao.armory.local` pointing
-at the VM IP, and trust the Armory Root CA. Then:
-
-- Keycloak: `https://armory.local/`
-- Headlamp: `https://headlamp.armory.local` (login `admin`; password below)
-- OpenBao UI: `https://openbao.armory.local` — see [OpenBao UI login](#openbao-ui-login) below
 
 ## Retrieve generated credentials
 
-All credentials are generated during deployment and stored in OpenBao —
-nothing is printed to the console (`no_log`) and nothing is committed to the
-repo. Retrieving them is part of setup, not an optional step. VSO mirrors
-each value into a Kubernetes Secret, which is the easiest place to read it
-(run from the workstation):
+Credentials are generated during deployment and persisted in OpenBao.
+The playbook materializes required Kubernetes Secrets directly (no VSO sync
+controller).
+
+Examples from the workstation:
 
 ```bash
-# Realm admin — the Headlamp login (username: admin)
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+# Realm admin password (Keycloak namespace from openshift inventory default)
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
-# Realm operator / viewer — also valid for OpenBao UI login
-# (username is printed with each password)
-vagrant ssh -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file /opt/openbao/.vault-pass --output - /opt/openbao/provisioner-token.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"provisioner_token\"])'); BAO=\$(sudo k3s kubectl get svc -n openbao openbao -o jsonpath='{.spec.clusterIP}'); for U in operator viewer; do echo \"==> \$U\"; sudo k3s kubectl run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n openbao --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-users/\$U | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'; done"
+# Keycloak bootstrap admin username/password
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
-# Keycloak master bootstrap admin — Keycloak admin console (/admin) only
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
-
-# Keycloak database credentials
-vagrant ssh -c "sudo k3s kubectl get secret -n keycloak keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
+# Keycloak database password
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
 ```
 
-| Purpose | OpenBao path (source of truth) | k8s Secret (ns `keycloak`) |
-|---|---|---|
-| Realm `armory` admin — Headlamp and OpenBao UI login | `secret/keycloak/realm-admin` | `keycloak-realm-admin` |
-| Realm `armory` operator — OpenBao UI login | `secret/keycloak/realm-users/operator` | — |
-| Realm `armory` viewer — OpenBao UI login | `secret/keycloak/realm-users/viewer` | — |
-| Keycloak master admin (console only) | `secret/keycloak/bootstrap-admin` | `keycloak-bootstrap-admin` |
-| Keycloak DB | `secret/keycloak/db` | `keycloak-db-secret` |
-
-Note: the realm admin password rotates automatically (~monthly), so re-read
-it if a login fails. Reading OpenBao directly (e.g. before VSO has synced)
-and rotation details: [doc/operations.md](doc/operations.md#retrieve-generated-credentials).
+Authoritative source of truth remains OpenBao KV paths configured by the
+`keycloak` role.
 
 ## OpenBao UI login
 
-To log in to the [OpenBao UI](https://openbao.armory.local):
+OpenBao UI is exposed behind the Envoy/Route edge. Login uses OIDC through
+Keycloak (realm `armory`):
 
-1. **Method**: Select **OIDC**. The OpenBao instance is configured with Keycloak
-   (realm `armory`) as the OIDC provider; you will be redirected to Keycloak
-   to authenticate.
-2. **Namespace**: Leave blank (uses root/default namespace; OpenBao here runs
-   open-source with no namespace isolation).
-3. **Role**: Leave blank to use the default OIDC role. Your effective
-   permissions are determined by your Keycloak group membership:
+1. In OpenBao UI, choose OIDC auth.
+2. Keep namespace/role blank unless your environment defines custom values.
+3. Sign in with a realm user mapped to OpenBao policies (`admin`, `operator`,
+   or `viewer` depending on your provisioning data).
 
-| Keycloak group | OpenBao policy scope |
-|---|---|
-| `armory-admins` | admin (full access) |
-| `armory-operators` | operator (manage secrets/PKI) |
-| `armory-viewers` | viewer (metadata/list only) |
-| (none of the above) | `default` (baseline only) |
+## Common commands
 
-4. **Credentials**: Log in with your realm `armory` user (`admin`, `operator`,
-   or `viewer`) and the password retrieved above.
-
-## Automation credentials
-
-Day-to-day Ansible automation uses a scoped periodic OpenBao token named
-`ansible-provisioner`, minted by the openbao role and stored at
-`/opt/openbao/provisioner-token.yml` (Ansible-vault encrypted with
-`/opt/openbao/.vault-pass`).
-
-Scope is defined in `ansible/roles/openbao/tasks/provisioner_token.yml`:
-
-- create/read/update on `secret/data/keycloak/*` and `secret/data/headlamp/*`
-- read on `pki-ext/ca/pem`
-- read+sudo on `sys/audit` (read-only listing; cannot enable/disable devices)
-- lookup-self/renew-self only for token maintenance
-
-Consumer ACL policies and Kubernetes auth roles are written at bootstrap by
-the openbao role with the root token (`consumer_wiring.yml`). The provisioner
-token has no `sys/policies/acl/*` or `auth/kubernetes/role/*` capabilities,
-so it cannot author policy or bind identities.
-
-Residual blast radius: the provisioner token can read and overwrite the app
-secrets it provisions, including `secret/data/keycloak/bootstrap-admin`.
-This is expected for its provisioning role.
-
-OpenBao root token usage is reserved for bootstrap and break-glass only.
-Break-glass access paths:
-
-- decrypt `/opt/openbao/init-keys.yml` on the VM
-- read `secret/openbao/init` from OpenBao KV
-
-If the provisioner token is missing or invalid, re-mint with:
+All commands below assume execution in `/vagrant/project-armory/ansible` with
+`.env` sourced.
 
 ```bash
+# Local validation gates
+ansible-playbook -i inventories/openshift playbooks/site.yml --syntax-check
+ansible-playbook -i inventories/openshift playbooks/bootstrap.yml --syntax-check
+ansible-playbook -i inventories/openshift playbooks/site.yml --check
+ansible-playbook -i inventories/openshift playbooks/bootstrap.yml --check
+
+# Lint
+ansible-lint -c .ansible-lint playbooks/site.yml playbooks/bootstrap.yml roles
+
+# Targeted reruns
+ansible-playbook playbooks/site.yml --tags keycloak_install
 ansible-playbook playbooks/site.yml --tags openbao
+
+# Destructive teardown (cluster-admin only)
+ansible-playbook playbooks/teardown_openshift.yml -e teardown_confirm=true
 ```
+
+For full operational workflows, see [doc/operations.md](doc/operations.md).
 
 ## Repository layout
 
 ```
 ansible/
-  playbooks/        site.yml (deploy), readiness_check.yml, teardown_k3s_workloads.yml
-  roles/            one role per component; execution order in doc/architecture.md
-  inventories/      development inventory (localhost) + group_vars toggles
-charts/
-  vso-hardened/     locally maintained VSO chart with kube-rbac-proxy TLS
-doc/                architecture, operations, security, configuration, decisions, archived handoffs
+  inventories/      OpenShift inventory and group_vars
+  playbooks/        bootstrap.yml, site.yml, readiness_check.yml, teardown_openshift.yml
+  roles/            component roles in deployment order
+  scripts/          helper scripts (snapshot, utility helpers)
+doc/                architecture, operations, security, configuration, decisions
 ```
-
-## Common commands
-
-All inside the VM with `.env` sourced, from `${ARMORY_ANSIBLE_ROOT}`:
-
-```bash
-ansible-playbook playbooks/site.yml --tags openbao      # targeted re-run (all roles are tagged)
-ansible-playbook --syntax-check playbooks/site.yml
-ansible-lint -c .ansible-lint playbooks/site.yml roles/
-ansible-playbook playbooks/teardown_k3s_workloads.yml -e teardown_confirm=true   # destructive
-```
-
-Full command reference and troubleshooting: [doc/operations.md](doc/operations.md).
-
-## Building and refreshing the local `delve-armory` image
-
-The Delve role now builds the `delve-armory` child image locally on the node
-with `buildah`, exports it as an OCI archive, and imports it into k3s
-containerd (`k8s.io` namespace). Helm then deploys that local ref with
-`imagePullPolicy: IfNotPresent`.
-
-Default flow (no registry push/pull secrets required):
-
-- image: `localhost/delve-armory:v0.1.0`
-- pull policy: `IfNotPresent`
-- orchestration: buildah build -> OCI archive -> `k3s ctr images import`
-
-To refresh the running app after code changes, either bump the image tag in
-`.env` or force a same-tag rebuild:
-
-```bash
-vagrant ssh
-cd /vagrant/project-armory
-set -a; source .env; set +a
-
-# Option A: bump ARMORY_DELVE_IMAGE_TAG in .env, then deploy
-# Option B: force same-tag rebuild/reimport
-export ARMORY_DELVE_IMAGE_REBUILD=true
-
-cd ansible
-ansible-playbook playbooks/site.yml --tags delve
-```
-
-Quick verification from the VM:
-
-```bash
-# Confirm the image exists in k3s containerd
-sudo k3s ctr -n k8s.io images ls -q | grep delve-armory
-
-# Confirm the deployment is using the expected image ref
-sudo k3s kubectl -n delve get deploy delve-web -o jsonpath='{..image}{"\n"}'
-
-# Confirm the overlay settings module is active in the web pod
-sudo k3s kubectl -n delve exec deploy/delve-web -- printenv DJANGO_SETTINGS_MODULE
-```
-
-Notes:
-
-- `ARMORY_DELVE_IMAGE_REBUILD=true` forces build+import even when the same tag
-  already exists locally.
-- For same-tag rebuilds, the role triggers rollout restarts for `delve-web` and
-  `delve-worker` so pods pick up the rebuilt image.
-- The base image (`ghcr.io/mcindi/delve`) is still pulled during build time.
-  This is local build/import, not full air-gap operation.
