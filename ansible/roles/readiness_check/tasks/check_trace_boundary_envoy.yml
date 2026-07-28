@@ -24,7 +24,7 @@
 - name: Apply trace probe echo backend
   kubernetes.core.k8s:
     state: present
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
     definition:
       - apiVersion: apps/v1
         kind: Deployment
@@ -67,8 +67,8 @@
       --namespace {{ readiness_check_edge_namespace }}
       --timeout={{ readiness_check_trace_probe_rollout_timeout_seconds }}s
   environment:
-    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_trace_probe_rollout
+    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_trace_probe_rollout
   changed_when: false
   failed_when: false
 
@@ -84,7 +84,7 @@
       svc/{{ readiness_check_edge_service_name }}
       {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
   environment:
-    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
+    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
   async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
   poll: 0
   changed_when: true
@@ -121,37 +121,37 @@
     return_content: true
     timeout: "{{ readiness_check_connect_timeout }}"
     status_code: [200]
-  register: _rc_trace_probe_response
+  register: _readiness_check_trace_probe_response
   changed_when: false
   failed_when: false
   retries: "{{ readiness_check_connect_retries }}"
   delay: 3
-  until: (_rc_trace_probe_response.status | default(0)) == 200
+  until: (_readiness_check_trace_probe_response.status | default(0)) == 200
 
 - name: Extract backend-received headers from echo response
   ansible.builtin.set_fact:
-    _rc_trace_probe_headers: "{{ (_rc_trace_probe_response.json | default({})).headers | default({}) }}"
-    _rc_trace_probe_ok: "{{ (_rc_trace_probe_response.status | default(0)) == 200 }}"
+    _readiness_check_trace_probe_headers: "{{ (_readiness_check_trace_probe_response.json | default({})).headers | default({}) }}"
+    _readiness_check_trace_probe_ok: "{{ (_readiness_check_trace_probe_response.status | default(0)) == 200 }}"
   changed_when: false
 
 - name: Add trace strip check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'trace boundary',
         'check_name': 'External trace context not propagated to backend',
         'status': (
           'pass' if (
-            _rc_trace_probe_ok and
-            readiness_check_trace_forged_trace_id not in (_rc_trace_probe_headers.traceparent | default('')) and
-            (_rc_trace_probe_headers.tracestate | default('') | length) == 0 and
-            (_rc_trace_probe_headers.baggage | default('') | length) == 0
+            _readiness_check_trace_probe_ok and
+            readiness_check_trace_forged_trace_id not in (_readiness_check_trace_probe_headers.traceparent | default('')) and
+            (_readiness_check_trace_probe_headers.tracestate | default('') | length) == 0 and
+            (_readiness_check_trace_probe_headers.baggage | default('') | length) == 0
           ) else 'fail'
         ),
-        'detail': 'backend traceparent=' + (_rc_trace_probe_headers.traceparent | default('(none)'))
-          + ' tracestate=' + (_rc_trace_probe_headers.tracestate | default('(none)'))
-          + ' baggage=' + (_rc_trace_probe_headers.baggage | default('(none)')),
-        'error': '' if _rc_trace_probe_ok else ('probe HTTP status ' + (_rc_trace_probe_response.status | default(0) | string))
+        'detail': 'backend traceparent=' + (_readiness_check_trace_probe_headers.traceparent | default('(none)'))
+          + ' tracestate=' + (_readiness_check_trace_probe_headers.tracestate | default('(none)'))
+          + ' baggage=' + (_readiness_check_trace_probe_headers.baggage | default('(none)')),
+        'error': '' if _readiness_check_trace_probe_ok else ('probe HTTP status ' + (_readiness_check_trace_probe_response.status | default(0) | string))
       }] }}
   changed_when: false
 
@@ -160,19 +160,19 @@
 # carry the attacker's trace-id in a well-formed traceparent.
 - name: Add fresh trace mint check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'trace boundary',
         'check_name': 'Edge mints fresh trace toward backend',
         'status': (
           'pass' if (
-            _rc_trace_probe_ok and
-            (_rc_trace_probe_headers.traceparent | default('')) is match('^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$') and
-            readiness_check_trace_forged_trace_id not in (_rc_trace_probe_headers.traceparent | default(''))
+            _readiness_check_trace_probe_ok and
+            (_readiness_check_trace_probe_headers.traceparent | default('')) is match('^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$') and
+            readiness_check_trace_forged_trace_id not in (_readiness_check_trace_probe_headers.traceparent | default(''))
           ) else 'fail'
         ),
-        'detail': 'backend traceparent=' + (_rc_trace_probe_headers.traceparent | default('(none)')),
-        'error': '' if _rc_trace_probe_ok else 'probe request failed'
+        'detail': 'backend traceparent=' + (_readiness_check_trace_probe_headers.traceparent | default('(none)')),
+        'error': '' if _readiness_check_trace_probe_ok else 'probe request failed'
       }] }}
   changed_when: false
   when: readiness_check_tracing_enabled | bool
@@ -182,17 +182,17 @@
 # expands inside the early header mutation rather than being written literally.
 - name: Add forensic capture check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'trace boundary',
         'check_name': 'Inbound traceparent captured in forensic header',
         'status': (
           'pass' if (
-            _rc_trace_probe_ok and
-            (_rc_trace_probe_headers[readiness_check_trace_forensic_header] | default('')) == readiness_check_trace_forged_traceparent
+            _readiness_check_trace_probe_ok and
+            (_readiness_check_trace_probe_headers[readiness_check_trace_forensic_header] | default('')) == readiness_check_trace_forged_traceparent
           ) else 'warn'
         ),
-        'detail': readiness_check_trace_forensic_header + '=' + (_rc_trace_probe_headers[readiness_check_trace_forensic_header] | default('(none)')),
+        'detail': readiness_check_trace_forensic_header + '=' + (_readiness_check_trace_probe_headers[readiness_check_trace_forensic_header] | default('(none)')),
         'error': ''
       }] }}
   changed_when: false
@@ -207,7 +207,7 @@
 - name: Remove trace probe resources
   kubernetes.core.k8s:
     state: absent
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
     api_version: "{{ item.api_version }}"
     kind: "{{ item.kind }}"
     name: "{{ readiness_check_trace_probe_name }}"

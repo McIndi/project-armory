@@ -1,9 +1,9 @@
 ---
 - name: Register OpenBao namespace for teardown checks
   ansible.builtin.set_fact:
-    teardown_role_target_namespaces: >-
+    openbao_teardown_target_namespaces: >-
       {{
-        (teardown_role_target_namespaces | default([]))
+        (openbao_teardown_target_namespaces | default([]))
         + [openbao_namespace]
         | unique
       }}
@@ -35,14 +35,14 @@
   register: _openbao_teardown_provisioner_token_decrypt
   changed_when: false
   failed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: _openbao_teardown_provisioner_token_file.stat.exists | default(false)
 
 - name: Parse provisioner token for best-effort revoke
   ansible.builtin.set_fact:
     _openbao_teardown_provisioner_token: >-
       {{ (_openbao_teardown_provisioner_token_decrypt.stdout | from_yaml).provisioner_token | default('') }}
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - (_openbao_teardown_provisioner_token_decrypt.rc | default(1)) == 0
     - (_openbao_teardown_provisioner_token_decrypt.stdout | default('') | trim | length) > 0
@@ -55,7 +55,7 @@
       X-Vault-Token: "{{ _openbao_teardown_provisioner_token }}"
     status_code: [200, 204, 400, 403, 404]
   failed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: (_openbao_teardown_provisioner_token | default('') | length) > 0
 
 - name: Remove provisioner token file

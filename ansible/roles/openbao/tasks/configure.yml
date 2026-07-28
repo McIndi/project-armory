@@ -9,10 +9,10 @@
         url: "{{ openbao_api_addr }}/v1/sys/mounts"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         status_code: 200
       register: _openbao_secret_mounts
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Get current auth methods
@@ -20,10 +20,10 @@
         url: "{{ openbao_api_addr }}/v1/sys/auth"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         status_code: 200
       register: _openbao_auth_mounts
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Enable KV v2 secrets engine
@@ -31,7 +31,7 @@
         url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ openbao_kv_mount }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           type: kv
@@ -39,7 +39,7 @@
             version: "2"
         status_code: [200, 204]
       register: _openbao_enable_kv_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - "(openbao_kv_mount + '/') not in (_openbao_secret_mounts.json | default({}))"
@@ -49,10 +49,10 @@
         url: "{{ openbao_api_addr }}/v1/{{ openbao_kv_mount }}/metadata/openbao/init"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         status_code: [200, 404]
       register: _openbao_init_kv_check
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Write init keys to OpenBao KV for audited human retrieval
@@ -60,15 +60,15 @@
         url: "{{ openbao_api_addr }}/v1/{{ openbao_kv_mount }}/data/openbao/init"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           data:
             unseal_keys: "{{ openbao_unseal_keys }}"
-            root_token: "{{ openbao_root_token }}"
+            root_token: "{{ common_openbao_root_token }}"
         status_code: [200, 204]
       register: _openbao_write_init_kv_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - _openbao_init_kv_check.status | default(404) == 404
@@ -93,7 +93,7 @@
         url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ item.mount }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           type: pki
@@ -104,7 +104,7 @@
       loop_control:
         label: "{{ item.mount }}"
       register: _openbao_enable_pki_mount_results
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - "(item.mount + '/') not in (_openbao_secret_mounts.json | default({}))"
@@ -114,10 +114,10 @@
         url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_root_mount }}/cert/ca"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         status_code: [200, 204, 400, 404]
       register: _openbao_root_ca_check
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Generate root PKI CA
@@ -125,7 +125,7 @@
         url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_root_mount }}/root/generate/internal"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           common_name: "{{ openbao_pki_root_common_name }}"
@@ -134,7 +134,7 @@
           key_bits: 4096
         status_code: [200, 204]
       register: _openbao_generate_root_ca_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - (_openbao_root_ca_check.status | default(404)) in [400, 404]
@@ -159,13 +159,13 @@
         url: "{{ openbao_api_addr }}/v1/{{ item.mount }}/cert/ca"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         status_code: [200, 204, 400, 404]
       loop: "{{ _openbao_pki_issuers }}"
       loop_control:
         label: "{{ item.mount }}"
       register: _openbao_intermediate_ca_checks
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Generate intermediate CSR for missing issuers
@@ -173,7 +173,7 @@
         url: "{{ openbao_api_addr }}/v1/{{ item.item.mount }}/intermediate/generate/internal"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           common_name: "{{ item.item.common_name }}"
@@ -185,7 +185,7 @@
       loop_control:
         label: "{{ item.item.mount }}"
       register: _openbao_intermediate_csrs
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - (item.status | default(404)) in [400, 404]
@@ -195,7 +195,7 @@
         url: "{{ openbao_api_addr }}/v1/{{ openbao_pki_root_mount }}/root/sign-intermediate"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           csr: "{{ item.json.data.csr }}"
@@ -207,7 +207,7 @@
       loop_control:
         label: "{{ item.item.item.mount }}"
       register: _openbao_signed_intermediates
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - item.json.data.csr is defined
@@ -217,7 +217,7 @@
         url: "{{ openbao_api_addr }}/v1/{{ item.item.item.item.mount }}/intermediate/set-signed"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           certificate: "{{ item.json.data.certificate }}"
@@ -226,7 +226,7 @@
       loop_control:
         label: "{{ item.item.item.item.mount }}"
       register: _openbao_set_signed_intermediate_results
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - item.json.data.certificate is defined
@@ -236,7 +236,7 @@
         url: "{{ openbao_api_addr }}/v1/{{ item.mount }}/config/urls"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           issuing_certificates: "{{ openbao_cluster_addr }}/v1/{{ item.mount }}/ca"
@@ -246,7 +246,7 @@
       loop_control:
         label: "{{ item.mount }}"
       register: _openbao_pki_urls_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Create PKI certificate roles for internal and external issuers
@@ -254,7 +254,7 @@
         url: "{{ openbao_api_addr }}/v1/{{ item.mount }}/roles/{{ item.cert_role }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           allowed_domains: "{{ item.allowed_domains.split(',') | map('trim') | list }}"
@@ -271,7 +271,7 @@
       loop_control:
         label: "{{ item.mount }}/{{ item.cert_role }}"
       register: _openbao_pki_role_results
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Enable Kubernetes auth method
@@ -279,13 +279,13 @@
         url: "{{ openbao_api_addr }}/v1/sys/auth/kubernetes"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           type: kubernetes
         status_code: [200, 204]
       register: _openbao_enable_k8s_auth_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not ansible_check_mode
         - "'kubernetes/' not in (_openbao_auth_mounts.json | default({}))"
@@ -296,7 +296,7 @@
           {{ kubectl_bin }} get configmap kube-root-ca.crt
           -n kube-public
           -o jsonpath={.data.ca\\.crt}
-      register: _cluster_ca_cert
+      register: _openbao_cluster_ca_cert
       changed_when: false
       when: not ansible_check_mode
 
@@ -308,7 +308,7 @@
           --duration 87600h
       register: _openbao_sa_token
       changed_when: false
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Configure Kubernetes auth method
@@ -316,16 +316,16 @@
         url: "{{ openbao_api_addr }}/v1/auth/kubernetes/config"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           kubernetes_host: "https://kubernetes.default.svc.cluster.local:443"
-          kubernetes_ca_cert: "{{ _cluster_ca_cert.stdout }}"
+          kubernetes_ca_cert: "{{ _openbao_cluster_ca_cert.stdout }}"
           token_reviewer_jwt: "{{ _openbao_sa_token.stdout | trim }}"
           disable_iss_validation: true
         status_code: [200, 204]
       register: _openbao_k8s_auth_config_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Write cert-manager policy (sign certs via PKI)
@@ -333,7 +333,7 @@
         url: "{{ openbao_api_addr }}/v1/sys/policies/acl/cert-manager"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           policy: |
@@ -351,7 +351,7 @@
             }
         status_code: [200, 204]
       register: _openbao_certmanager_policy_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Create k8s auth role for cert-manager
@@ -359,7 +359,7 @@
         url: "{{ openbao_api_addr }}/v1/auth/kubernetes/role/{{ openbao_certmanager_k8s_role }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_root_token }}"
+          X-Vault-Token: "{{ common_openbao_root_token }}"
         body_format: json
         body:
           bound_service_account_names:
@@ -371,5 +371,5 @@
           ttl: "1h"
         status_code: [200, 204]
       register: _openbao_certmanager_auth_role_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode

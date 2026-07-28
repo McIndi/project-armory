@@ -6,17 +6,17 @@
         name: common
         tasks_from: copy_openbao_ca_secret.yml
       vars:
-        common_kubeconfig_path: "{{ certmanager_kubeconfig_path }}"
-        common_ca_secret_name: "{{ certmanager_openbao_ca_secret_name }}"
+        common_kubeconfig_path: "{{ cert_manager_kubeconfig_path }}"
+        common_ca_secret_name: "{{ cert_manager_openbao_ca_secret_name }}"
         common_ca_source_namespace: "{{ openbao_namespace | default('openbao') }}"
-        common_ca_target_namespace: "{{ certmanager_namespace }}"
+        common_ca_target_namespace: "{{ cert_manager_namespace }}"
 
     - name: Apply cert-manager ClusterIssuer for OpenBao PKI
       kubernetes.core.k8s:
         state: present
         definition: "{{ lookup('template', 'cluster-issuer.yaml.j2') | from_yaml_all | list }}"
-        kubeconfig: "{{ certmanager_kubeconfig_path }}"
-      register: _cluster_issuer_result
+        kubeconfig: "{{ cert_manager_kubeconfig_path }}"
+      register: _cert_manager_cluster_issuer_result
       when: not ansible_check_mode
 
     - name: Wait for OpenBao PKI ClusterIssuer readiness
@@ -26,10 +26,10 @@
           --for=condition=Ready
           --timeout=180s
       environment:
-        KUBECONFIG: "{{ certmanager_kubeconfig_path }}"
-      loop: "{{ certmanager_openbao_cluster_issuers }}"
+        KUBECONFIG: "{{ cert_manager_kubeconfig_path }}"
+      loop: "{{ cert_manager_openbao_cluster_issuers }}"
       loop_control:
         label: "{{ item.name }}"
-      register: _cluster_issuer_wait
+      register: _cert_manager_cluster_issuer_wait
       changed_when: false
       when: not ansible_check_mode

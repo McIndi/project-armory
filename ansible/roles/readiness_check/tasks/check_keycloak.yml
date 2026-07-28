@@ -7,20 +7,20 @@
     api_version: v1
     kind: Namespace
     name: "{{ readiness_check_keycloak_namespace }}"
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_keycloak_namespace_info
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_keycloak_namespace_info
   changed_when: false
   failed_when: false
 
 - name: Add Keycloak namespace check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'Namespace exists',
-        'status': 'pass' if (_rc_keycloak_namespace_info.resources | default([]) | length) > 0 else 'fail',
+        'status': 'pass' if (_readiness_check_keycloak_namespace_info.resources | default([]) | length) > 0 else 'fail',
         'detail': readiness_check_keycloak_namespace,
-        'error': _rc_keycloak_namespace_info.msg | default('')
+        'error': _readiness_check_keycloak_namespace_info.msg | default('')
       }] }}
   changed_when: false
 
@@ -30,20 +30,20 @@
     kind: Service
     name: "{{ readiness_check_keycloak_service_name }}"
     namespace: "{{ readiness_check_keycloak_namespace }}"
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_keycloak_service_info
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_keycloak_service_info
   changed_when: false
   failed_when: false
 
 - name: Add Keycloak service check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'Service exists',
-        'status': 'pass' if (_rc_keycloak_service_info.resources | default([]) | length) > 0 else 'fail',
+        'status': 'pass' if (_readiness_check_keycloak_service_info.resources | default([]) | length) > 0 else 'fail',
         'detail': readiness_check_keycloak_service_name,
-        'error': _rc_keycloak_service_info.msg | default('')
+        'error': _readiness_check_keycloak_service_info.msg | default('')
       }] }}
   changed_when: false
 
@@ -53,20 +53,20 @@
     kind: Secret
     name: "{{ readiness_check_keycloak_admin_secret_name }}"
     namespace: "{{ readiness_check_keycloak_namespace }}"
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_keycloak_admin_secret_info
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_keycloak_admin_secret_info
   changed_when: false
   failed_when: false
 
 - name: Add Keycloak admin secret check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'Admin secret exists',
-        'status': 'pass' if (_rc_keycloak_admin_secret_info.resources | default([]) | length) > 0 else 'warn',
+        'status': 'pass' if (_readiness_check_keycloak_admin_secret_info.resources | default([]) | length) > 0 else 'warn',
         'detail': readiness_check_keycloak_admin_secret_name,
-        'error': _rc_keycloak_admin_secret_info.msg | default('')
+        'error': _readiness_check_keycloak_admin_secret_info.msg | default('')
       }] }}
   changed_when: false
 
@@ -77,10 +77,10 @@
     validate_certs: "{{ readiness_check_validate_tls }}"
     timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
     status_code: 200
-  register: _rc_keycloak_https
+  register: _readiness_check_keycloak_https
   changed_when: false
   failed_when: false
-  until: (_rc_keycloak_https.status | default(-1)) == 200
+  until: (_readiness_check_keycloak_https.status | default(-1)) == 200
   retries: "{{ readiness_check_keycloak_well_known_retries | default(30) }}"
   delay: "{{ readiness_check_keycloak_well_known_delay | default(6) }}"
 
@@ -94,32 +94,32 @@
     follow_redirects: none
     timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
     status_code: [200, 301, 302, 307]
-  register: _rc_keycloak_https_fallback
+  register: _readiness_check_keycloak_https_fallback
   changed_when: false
   failed_when: false
-  when: "'name resolution' in ((_rc_keycloak_https.msg | default('')) | lower)"
+  when: "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
 
 - name: Add Keycloak HTTPS check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'OIDC well-known endpoint',
         'status': 'pass'
-          if (_rc_keycloak_https.status | default(-1)) == 200
+          if (_readiness_check_keycloak_https.status | default(-1)) == 200
           else 'pass'
-          if (_rc_keycloak_https_fallback is defined and (_rc_keycloak_https_fallback.status | default(-1)) in [200, 301, 302, 307])
+          if (_readiness_check_keycloak_https_fallback is defined and (_readiness_check_keycloak_https_fallback.status | default(-1)) in [200, 301, 302, 307])
           else 'warn'
-          if ('name resolution' in ((_rc_keycloak_https.msg | default('')) | lower))
+          if ('name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower))
           else 'fail',
-        'detail': 'HTTP ' + ((_rc_keycloak_https_fallback.status | default(-1)) | string) + ' via ingress fallback'
-          if ('name resolution' in ((_rc_keycloak_https.msg | default('')) | lower)) and (_rc_keycloak_https_fallback is defined)
-          else 'HTTP ' + ((_rc_keycloak_https.status | default(-1)) | string),
-        'error': (_rc_keycloak_https.msg | default('')) + ' | ingress fallback HTTP ' + ((_rc_keycloak_https_fallback.status | default(-1)) | string)
-          if ('name resolution' in ((_rc_keycloak_https.msg | default('')) | lower)) and (_rc_keycloak_https_fallback is defined)
-          and (_rc_keycloak_https_fallback.status | default(-1)) not in [200, 301, 302, 307]
-          else (_rc_keycloak_https.msg | default(''))
-          if (_rc_keycloak_https.status | default(-1)) != 200
+        'detail': 'HTTP ' + ((_readiness_check_keycloak_https_fallback.status | default(-1)) | string) + ' via ingress fallback'
+          if ('name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)) and (_readiness_check_keycloak_https_fallback is defined)
+          else 'HTTP ' + ((_readiness_check_keycloak_https.status | default(-1)) | string),
+        'error': (_readiness_check_keycloak_https.msg | default('')) + ' | ingress fallback HTTP ' + ((_readiness_check_keycloak_https_fallback.status | default(-1)) | string)
+          if ('name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)) and (_readiness_check_keycloak_https_fallback is defined)
+          and (_readiness_check_keycloak_https_fallback.status | default(-1)) not in [200, 301, 302, 307]
+          else (_readiness_check_keycloak_https.msg | default(''))
+          if (_readiness_check_keycloak_https.status | default(-1)) != 200
           else ''
       }] }}
   changed_when: false
@@ -129,7 +129,7 @@
     name: common
     tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_internal_https_kubeconfig_path: "{{ _readiness_kubeconfig_path }}"
+    common_internal_https_kubeconfig_path: "{{ _readiness_check_kubeconfig_path }}"
     common_internal_https_service_name: "{{ readiness_check_keycloak_service_name }}"
     common_internal_https_service_namespace: "{{ readiness_check_keycloak_namespace }}"
     common_internal_https_fqdn: "{{ readiness_check_keycloak_internal_fqdn }}"
@@ -146,11 +146,11 @@
     kind: Secret
     name: "{{ readiness_check_keycloak_admin_secret_name }}"
     namespace: "{{ readiness_check_keycloak_namespace }}"
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_keycloak_admin_secret_for_realm_users
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_keycloak_admin_secret_for_realm_users
   changed_when: false
   failed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (readiness_check_log_nolog | default(false) | bool) }}"
   when: (readiness_check_keycloak_realm_users | length) > 0
 
 - name: Obtain Keycloak admin token for realm user checks
@@ -162,58 +162,58 @@
       client_id: admin-cli
       username: >-
         {{
-          ((_rc_keycloak_admin_secret_for_realm_users.resources | default([]) | first | default({})).data.username | default(''))
+          ((_readiness_check_keycloak_admin_secret_for_realm_users.resources | default([]) | first | default({})).data.username | default(''))
           | b64decode
         }}
       password: >-
         {{
-          ((_rc_keycloak_admin_secret_for_realm_users.resources | default([]) | first | default({})).data.password | default(''))
+          ((_readiness_check_keycloak_admin_secret_for_realm_users.resources | default([]) | first | default({})).data.password | default(''))
           | b64decode
         }}
       grant_type: password
     ca_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
     validate_certs: true
     status_code: 200
-  register: _rc_keycloak_admin_token
+  register: _readiness_check_keycloak_admin_token
   changed_when: false
   failed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (readiness_check_log_nolog | default(false) | bool) }}"
   when:
     - (readiness_check_keycloak_realm_users | length) > 0
-    - (_rc_keycloak_admin_secret_for_realm_users.resources | default([]) | length) > 0
-    - (((_rc_keycloak_admin_secret_for_realm_users.resources | first | default({})).data | default({})).username | default('') | length) > 0
-    - (((_rc_keycloak_admin_secret_for_realm_users.resources | first | default({})).data | default({})).password | default('') | length) > 0
+    - (_readiness_check_keycloak_admin_secret_for_realm_users.resources | default([]) | length) > 0
+    - (((_readiness_check_keycloak_admin_secret_for_realm_users.resources | first | default({})).data | default({})).username | default('') | length) > 0
+    - (((_readiness_check_keycloak_admin_secret_for_realm_users.resources | first | default({})).data | default({})).password | default('') | length) > 0
 
 - name: Check configured Keycloak realm users exist
   ansible.builtin.uri:
     url: "https://{{ readiness_check_keycloak_internal_fqdn }}:8443/admin/realms/{{ readiness_check_keycloak_realm }}/users?username={{ item.username }}&exact=true"
     method: GET
     headers:
-      Authorization: "Bearer {{ _rc_keycloak_admin_token.json.access_token | default('') }}"
+      Authorization: "Bearer {{ _readiness_check_keycloak_admin_token.json.access_token | default('') }}"
     ca_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
     validate_certs: true
     status_code: 200
   loop: "{{ readiness_check_keycloak_realm_users }}"
   loop_control:
     label: "{{ item.username }}"
-  register: _rc_keycloak_realm_users_lookup
+  register: _readiness_check_keycloak_realm_users_lookup
   changed_when: false
   failed_when: false
   when:
     - (readiness_check_keycloak_realm_users | length) > 0
-    - (_rc_keycloak_admin_token.status | default(-1)) == 200
+    - (_readiness_check_keycloak_admin_token.status | default(-1)) == 200
 
 - name: Add Keycloak realm user existence checks to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'Realm user exists: ' + item.item.username,
         'status': 'pass' if ((item.status | default(-1)) == 200 and (item.json | default([]) | length) > 0) else 'fail',
         'detail': item.item.username,
         'error': (item.msg | default(''))
       }] }}
-  loop: "{{ _rc_keycloak_realm_users_lookup.results | default([]) }}"
+  loop: "{{ _readiness_check_keycloak_realm_users_lookup.results | default([]) }}"
   loop_control:
     label: "{{ item.item.username }}"
   changed_when: false
@@ -224,22 +224,22 @@
       https://{{ readiness_check_keycloak_internal_fqdn }}:8443/admin/realms/{{ readiness_check_keycloak_realm }}/users/{{ (item.json | first).id }}/groups?briefRepresentation=true&max=1000
     method: GET
     headers:
-      Authorization: "Bearer {{ _rc_keycloak_admin_token.json.access_token | default('') }}"
+      Authorization: "Bearer {{ _readiness_check_keycloak_admin_token.json.access_token | default('') }}"
     ca_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
     validate_certs: true
     status_code: 200
-  loop: "{{ _rc_keycloak_realm_users_lookup.results | default([]) }}"
+  loop: "{{ _readiness_check_keycloak_realm_users_lookup.results | default([]) }}"
   loop_control:
     label: "{{ item.item.username }}"
-  register: _rc_keycloak_realm_users_groups
+  register: _readiness_check_keycloak_realm_users_groups
   changed_when: false
   failed_when: false
   when: (item.status | default(-1)) == 200 and (item.json | default([]) | length) > 0
 
 - name: Add Keycloak realm user group membership checks to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'Realm user groups: ' + item.item.item.username,
         'status': 'pass'
@@ -248,7 +248,7 @@
         'detail': 'expected=' + ((item.item.item.groups | default([])) | join(',')) + '; actual=' + ((item.json | default([]) | map(attribute='name') | list) | join(',')),
         'error': (item.msg | default(''))
       }] }}
-  loop: "{{ _rc_keycloak_realm_users_groups.results | default([]) }}"
+  loop: "{{ _readiness_check_keycloak_realm_users_groups.results | default([]) }}"
   loop_control:
     label: "{{ item.item.item.username }}"
   changed_when: false
@@ -258,7 +258,7 @@
     name: common
     tasks_from: prepare_internal_https_caller.yml
   vars:
-    common_internal_https_kubeconfig_path: "{{ _readiness_kubeconfig_path }}"
+    common_internal_https_kubeconfig_path: "{{ _readiness_check_kubeconfig_path }}"
     common_internal_https_service_name: "{{ readiness_check_keycloak_service_name }}"
     common_internal_https_service_namespace: "{{ readiness_check_keycloak_namespace }}"
     common_internal_https_fqdn: "{{ readiness_check_keycloak_internal_fqdn }}"
@@ -277,20 +277,20 @@
     ca_path: "{{ readiness_check_keycloak_ca_bundle_path }}"
     timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
     status_code: 200
-  register: _rc_keycloak_strict_tls
+  register: _readiness_check_keycloak_strict_tls
   changed_when: false
   failed_when: false
   when: readiness_check_strict_tls_checks_enabled | bool
 
 - name: Add Keycloak strict TLS trust check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'Internal OIDC endpoint strict TLS trust',
-        'status': 'pass' if (_rc_keycloak_strict_tls.status | default(-1)) == 200 else 'fail',
-        'detail': 'HTTP ' + ((_rc_keycloak_strict_tls.status | default(-1)) | string) + ' via ' + readiness_check_keycloak_internal_url,
-        'error': (_rc_keycloak_strict_tls.msg | default(''))
+        'status': 'pass' if (_readiness_check_keycloak_strict_tls.status | default(-1)) == 200 else 'fail',
+        'detail': 'HTTP ' + ((_readiness_check_keycloak_strict_tls.status | default(-1)) | string) + ' via ' + readiness_check_keycloak_internal_url,
+        'error': (_readiness_check_keycloak_strict_tls.msg | default(''))
       }] }}
   changed_when: false
   when: readiness_check_strict_tls_checks_enabled | bool
@@ -302,39 +302,39 @@
     kind: Deployment
     name: "{{ readiness_check_keycloak_deployment_name }}"
     namespace: "{{ readiness_check_keycloak_namespace }}"
-    kubeconfig: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_keycloak_deploy_info
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_keycloak_deploy_info
   changed_when: false
   failed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
 - name: Build Keycloak DB URL from Deployment env
   ansible.builtin.set_fact:
-    _rc_keycloak_db_url_info: "{{ _rc_keycloak_deploy_info }}"
-    _rc_keycloak_db_url: "{{ (((_rc_keycloak_deploy_info.resources | default([]) | first | default({})).spec.template.spec.containers | default([]) | first | default({})).env | default([]) | selectattr('name', 'eq', 'KC_DB_URL') | map(attribute='value') | first | default('')) }}"
+    _readiness_check_keycloak_db_url_info: "{{ _readiness_check_keycloak_deploy_info }}"
+    _readiness_check_keycloak_db_url: "{{ (((_readiness_check_keycloak_deploy_info.resources | default([]) | first | default({})).spec.template.spec.containers | default([]) | first | default({})).env | default([]) | selectattr('name', 'eq', 'KC_DB_URL') | map(attribute='value') | first | default('')) }}"
   changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
 - name: Add Keycloak DB verify-full URL check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'DB URL enforces verify-full TLS mode',
-        'status': 'pass' if ('sslmode=' + readiness_check_keycloak_pg_verify_mode) in (_rc_keycloak_db_url | default('')) else 'fail',
-        'detail': (_rc_keycloak_db_url | default('missing KC_DB_URL env on Keycloak Deployment')),
-        'error': _rc_keycloak_db_url_info.msg | default('')
+        'status': 'pass' if ('sslmode=' + readiness_check_keycloak_pg_verify_mode) in (_readiness_check_keycloak_db_url | default('')) else 'fail',
+        'detail': (_readiness_check_keycloak_db_url | default('missing KC_DB_URL env on Keycloak Deployment')),
+        'error': _readiness_check_keycloak_db_url_info.msg | default('')
       }] }}
   changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
 - name: Add Keycloak DB hostname verification target check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'DB URL host matches Postgres TLS SAN FQDN',
-        'status': 'pass' if readiness_check_keycloak_pg_service_fqdn in (_rc_keycloak_db_url | default('')) else 'fail',
+        'status': 'pass' if readiness_check_keycloak_pg_service_fqdn in (_readiness_check_keycloak_db_url | default('')) else 'fail',
         'detail': readiness_check_keycloak_pg_service_fqdn,
         'error': ''
       }] }}
@@ -347,21 +347,21 @@
     -n {{ readiness_check_keycloak_namespace }}
     -- sh -ec "psql -U '{{ readiness_check_keycloak_db_username }}' -d '{{ readiness_check_keycloak_db_name }}' -tAc 'SHOW ssl;'"
   environment:
-    KUBECONFIG: "{{ _readiness_kubeconfig_path }}"
-  register: _rc_postgres_ssl_setting
+    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_postgres_ssl_setting
   changed_when: false
   failed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool
 
 - name: Add PostgreSQL TLS enabled check to results
   ansible.builtin.set_fact:
-    _readiness_results: >-
-      {{ _readiness_results + [{
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
         'component': 'Keycloak',
         'check_name': 'PostgreSQL TLS negotiation enabled',
-        'status': 'pass' if (_rc_postgres_ssl_setting.stdout | default('') | trim) == 'on' else 'fail',
-        'detail': 'SHOW ssl=' + (_rc_postgres_ssl_setting.stdout | default('unknown') | trim),
-        'error': (_rc_postgres_ssl_setting.stderr | default(''))
+        'status': 'pass' if (_readiness_check_postgres_ssl_setting.stdout | default('') | trim) == 'on' else 'fail',
+        'detail': 'SHOW ssl=' + (_readiness_check_postgres_ssl_setting.stdout | default('unknown') | trim),
+        'error': (_readiness_check_postgres_ssl_setting.stderr | default(''))
       }] }}
   changed_when: false
   when: readiness_check_keycloak_pg_tls_enabled | bool

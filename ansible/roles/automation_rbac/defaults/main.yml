@@ -30,7 +30,7 @@ automation_rbac_managed_namespaces:
 # The namespace holding the cluster's cert-manager. Armory writes one Secret
 # there (its CA, so cert-manager can verify OpenBao). Not a namespace we own,
 # so the grant is deliberately limited to secrets.
-automation_rbac_certmanager_namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+automation_rbac_certmanager_namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
 
 # ── Permissions inside each managed project ───────────────────────────────────
 # Full management of the kinds armory actually deploys. Note pods/exec and

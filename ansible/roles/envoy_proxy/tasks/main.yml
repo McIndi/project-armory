@@ -1,7 +1,7 @@
 ---
 - name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+    envoy_proxy_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
 - name: Deploy the in-namespace Envoy trace boundary

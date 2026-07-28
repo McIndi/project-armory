@@ -1,8 +1,8 @@
-{% set total_checks = _readiness_results | length %}
-{% set passed_checks = _readiness_results | selectattr('status', 'equalto', 'pass') | list | length %}
-{% set warned_checks = _readiness_results | selectattr('status', 'equalto', 'warn') | list | length %}
-{% set failed_checks = _readiness_results | selectattr('status', 'equalto', 'fail') | list | length %}
-{% set component_names = _readiness_results | map(attribute='component') | unique | sort %}
+{% set total_checks = _readiness_check_results | length %}
+{% set passed_checks = _readiness_check_results | selectattr('status', 'equalto', 'pass') | list | length %}
+{% set warned_checks = _readiness_check_results | selectattr('status', 'equalto', 'warn') | list | length %}
+{% set failed_checks = _readiness_check_results | selectattr('status', 'equalto', 'fail') | list | length %}
+{% set component_names = _readiness_check_results | map(attribute='component') | unique | sort %}
 
 ================================================================================
                          READINESS CHECK SUMMARY
@@ -23,7 +23,7 @@ STATUS: [PASS] PASSED (all checks successful)
 ================================================================================
 
 {% for component_name in component_names %}
-{% set component_checks = _readiness_results | selectattr('component', 'equalto', component_name) | list %}
+{% set component_checks = _readiness_check_results | selectattr('component', 'equalto', component_name) | list %}
 {% set component_fails = component_checks | selectattr('status', 'equalto', 'fail') | list | length %}
 {% set component_warns = component_checks | selectattr('status', 'equalto', 'warn') | list | length %}
 {% set component_status = 'fail' if component_fails > 0 else 'warn' if component_warns > 0 else 'pass' %}

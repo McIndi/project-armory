@@ -1,12 +1,12 @@
 ---
 - name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+    readiness_check_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
 - name: Resolve kubeconfig path for readiness checks
   ansible.builtin.set_fact:
-    _readiness_kubeconfig_path: "{{ armory_kubeconfig_path | default(readiness_check_kubeconfig_path) }}"
+    _readiness_check_kubeconfig_path: "{{ armory_kubeconfig_path | default(readiness_check_kubeconfig_path) }}"
   changed_when: false
 
 - name: Run readiness checks with diagnostics
@@ -14,8 +14,8 @@
   block:
     - name: Initialize readiness check result aggregator
       ansible.builtin.set_fact:
-        _readiness_results: []
-        _readiness_failed_components: []
+        _readiness_check_results: []
+        _readiness_check_failed_components: []
       changed_when: false
 
     - name: Check Helm readiness
@@ -45,18 +45,18 @@
 
     - name: Render readiness report
       ansible.builtin.set_fact:
-        _readiness_report: "{{ lookup('template', 'readiness_report.j2') }}"
+        _readiness_check_report: "{{ lookup('template', 'readiness_report.j2') }}"
       changed_when: false
 
     - name: Determine overall readiness status
       ansible.builtin.set_fact:
-        _readiness_has_failures: "{{ _readiness_results | selectattr('status', 'equalto', 'fail') | list | length > 0 }}"
-        _readiness_total_checks: "{{ _readiness_results | length }}"
+        _readiness_check_has_failures: "{{ _readiness_check_results | selectattr('status', 'equalto', 'fail') | list | length > 0 }}"
+        _readiness_check_total_checks: "{{ _readiness_check_results | length }}"
       changed_when: false
 
     - name: Print readiness report
       ansible.builtin.debug:
-        msg: "{{ _readiness_report.splitlines() }}"
+        msg: "{{ _readiness_check_report.splitlines() }}"
 
     - name: Fail if issues detected and fail_on_issues enabled
       ansible.builtin.fail:
@@ -64,5 +64,5 @@
           Readiness checks detected critical issues (see report above).
           Set readiness_check_fail_on_issues=false to continue despite failures,
       when:
-        - _readiness_has_failures | bool
+        - _readiness_check_has_failures | bool
         - readiness_check_fail_on_issues | default(true) | bool

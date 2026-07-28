@@ -47,8 +47,8 @@ readiness_check_openbao_ui_expected_groups:
   - armory-viewers
 
 readiness_check_certmanager_namespace: cert-manager
-readiness_check_openbao_external_clusterissuer_name: "{{ certmanager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
-readiness_check_openbao_internal_clusterissuer_name: "{{ certmanager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
+readiness_check_openbao_external_clusterissuer_name: "{{ cert_manager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
+readiness_check_openbao_internal_clusterissuer_name: "{{ cert_manager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
 readiness_check_ingress_http_port: 80
@@ -145,4 +145,4 @@ readiness_check_default_tags:
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
 # WARNING: Enabling this will print secrets/tokens into logs and output.
-armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
+readiness_check_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

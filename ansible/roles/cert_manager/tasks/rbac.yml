@@ -8,14 +8,14 @@
           apiVersion: rbac.authorization.k8s.io/v1
           kind: Role
           metadata:
-            name: "{{ certmanager_release_name }}-tokenrequest"
-            namespace: "{{ certmanager_namespace }}"
+            name: "{{ cert_manager_release_name }}-tokenrequest"
+            namespace: "{{ cert_manager_namespace }}"
           rules:
             - apiGroups: [""]
               resources: ["serviceaccounts/token"]
-              resourceNames: ["{{ certmanager_release_name }}"]
+              resourceNames: ["{{ cert_manager_release_name }}"]
               verbs: ["create"]
-        kubeconfig: "{{ certmanager_kubeconfig_path }}"
+        kubeconfig: "{{ cert_manager_kubeconfig_path }}"
       when: not ansible_check_mode
 
     - name: Apply RoleBinding for cert-manager TokenRequest Role
@@ -25,15 +25,15 @@
           apiVersion: rbac.authorization.k8s.io/v1
           kind: RoleBinding
           metadata:
-            name: "{{ certmanager_release_name }}-tokenrequest"
-            namespace: "{{ certmanager_namespace }}"
+            name: "{{ cert_manager_release_name }}-tokenrequest"
+            namespace: "{{ cert_manager_namespace }}"
           roleRef:
             apiGroup: rbac.authorization.k8s.io
             kind: Role
-            name: "{{ certmanager_release_name }}-tokenrequest"
+            name: "{{ cert_manager_release_name }}-tokenrequest"
           subjects:
             - kind: ServiceAccount
-              name: "{{ certmanager_release_name }}"
-              namespace: "{{ certmanager_namespace }}"
-        kubeconfig: "{{ certmanager_kubeconfig_path }}"
+              name: "{{ cert_manager_release_name }}"
+              namespace: "{{ cert_manager_namespace }}"
+        kubeconfig: "{{ cert_manager_kubeconfig_path }}"
       when: not ansible_check_mode

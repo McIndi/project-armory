@@ -31,14 +31,14 @@ armory_privileged_tasks: false
 # v1.20.0) and its CRDs are cluster-scoped singletons. A second install would
 # fight the existing controller and break other tenants. We reuse it and only
 # create our own issuers/certificates.
-certmanager_namespace: cert-manager
+cert_manager_namespace: cert-manager
 # The issuers stay ClusterIssuers. They are consumed by Certificates in several
 # namespaces; making them namespaced would mean replicating an Issuer AND its
 # OpenBao vault-auth wiring into each. A ClusterIssuer is a config object that
 # grants nobody anything — its only cluster-scoped risk is a NAME collision.
 # tex26-* per the naming agreed with the cluster owner.
-certmanager_openbao_internal_clusterissuer_name: tex26-openbao-pki-internal
-certmanager_openbao_external_clusterissuer_name: tex26-openbao-pki-external
+cert_manager_openbao_internal_clusterissuer_name: tex26-openbao-pki-internal
+cert_manager_openbao_external_clusterissuer_name: tex26-openbao-pki-external
 
 # --- Storage -----------------------------------------------------------------
 # The cluster default is ODF Ceph RBD (RWO block), which is what the

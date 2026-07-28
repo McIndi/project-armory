@@ -10,7 +10,7 @@
   # realm.json.j2 defines the canonical realm body, rendered to JSON.
   ansible.builtin.set_fact:
     _keycloak_realm_json: "{{ lookup('template', 'realm.json.j2') }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
 
 - name: Stage the realm definition as a Secret
   # A Secret, not a ConfigMap: the realm body embeds the realm admin's password
@@ -31,7 +31,7 @@
       type: Opaque
       stringData:
         "{{ keycloak_realm }}-realm.json": "{{ _keycloak_realm_json }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Apply the Keycloak Deployment and Service

@@ -199,4 +199,4 @@
     name: cert_manager
     tasks_from: rbac.yml
   vars:
-    certmanager_kubeconfig_path: "{{ automation_rbac_kubeconfig_path }}"
+    cert_manager_kubeconfig_path: "{{ automation_rbac_kubeconfig_path }}"

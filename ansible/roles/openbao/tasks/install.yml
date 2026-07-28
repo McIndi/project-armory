@@ -176,7 +176,7 @@
     - "{{ openbao_tls_cert_host_path }}"
     - "{{ openbao_tls_key_host_path }}"
   register: _openbao_tls_secret_files
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   become: true
   when:
     - openbao_tls_enabled | bool
@@ -197,7 +197,7 @@
         tls.key: "{{ _openbao_tls_secret_files.results[1].content }}"
     kubeconfig: "{{ openbao_kubeconfig_path }}"
   register: _openbao_tls_secret_apply
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - openbao_tls_enabled | bool
     - not ansible_check_mode

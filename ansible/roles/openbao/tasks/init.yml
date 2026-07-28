@@ -24,7 +24,7 @@
         cmd: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
       register: _openbao_vault_pass_gen
       changed_when: true
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
@@ -37,7 +37,7 @@
         owner: "{{ openbao_file_owner }}"
         group: "{{ openbao_file_group }}"
       register: _openbao_vault_pass_file_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
@@ -52,7 +52,7 @@
           secret_threshold: "{{ openbao_key_threshold }}"
         status_code: 200
       register: _openbao_init_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
@@ -60,8 +60,8 @@
     - name: Set init key facts
       ansible.builtin.set_fact:
         openbao_unseal_keys: "{{ _openbao_init_result.json.keys_base64 }}"
-        openbao_root_token: "{{ _openbao_init_result.json.root_token }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+        common_openbao_root_token: "{{ _openbao_init_result.json.root_token }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
@@ -75,12 +75,12 @@
           {% for key in openbao_unseal_keys %}
             - {{ key }}
           {% endfor %}
-          root_token: {{ openbao_root_token }}
+          root_token: {{ common_openbao_root_token }}
         mode: "0400"
         owner: "{{ openbao_file_owner }}"
         group: "{{ openbao_file_group }}"
       register: _openbao_plain_keys_file_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
@@ -93,7 +93,7 @@
           --output {{ openbao_init_keys_file }}
           {{ openbao_init_keys_file }}.plain
       register: _openbao_encrypt_keys_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode
@@ -117,7 +117,7 @@
         status_code: 200
       loop: "{{ openbao_unseal_keys[:openbao_key_threshold] }}"
       register: _openbao_initial_unseal_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_initialized | default(true))
         - not ansible_check_mode

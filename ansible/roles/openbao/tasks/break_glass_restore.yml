@@ -45,7 +45,7 @@
           content: "{{ (_openbao_bg_secret.resources[0].data['init-keys.yml']) }}"
       loop_control:
         label: "{{ item.dest }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not _openbao_bg_local_pass.stat.exists
         - (_openbao_bg_secret.resources | default([]) | length) > 0

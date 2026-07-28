@@ -9,7 +9,7 @@ common_openbao_vault_pass_file: /opt/openbao/.vault-pass
 # defaults are not in scope (consumer roles including this loader).
 common_openbao_provisioner_token_file: /opt/openbao/provisioner-token.yml
 
-armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
+common_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
 
 # Shared kubeconfig path for common kubectl-based helper tasks.
 common_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"

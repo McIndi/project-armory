@@ -26,7 +26,7 @@
           --output -
           {{ openbao_init_keys_file }}
       register: _openbao_decrypted
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       changed_when: false
       when:
         - openbao_is_sealed | default(true)
@@ -36,8 +36,8 @@
     - name: Set unseal key and root token facts from decrypted file
       ansible.builtin.set_fact:
         openbao_unseal_keys: "{{ (_openbao_decrypted.stdout | from_yaml).unseal_keys }}"
-        openbao_root_token: "{{ (_openbao_decrypted.stdout | from_yaml).root_token }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+        common_openbao_root_token: "{{ (_openbao_decrypted.stdout | from_yaml).root_token }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - openbao_is_sealed | default(true)
         - openbao_unseal_keys is not defined
@@ -53,7 +53,7 @@
         status_code: 200
       loop: "{{ openbao_unseal_keys[:openbao_key_threshold] }}"
       register: _openbao_unseal_submit_result
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - openbao_is_sealed | default(false)
         - not ansible_check_mode
@@ -66,18 +66,18 @@
           --output -
           {{ openbao_init_keys_file }}
       register: _openbao_decrypted_for_token
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       changed_when: false
       when:
         - not (openbao_is_sealed | default(true))
-        - openbao_root_token is not defined
+        - common_openbao_root_token is not defined
         - not ansible_check_mode
 
     - name: Set root token fact (vault already unsealed path)
       ansible.builtin.set_fact:
-        openbao_root_token: "{{ (_openbao_decrypted_for_token.stdout | from_yaml).root_token }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+        common_openbao_root_token: "{{ (_openbao_decrypted_for_token.stdout | from_yaml).root_token }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - not (openbao_is_sealed | default(true))
-        - openbao_root_token is not defined
+        - common_openbao_root_token is not defined
         - not ansible_check_mode

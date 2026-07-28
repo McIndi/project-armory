@@ -28,12 +28,12 @@
     KUBECONFIG: "{{ openbao_oidc_kubeconfig_path }}"
   register: _openbao_oidc_kc_admin_pw_b64
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Decode Keycloak admin password
   ansible.builtin.set_fact:
     _openbao_oidc_kc_admin_password: "{{ _openbao_oidc_kc_admin_pw_b64.stdout | b64decode }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Get Keycloak admin username from admin secret
   ansible.builtin.command:
@@ -46,7 +46,7 @@
   register: _openbao_oidc_kc_admin_user_b64
   changed_when: false
   when: openbao_oidc_keycloak_admin_username_from_secret | bool
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Resolve Keycloak admin username
   ansible.builtin.set_fact:
@@ -57,7 +57,7 @@
             and (_openbao_oidc_kc_admin_user_b64.stdout | default('') | length) > 0)
         else openbao_oidc_keycloak_admin_username
       }}
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Obtain Keycloak admin token (retry until Keycloak is ready)
   ansible.builtin.uri:
@@ -77,12 +77,12 @@
   delay: 15
   until: _openbao_oidc_kc_token_result.status == 200
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Set Keycloak admin token fact
   ansible.builtin.set_fact:
     _openbao_oidc_kc_admin_token: "{{ (_openbao_oidc_kc_token_result.json.access_token | default('')) if (_openbao_oidc_kc_token_result is defined) else '' }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Look up OpenBao OIDC client in Keycloak
   ansible.builtin.uri:
@@ -95,7 +95,7 @@
     status_code: 200
   register: _openbao_oidc_kc_client_lookup
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Set OpenBao client existence facts
   ansible.builtin.set_fact:
@@ -110,7 +110,7 @@
   when:
     - (openbao_oidc_client_secret | default('') | length) == 0
     - not _openbao_oidc_client_exists
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Set effective OIDC client secret for create path
   ansible.builtin.set_fact:
@@ -121,7 +121,7 @@
         else (_openbao_oidc_secret_generated.stdout | default(''))
       }}
   when: not _openbao_oidc_client_exists
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Create OpenBao Keycloak OIDC client
   ansible.builtin.uri:
@@ -152,7 +152,7 @@
     status_code: 201
   when: not _openbao_oidc_client_exists
   register: _openbao_oidc_kc_client_create_result
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Refresh OpenBao client lookup after create
   ansible.builtin.uri:
@@ -166,7 +166,7 @@
   register: _openbao_oidc_kc_client_lookup_after_create
   changed_when: false
   when: not _openbao_oidc_client_exists
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Set OpenBao client ID after create
   ansible.builtin.set_fact:
@@ -187,7 +187,7 @@
   register: _openbao_oidc_kc_client_details
   changed_when: false
   when: _openbao_oidc_client_internal_id | length > 0
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Update OpenBao Keycloak client settings (idempotent)
   ansible.builtin.uri:
@@ -219,7 +219,7 @@
     status_code: 204
   when: _openbao_oidc_client_internal_id | length > 0
   register: _openbao_oidc_kc_client_update_result
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: List existing protocol mappers on the OpenBao client
   ansible.builtin.uri:
@@ -233,7 +233,7 @@
   register: _openbao_oidc_kc_client_mappers
   changed_when: false
   when: _openbao_oidc_client_internal_id | length > 0
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Ensure groups protocol mapper on the OpenBao client
   ansible.builtin.uri:
@@ -260,7 +260,7 @@
     - _openbao_oidc_client_internal_id | length > 0
     - "'groups' not in (_openbao_oidc_kc_client_mappers.json | default([]) | map(attribute='name') | list)"
   register: _openbao_oidc_kc_groups_mapper_result
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Rotate OpenBao client secret when explicitly provided
   ansible.builtin.uri:
@@ -279,7 +279,7 @@
     - _openbao_oidc_client_internal_id | length > 0
     - (openbao_oidc_client_secret | default('') | length) > 0
   register: _openbao_oidc_kc_secret_rotate_result
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Read current OpenBao client secret from Keycloak
   ansible.builtin.uri:
@@ -293,13 +293,13 @@
   register: _openbao_oidc_kc_client_secret_read
   changed_when: false
   when: _openbao_oidc_client_internal_id | length > 0
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Set effective OpenBao client secret fact
   ansible.builtin.set_fact:
     openbao_oidc_effective_client_secret: "{{ _openbao_oidc_kc_client_secret_read.json.value | default(_openbao_oidc_client_secret_effective | default('')) }}"
   when: _openbao_oidc_client_internal_id | length > 0
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Load OpenBao provisioner token
   ansible.builtin.import_role:
@@ -311,7 +311,7 @@
     url: "{{ openbao_oidc_api_addr }}/v1/{{ openbao_oidc_kv_mount }}/data/{{ openbao_oidc_secret_path }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_provisioner_token }}"
+      X-Vault-Token: "{{ common_openbao_provisioner_token }}"
     body_format: json
     body:
       data:
@@ -323,7 +323,7 @@
   when:
     - openbao_oidc_effective_client_secret is defined
     - (openbao_oidc_effective_client_secret | string | length) > 0
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Load OpenBao root token for auth and identity wiring
   ansible.builtin.import_role:
@@ -335,7 +335,7 @@
     url: "{{ openbao_oidc_ca_pem_url }}"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     status_code: 200
     return_content: true
   register: _openbao_oidc_ca_pem_result
@@ -344,14 +344,14 @@
 - name: Set OpenBao OIDC discovery CA PEM fact
   ansible.builtin.set_fact:
     _openbao_oidc_discovery_ca_pem: "{{ _openbao_oidc_ca_pem_result.content | default('') | trim }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Configure OpenBao OIDC auth backend
   ansible.builtin.uri:
     url: "{{ openbao_oidc_api_addr }}/v1/auth/{{ openbao_oidc_auth_mount }}/config"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       oidc_discovery_url: "{{ openbao_oidc_discovery_url }}"
@@ -360,14 +360,14 @@
       oidc_client_secret: "{{ openbao_oidc_effective_client_secret }}"
       default_role: "{{ openbao_oidc_default_role_name }}"
     status_code: [200, 204]
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Configure OpenBao OIDC login role
   ansible.builtin.uri:
     url: "{{ openbao_oidc_api_addr }}/v1/auth/{{ openbao_oidc_auth_mount }}/role/{{ openbao_oidc_default_role_name }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       user_claim: "{{ openbao_oidc_user_claim }}"
@@ -376,7 +376,7 @@
       oidc_scopes: "{{ openbao_oidc_scopes }}"
       token_policies: "{{ openbao_oidc_token_policies }}"
     status_code: [200, 204]
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
 
 - name: Remove temporary Keycloak CA file for OpenBao OIDC setup
   ansible.builtin.file:

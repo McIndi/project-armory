@@ -1,7 +1,7 @@
 ---
 - name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+    cert_manager_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
 - name: Run cert-manager orchestration with diagnostics

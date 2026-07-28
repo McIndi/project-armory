@@ -7,7 +7,7 @@
     url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ openbao_provisioner_policy_name }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       policy: |
@@ -34,14 +34,14 @@
         }
     status_code: [200, 204]
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Check for existing provisioner token file
   ansible.builtin.stat:
     path: "{{ openbao_provisioner_token_file }}"
   register: _openbao_provisioner_token_file_stat
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Decrypt stored provisioner token
@@ -54,7 +54,7 @@
   register: _openbao_provisioner_token_decrypt
   changed_when: false
   failed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - _openbao_provisioner_token_file_stat.stat.exists | default(false)
@@ -63,7 +63,7 @@
   ansible.builtin.set_fact:
     _openbao_provisioner_token_from_file: >-
       {{ (_openbao_provisioner_token_decrypt.stdout | from_yaml).provisioner_token | default('') }}
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - (_openbao_provisioner_token_decrypt.rc | default(1)) == 0
@@ -79,7 +79,7 @@
   register: _openbao_provisioner_lookup_self
   failed_when: false
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - (_openbao_provisioner_token_from_file | default('') | length) > 0
@@ -111,7 +111,7 @@
     url: "{{ openbao_api_addr }}/v1/auth/token/create"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       policies:
@@ -121,7 +121,7 @@
       display_name: "{{ openbao_provisioner_token_display_name }}"
     status_code: 200
   register: _openbao_mint_provisioner_token
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - not (_openbao_provisioner_token_valid | default(false))
@@ -135,7 +135,7 @@
     mode: "0400"
     owner: root
     group: root
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - not (_openbao_provisioner_token_valid | default(false))
@@ -147,7 +147,7 @@
       --vault-password-file {{ openbao_vault_pass_file }}
       --output {{ openbao_provisioner_token_file }}
       {{ openbao_provisioner_token_file }}.plain
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - not (_openbao_provisioner_token_valid | default(false))
@@ -168,7 +168,7 @@
       X-Vault-Token: "{{ _openbao_provisioner_token_from_file }}"
     status_code: 200
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - _openbao_provisioner_token_valid | default(false)

@@ -1,8 +1,8 @@
 ---
 - name: Register Keycloak namespace for teardown checks
   ansible.builtin.set_fact:
-    teardown_role_target_namespaces: >-
-      {{ (teardown_role_target_namespaces | default([])) + [keycloak_namespace] | unique }}
+    keycloak_teardown_target_namespaces: >-
+      {{ (keycloak_teardown_target_namespaces | default([])) + [keycloak_namespace] | unique }}
 
 - name: Delete Keycloak Deployment (ignore if absent)
   ansible.builtin.command:
@@ -11,8 +11,8 @@
       -n {{ keycloak_namespace }} --ignore-not-found --timeout=120s
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_td_deploy
-  changed_when: "'deleted' in (_kc_td_deploy.stdout | default(''))"
+  register: _keycloak_td_deploy
+  changed_when: "'deleted' in (_keycloak_td_deploy.stdout | default(''))"
   failed_when: false
 
 - name: Delete Keycloak Service (ignore if absent)
@@ -22,8 +22,8 @@
       -n {{ keycloak_namespace }} --ignore-not-found
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_td_service
-  changed_when: "'deleted' in (_kc_td_service.stdout | default(''))"
+  register: _keycloak_td_service
+  changed_when: "'deleted' in (_keycloak_td_service.stdout | default(''))"
   failed_when: false
 
 - name: Delete Keycloak realm import Secret (ignore if absent)
@@ -33,6 +33,6 @@
       -n {{ keycloak_namespace }} --ignore-not-found
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
-  register: _kc_td_realm_secret
-  changed_when: "'deleted' in (_kc_td_realm_secret.stdout | default(''))"
+  register: _keycloak_td_realm_secret
+  changed_when: "'deleted' in (_keycloak_td_realm_secret.stdout | default(''))"
   failed_when: false

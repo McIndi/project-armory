@@ -66,7 +66,7 @@ registry_openbao_api_addr: "{{ openbao_api_addr | default('https://openbao.openb
 registry_tls_enabled: true
 registry_tls_secret_name: registry-tls
 registry_tls_certificate_name: registry-tls
-registry_tls_issuer_name: "{{ certmanager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
+registry_tls_issuer_name: "{{ cert_manager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
 registry_tls_issuer_kind: "{{ common_certificate_issuer_kind | default('ClusterIssuer') }}"
 registry_tls_duration: "8760h"
 registry_tls_renew_before: "720h"

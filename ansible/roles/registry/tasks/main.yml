@@ -1,7 +1,7 @@
 ---
 - name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+    registry_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
 - name: Deploy the armory OCI registry
@@ -31,10 +31,10 @@
         url: "{{ registry_openbao_api_addr }}/v1/{{ registry_openbao_kv_mount }}/data/{{ registry_openbao_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _registry_creds_current
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (registry_log_nolog | default(false) | bool) }}"
       when:
         - registry_auth_enabled | bool
         - not ansible_check_mode
@@ -50,7 +50,7 @@
                 and (_registry_creds_current.json.data.data.password | default('') | length) > 0)
             else lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits')
           }}
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (registry_log_nolog | default(false) | bool) }}"
       when:
         - registry_auth_enabled | bool
         - not ansible_check_mode
@@ -60,14 +60,14 @@
         url: "{{ registry_openbao_api_addr }}/v1/{{ registry_openbao_kv_mount }}/data/{{ registry_openbao_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         body_format: json
         body:
           data:
             username: "{{ registry_username }}"
             password: "{{ _registry_password }}"
         status_code: [200, 204]
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (registry_log_nolog | default(false) | bool) }}"
       when:
         - registry_auth_enabled | bool
         - not ansible_check_mode
@@ -91,7 +91,7 @@
           type: Opaque
           stringData:
             htpasswd: "{{ registry_username }}:{{ _registry_password | password_hash('bcrypt') }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (registry_log_nolog | default(false) | bool) }}"
       when:
         - registry_auth_enabled | bool
         - not ansible_check_mode
@@ -193,7 +193,7 @@
               password: "{{ _registry_password }}"
               auth: "{{ (registry_username ~ ':' ~ _registry_password) | b64encode }}"
       loop: "{{ registry_pull_secret_namespaces }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (registry_log_nolog | default(false) | bool) }}"
       when:
         - registry_auth_enabled | bool
         - not ansible_check_mode

@@ -19,11 +19,11 @@ Defined in `defaults/main.yml`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `certmanager_namespace` | `cert-manager` | Namespace for cert-manager release. |
-| `certmanager_release_name` | `cert-manager` | ServiceAccount name stem used by TokenRequest RBAC and ClusterIssuer auth. |
-| `certmanager_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao URL for ClusterIssuer. |
-| `certmanager_openbao_cluster_issuers` | pki-int / pki-ext | PKI mounts + roles per ClusterIssuer. |
-| `certmanager_openbao_k8s_role` | `cert-manager` | OpenBao Kubernetes auth role name for cert-manager. |
+| `cert_manager_namespace` | `cert-manager` | Namespace for cert-manager release. |
+| `cert_manager_release_name` | `cert-manager` | ServiceAccount name stem used by TokenRequest RBAC and ClusterIssuer auth. |
+| `cert_manager_openbao_cluster_addr` | `https://openbao.openbao.svc.cluster.local:8200` | In-cluster OpenBao URL for ClusterIssuer. |
+| `cert_manager_openbao_cluster_issuers` | pki-int / pki-ext | PKI mounts + roles per ClusterIssuer. |
+| `cert_manager_openbao_k8s_role` | `cert-manager` | OpenBao Kubernetes auth role name for cert-manager. |
 
 ## Task flow
 1. Grant the cert-manager ServiceAccount permission to mint a bound token for

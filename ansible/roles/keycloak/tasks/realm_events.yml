@@ -1,7 +1,7 @@
 ---
 - name: Set Keycloak internal base URL fact for events config
   ansible.builtin.set_fact:
-    _kc_events_base_url: "{{ keycloak_internal_api_url }}"
+    _keycloak_events_base_url: "{{ keycloak_internal_api_url }}"
 
 - name: Prepare internal HTTPS trust bundle for events config
   ansible.builtin.import_role:
@@ -26,48 +26,48 @@
   environment:
     KUBECONFIG: "{{ keycloak_kubeconfig_path }}"
   loop: [username, password]
-  register: _kc_events_admin_creds_b64
+  register: _keycloak_events_admin_creds_b64
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
 
 - name: Obtain Keycloak master admin token for events config
   ansible.builtin.uri:
-    url: "{{ _kc_events_base_url }}/realms/master/protocol/openid-connect/token"
+    url: "{{ _keycloak_events_base_url }}/realms/master/protocol/openid-connect/token"
     method: POST
     body_format: form-urlencoded
     body:
       client_id: admin-cli
-      username: "{{ _kc_events_admin_creds_b64.results[0].stdout | b64decode }}"
-      password: "{{ _kc_events_admin_creds_b64.results[1].stdout | b64decode }}"
+      username: "{{ _keycloak_events_admin_creds_b64.results[0].stdout | b64decode }}"
+      password: "{{ _keycloak_events_admin_creds_b64.results[1].stdout | b64decode }}"
       grant_type: password
     ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-events-ca.crt
     validate_certs: true
     status_code: 200
-  register: _kc_events_token
+  register: _keycloak_events_token
   retries: 30
   delay: 10
-  until: _kc_events_token.status == 200
+  until: _keycloak_events_token.status == 200
   changed_when: false
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
 
 - name: Read current realm events config
   ansible.builtin.uri:
-    url: "{{ _kc_events_base_url }}/admin/realms/{{ keycloak_realm }}/events/config"
+    url: "{{ _keycloak_events_base_url }}/admin/realms/{{ keycloak_realm }}/events/config"
     method: GET
     headers:
-      Authorization: "Bearer {{ _kc_events_token.json.access_token }}"
+      Authorization: "Bearer {{ _keycloak_events_token.json.access_token }}"
     ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-events-ca.crt
     validate_certs: true
     status_code: 200
-  register: _kc_events_current
+  register: _keycloak_events_current
   retries: 30
   delay: 10
-  until: _kc_events_current.status == 200
+  until: _keycloak_events_current.status == 200
   changed_when: false
 
 - name: Build desired events config (managed fields only)
   ansible.builtin.set_fact:
-    _kc_events_desired:
+    _keycloak_events_desired:
       eventsEnabled: "{{ keycloak_events_enabled | bool }}"
       eventsExpiration: "{{ keycloak_events_expiration_seconds | int }}"
       eventsListeners: "{{ keycloak_events_listeners }}"
@@ -76,24 +76,24 @@
 
 - name: Update realm events config when drifted
   ansible.builtin.uri:
-    url: "{{ _kc_events_base_url }}/admin/realms/{{ keycloak_realm }}/events/config"
+    url: "{{ _keycloak_events_base_url }}/admin/realms/{{ keycloak_realm }}/events/config"
     method: PUT
     headers:
-      Authorization: "Bearer {{ _kc_events_token.json.access_token }}"
+      Authorization: "Bearer {{ _keycloak_events_token.json.access_token }}"
       Content-Type: application/json
     body_format: json
-    body: "{{ _kc_events_desired | combine({'enabledEventTypes': []}) }}"
+    body: "{{ _keycloak_events_desired | combine({'enabledEventTypes': []}) }}"
     ca_path: /tmp/{{ keycloak_openbao_ca_secret_name }}-events-ca.crt
     validate_certs: true
     status_code: [204]
-  register: _kc_events_update
+  register: _keycloak_events_update
   changed_when: true
   when: >-
-    (_kc_events_current.json.eventsEnabled | default(false)) != (keycloak_events_enabled | bool)
-    or (_kc_events_current.json.eventsExpiration | default(0) | int) != (keycloak_events_expiration_seconds | int)
-    or (_kc_events_current.json.eventsListeners | default([]) | sort) != (keycloak_events_listeners | sort)
-    or (_kc_events_current.json.adminEventsEnabled | default(false)) != (keycloak_admin_events_enabled | bool)
-    or (_kc_events_current.json.adminEventsDetailsEnabled | default(false)) != (keycloak_admin_events_details_enabled | bool)
+    (_keycloak_events_current.json.eventsEnabled | default(false)) != (keycloak_events_enabled | bool)
+    or (_keycloak_events_current.json.eventsExpiration | default(0) | int) != (keycloak_events_expiration_seconds | int)
+    or (_keycloak_events_current.json.eventsListeners | default([]) | sort) != (keycloak_events_listeners | sort)
+    or (_keycloak_events_current.json.adminEventsEnabled | default(false)) != (keycloak_admin_events_enabled | bool)
+    or (_keycloak_events_current.json.adminEventsDetailsEnabled | default(false)) != (keycloak_admin_events_details_enabled | bool)
 
 - name: Remove temporary Keycloak CA file for events config
   ansible.builtin.file:

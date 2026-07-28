@@ -17,8 +17,8 @@
     # probing every verb multiplies API calls without adding signal.
     - name: Expand the namespaced permission checklist
       ansible.builtin.set_fact:
-        _rbac_ns_checks: >-
-          {{ _rbac_ns_checks | default([]) + [{
+        _automation_rbac_ns_checks: >-
+          {{ _automation_rbac_ns_checks | default([]) + [{
                'namespace': item.0,
                'group': (item.1.apiGroups | first),
                'resource': (item.1.resources | first),
@@ -31,8 +31,8 @@
 
     - name: Expand the cluster-scoped permission checklist
       ansible.builtin.set_fact:
-        _rbac_cluster_checks: >-
-          {{ _rbac_cluster_checks | default([]) + [{
+        _automation_rbac_cluster_checks: >-
+          {{ _automation_rbac_cluster_checks | default([]) + [{
                'namespace': '',
                'group': (item.apiGroups | first),
                'resource': (item.resources | first),
@@ -45,7 +45,7 @@
 
     - name: Expand the foreign-namespace permission checklist
       ansible.builtin.set_fact:
-        _rbac_foreign_checks:
+        _automation_rbac_foreign_checks:
           - namespace: "{{ automation_rbac_certmanager_namespace }}"
             group: ""
             resource: secrets
@@ -65,17 +65,17 @@
           --as=system:serviceaccount:{{ automation_rbac_sa_namespace }}:{{ automation_rbac_sa_name }}
       environment:
         KUBECONFIG: "{{ automation_rbac_kubeconfig_path }}"
-      loop: "{{ _rbac_ns_checks + _rbac_cluster_checks + _rbac_foreign_checks }}"
+      loop: "{{ _automation_rbac_ns_checks + _automation_rbac_cluster_checks + _automation_rbac_foreign_checks }}"
       loop_control:
         label: "{{ item.verb }} {{ item.resource }} {{ ('in ' + item.namespace) if (item.namespace | length) > 0 else '(cluster)' }}"
-      register: _rbac_results
+      register: _automation_rbac_results
       changed_when: false
       failed_when: false
 
     - name: Collect any missing permissions
       ansible.builtin.set_fact:
-        _rbac_missing: >-
-          {{ _rbac_results.results
+        _automation_rbac_missing: >-
+          {{ _automation_rbac_results.results
              | rejectattr('stdout', 'search', '^yes')
              | map(attribute='item')
              | list }}
@@ -84,15 +84,15 @@
     - name: Fail with the exact permissions that are missing
       ansible.builtin.assert:
         that:
-          - (_rbac_missing | length) == 0
+          - (_automation_rbac_missing | length) == 0
         fail_msg: >-
           The automation account
           '{{ automation_rbac_sa_namespace }}:{{ automation_rbac_sa_name }}'
-          is missing {{ _rbac_missing | length }} permission(s):
-          {{ _rbac_missing | map('to_json') | join('; ') }}.
+          is missing {{ _automation_rbac_missing | length }} permission(s):
+          {{ _automation_rbac_missing | map('to_json') | join('; ') }}.
           Re-run playbooks/bootstrap.yml as a cluster-admin to (re)apply the
           grants, or add the missing rule to automation_rbac_*_rules.
         success_msg: >-
           Automation account holds all
-          {{ (_rbac_ns_checks + _rbac_cluster_checks + _rbac_foreign_checks) | length }}
+          {{ (_automation_rbac_ns_checks + _automation_rbac_cluster_checks + _automation_rbac_foreign_checks) | length }}
           checked permissions.

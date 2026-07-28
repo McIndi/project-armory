@@ -50,4 +50,4 @@ openbao_oidc_openbao_ca_secret_name: "{{ openbao_tls_ca_secret_name | default('o
 openbao_oidc_ca_pem_url: "{{ openbao_oidc_api_addr }}/v1/{{ openbao_pki_external_mount | default('pki-ext') }}/ca/pem"
 
 # When true, disables Ansible no_log redaction for sensitive tasks.
-armory_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
+openbao_oidc_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"

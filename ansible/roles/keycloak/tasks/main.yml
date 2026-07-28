@@ -1,7 +1,7 @@
 ---
 - name: Resolve ARMORY_LOG_NOLOG flag
   ansible.builtin.set_fact:
-    armory_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
+    keycloak_log_nolog: "{{ (lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true)) | bool }}"
   changed_when: false
 
 - name: Deploy standalone Keycloak (Deployment + PostgreSQL StatefulSet)
@@ -30,10 +30,10 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _keycloak_db_creds_current
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Build Keycloak DB credentials (username fixed, password generated once)
@@ -50,7 +50,7 @@
               )
             }
           }}
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Store Keycloak DB credentials in OpenBao
@@ -58,12 +58,12 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_db_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         body_format: json
         body:
           data: "{{ _keycloak_db_creds }}"
         status_code: [200, 204]
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       # Store only on first creation. The build reuses any existing value, so a
       # re-store would write an identical-data KV version every run and create
       # unnecessary churn in the source of truth.
@@ -76,10 +76,10 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _keycloak_realm_admin_current
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Build realm-admin password (generated once, persisted)
@@ -91,7 +91,7 @@
                 and (_keycloak_realm_admin_current.json.data.data.password | default('') | length) > 0)
             else lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits')
           }}
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Store realm-admin password in OpenBao
@@ -99,14 +99,14 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_realm_admin_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         body_format: json
         body:
           data:
             username: "{{ keycloak_realm_admin_username }}"
             password: "{{ _keycloak_realm_admin_password }}"
         status_code: [200, 204]
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       # Store only on first creation (see DB-credential note above) — avoids the
       # per-run KV-version churn that bumps keycloak-realm-admin's resourceVersion.
       when:
@@ -119,10 +119,10 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_bootstrap_admin_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         status_code: [200, 404]
       register: _keycloak_bootstrap_admin_current
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Build master bootstrap-admin password (generated once, persisted)
@@ -134,7 +134,7 @@
                 and (_keycloak_bootstrap_admin_current.json.data.data.password | default('') | length) > 0)
             else lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits')
           }}
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Store master bootstrap-admin credentials in OpenBao
@@ -142,14 +142,14 @@
         url: "{{ keycloak_openbao_api_addr }}/v1/{{ keycloak_openbao_kv_mount }}/data/{{ keycloak_openbao_bootstrap_admin_path }}"
         method: POST
         headers:
-          X-Vault-Token: "{{ openbao_provisioner_token }}"
+          X-Vault-Token: "{{ common_openbao_provisioner_token }}"
         body_format: json
         body:
           data:
             username: "{{ keycloak_bootstrap_admin_username }}"
             password: "{{ _keycloak_bootstrap_admin_password }}"
         status_code: [200, 204]
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       # Store only on first creation (see DB-credential note above).
       when:
         - not ansible_check_mode
@@ -171,7 +171,7 @@
           stringData:
             username: "{{ keycloak_bootstrap_admin_username }}"
             password: "{{ _keycloak_bootstrap_admin_password }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     # Materialize the namespace Secrets directly from the OpenBao-backed facts.
@@ -199,7 +199,7 @@
           stringData:
             username: "{{ _keycloak_db_creds.username }}"
             password: "{{ _keycloak_db_creds.password }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Apply keycloak-realm-admin secret directly in the Keycloak namespace
@@ -216,7 +216,7 @@
           stringData:
             username: "{{ keycloak_realm_admin_username }}"
             password: "{{ _keycloak_realm_admin_password }}"
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
       when: not ansible_check_mode
 
     - name: Ensure PostgreSQL TLS certificate exists and is ready

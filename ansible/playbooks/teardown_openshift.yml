@@ -56,8 +56,8 @@
           metadata:
             name: "{{ item }}"
       loop:
-        - "{{ certmanager_openbao_internal_clusterissuer_name | default('tex26-openbao-pki-internal') }}"
-        - "{{ certmanager_openbao_external_clusterissuer_name | default('tex26-openbao-pki-external') }}"
+        - "{{ cert_manager_openbao_internal_clusterissuer_name | default('tex26-openbao-pki-internal') }}"
+        - "{{ cert_manager_openbao_external_clusterissuer_name | default('tex26-openbao-pki-external') }}"
       when: not ansible_check_mode
 
     - name: Delete namespace-scoped RBAC grants outside armory namespaces
@@ -73,16 +73,16 @@
       loop:
         - kind: RoleBinding
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-ca-writer"
-          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+          namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
         - kind: Role
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-ca-writer"
-          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+          namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
         - kind: RoleBinding
-          name: "{{ certmanager_release_name | default('cert-manager') }}-tokenrequest"
-          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+          name: "{{ cert_manager_release_name | default('cert-manager') }}-tokenrequest"
+          namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
         - kind: Role
-          name: "{{ certmanager_release_name | default('cert-manager') }}-tokenrequest"
-          namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+          name: "{{ cert_manager_release_name | default('cert-manager') }}-tokenrequest"
+          namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
         - kind: RoleBinding
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-root-ca-reader"
           namespace: "{{ automation_rbac_kube_public_namespace | default('kube-public') }}"
@@ -100,7 +100,7 @@
           kind: Secret
           metadata:
             name: "{{ openbao_tls_ca_secret_name | default('openbao-ca') }}"
-            namespace: "{{ certmanager_namespace | default('cert-manager') }}"
+            namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
       when: not ansible_check_mode
 
     - name: Delete armory cluster-scoped RBAC

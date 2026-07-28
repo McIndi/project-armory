@@ -7,10 +7,10 @@
     url: "{{ openbao_api_addr }}/v1/sys/auth"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     status_code: 200
   register: _openbao_oidc_auth_mounts
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Enable OpenBao OIDC auth method
@@ -18,13 +18,13 @@
     url: "{{ openbao_api_addr }}/v1/sys/auth/{{ openbao_oidc_auth_mount }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       type: oidc
     status_code: [200, 204]
   register: _openbao_enable_oidc_auth_result
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - "(openbao_oidc_auth_mount + '/') not in (_openbao_oidc_auth_mounts.json | default({}))"
@@ -34,7 +34,7 @@
     url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ item.name }}"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       policy: "{{ item.policy }}"
@@ -42,7 +42,7 @@
   loop: "{{ openbao_ui_acl_policies }}"
   loop_control:
     label: "{{ item.name }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Upsert OpenBao external identity groups for UI policy tiers
@@ -50,7 +50,7 @@
     url: "{{ openbao_api_addr }}/v1/identity/group"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       name: "{{ item.keycloak_group }}"
@@ -61,7 +61,7 @@
   loop: "{{ openbao_ui_group_bindings }}"
   loop_control:
     label: "{{ item.keycloak_group }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Refresh OpenBao auth methods after OIDC enablement
@@ -69,10 +69,10 @@
     url: "{{ openbao_api_addr }}/v1/sys/auth"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     status_code: 200
   register: _openbao_oidc_auth_mounts_effective
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Capture OIDC auth mount accessor
@@ -95,13 +95,13 @@
     url: "{{ openbao_api_addr }}/v1/identity/group/name/{{ item.keycloak_group }}"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     status_code: 200
   loop: "{{ openbao_ui_group_bindings }}"
   loop_control:
     label: "{{ item.keycloak_group }}"
   register: _openbao_ui_group_details
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: List existing OpenBao identity group aliases
@@ -109,10 +109,10 @@
     url: "{{ openbao_api_addr }}/v1/identity/group-alias/id?list=true"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     status_code: [200, 404]
   register: _openbao_group_alias_id_list
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when: not ansible_check_mode
 
 - name: Read existing OpenBao identity group aliases
@@ -120,13 +120,13 @@
     url: "{{ openbao_api_addr }}/v1/identity/group-alias/id/{{ item }}"
     method: GET
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     status_code: 200
   loop: "{{ _openbao_group_alias_id_list.json.data['keys'] | default([]) }}"
   register: _openbao_group_alias_details
   loop_control:
     label: "{{ item }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - (_openbao_group_alias_id_list.status | default(404)) == 200
@@ -149,7 +149,7 @@
     url: "{{ openbao_api_addr }}/v1/identity/group-alias"
     method: POST
     headers:
-      X-Vault-Token: "{{ openbao_root_token }}"
+      X-Vault-Token: "{{ common_openbao_root_token }}"
     body_format: json
     body:
       name: "{{ item.item.keycloak_group }}"
@@ -159,7 +159,7 @@
   loop: "{{ _openbao_ui_group_details.results | default([]) }}"
   loop_control:
     label: "{{ item.item.keycloak_group }}"
-  no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+  no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
     - (item.item.keycloak_group | string) not in (_openbao_existing_oidc_group_alias_names | default([]))

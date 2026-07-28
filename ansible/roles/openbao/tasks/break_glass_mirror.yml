@@ -41,7 +41,7 @@
       loop_control:
         label: "{{ item }}"
       register: _openbao_bg_slurp
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2
 
     # The unseal watcher needs the shards directly: decrypting in-cluster would
@@ -58,7 +58,7 @@
           {{ openbao_init_keys_file }}
       register: _openbao_bg_decrypted
       changed_when: false
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when:
         - openbao_unseal_watcher_enabled | default(false) | bool
         - _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2
@@ -97,5 +97,5 @@
                 } if (openbao_unseal_watcher_enabled | default(false) | bool) else {}
               )
             }}
-      no_log: "{{ not (armory_log_nolog | default(false) | bool) }}"
+      no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       when: _openbao_bg_files.results | map(attribute='stat.exists') | select | list | length == 2
