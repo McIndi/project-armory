@@ -19,3 +19,5 @@ full analysis.
 | [0007](0007-scoped-provisioner-token.md) | Scoped provisioner token replaces root token for automation | accepted, not yet implemented |
 | [0008](0008-staged-kubernetes-core-migration.md) | Staged `kubernetes.core` migration restores idempotency | accepted |
 | [0009](0009-envoy-gateway-edge.md) | Envoy Gateway replaces ingress-nginx; trace identity minted at the edge | implemented |
+| [0010](0010-remove-vso-playbook-materialized-secrets.md) | Remove Vault Secrets Operator; playbook materializes Secrets directly | implemented |
+| [0011](0011-abandon-steer-by-inventory.md) | Abandon "steer by inventory, never fork roles"; `ocp-deployment` targets OpenShift only | implemented |

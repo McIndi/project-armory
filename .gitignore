@@ -7,7 +7,6 @@ log/hosts/*
 log/*.log
 research/
 ansible.cfg
-!ansible/ansible.cfg
 .env
 *.log
 backlog.md

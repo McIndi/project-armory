@@ -192,7 +192,20 @@ Nothing has met the cluster. Ranked by likelihood of biting:
 
 ## 9. Known lint state
 
-`ansible-lint` reports ~340 findings, almost all pre-existing `var-naming`
-(the repo predates that convention) and long lines. The repo does not pass the
-`production` profile and did not before this work. Don't mass-fix; it would bury
-real changes.
+Run the plain command directly — no wrapper script needed:
+`ansible-lint -c .ansible-lint playbooks/site.yml playbooks/bootstrap.yml roles`.
+A wrapper script and a local `ansible/ansible.cfg` existed briefly to work
+around a suspected stall; both were unnecessary (the plain command runs the
+full tree fine) and have been removed.
+
+The real baseline captured 2026-07-28: 164 failures / 1 warning across 84 of
+93 files, `production` profile required but `min` passed. All but one finding
+has since been fixed: 142 `var-naming[no-role-prefix]`, all 13 `yaml`
+(line-length + missing EOF newline), 5 `no-changed-when`, 2 `key-order[task]`,
+1 `name[casing]`, `meta-no-tags`, and the `jinja[invalid]` bug are all done.
+Re-run confirmed clean: `Passed: 0 failure(s), 0 warning(s) in 84 files
+processed of 93 encountered. Profile 'production' was required, and it
+passed.` No `--exclude` was used and `.ansible-lint`'s own excludes don't
+touch first-party paths, so the 84-of-93 gap is very likely vendored content
+ansible-lint walks past, not dropped first-party files — worth one quick
+`-v` check that `check_keycloak.yml` itself was processed, not a re-run.

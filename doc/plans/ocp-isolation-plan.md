@@ -31,16 +31,132 @@ Ground rules for the implementer:
 - Delete, don't comment out. Remove `when:`s that become tautological.
 - Commit per phase, message prefix `isolate(ocp):`.
 
-## Current position (2026-07-28)
+## Current position (2026-07-29) — plan complete
+
+**All phases (0–5) complete, including the Final Gates.** Cliff ran the five
+§V gate commands from `/vagrant/project-armory` on 2026-07-29:
+
+```
+grep -rn "k3s" ansible/ --include="*.yml" --include="*.j2" --include="*.cfg"
+grep -rn "target_platform\|edge_kind\|httproute\|BackendTLSPolicy" ansible/ --include="*.yml" --include="*.j2"
+grep -rn "headlamp\|delve\|vso\|VaultStaticSecret\|VaultAuth\|VaultConnection\|secrets.hashicorp.com" ansible/ --include="*.yml" --include="*.j2"
+grep -rn "systemd\|firewalld" ansible/roles/ --include="*.yml"
+grep -rn "dnf" ansible/roles/ --include="*.yml"
+```
+
+Results: the first four returned nothing. The fifth returned exactly the one
+expected survivor — `ansible/roles/openbao/tasks/install.yml:24` (the
+controller-side `openssl` package install) — nothing unjustified. This is the
+objective proof described in §V: no k3s residue, no dual-platform selector
+residue, no VSO/headlamp/delve remnants, no systemd/firewalld host-management
+code, no unexplained package installs.
+
+Everything below this line is retained as the historical phase-by-phase
+record of how the branch got here.
+
+### Prior position note (2026-07-28, superseded)
 
 Phases 0–4 complete; **Phase 5 is in progress**.
-**Next work: Phase 5 slice 7** (re-run lint coverage capture with the fixed
-wrapper invocation, then publish the concrete input-vs-encountered file list
-and either close Phase 5 or open a narrow cleanup slice for residual findings).
+The lint wrapper (`ansible/scripts/run_local_ansible_lint.sh`) and the local
+`ansible/ansible.cfg` were abandoned and removed — the plain command from
+README.md runs the full tree in one pass with no stall, making the wrapper's
+`--offline` / `--exclude` workarounds unnecessary. That plain run produced a
+real baseline: **164 failures / 1 warning across 84 of 93 files**, `production`
+profile required but `min` passed. Every finding was fixed and committed: all
+142 `var-naming[no-role-prefix]` (cross-role `certmanager_`→`cert_manager_`,
+`armory_log_nolog`→role-scoped, the
+`openbao_provisioner_token`/`openbao_root_token`→`common_openbao_*` cross-role
+rename, and several role-local `_rbac_`/`_kc_`/`_rc_`/`_cluster_*` renames),
+all 13 `yaml` findings (line-length rewraps + 3 missing trailing newlines), all
+5 `no-changed-when`, both `key-order[task]`, the `name[casing]` finding,
+`meta-no-tags` (`cert-manager`→`certmanager` galaxy tag), and the
+`jinja[invalid]` bug at `roles/readiness_check/tasks/check_keycloak.yml`.
+**Re-run confirmed clean: `Passed: 0 failure(s), 0 warning(s) in 84 files
+processed of 93 encountered. Profile 'production' was required, and it
+passed.`** No `--exclude` flag was used this time, and `.ansible-lint`'s own
+`exclude_paths` only cover `.git/`, `.github/`, `__pycache__/`, `.molecule/`,
+`.tox/`, `.venv/` — none of which touch first-party code — so the 84-of-93
+gap is very likely vendored/dependency content, not dropped first-party
+files, unlike the earlier wrapper-script bug. **Next work:** a quick
+one-off sanity check that `check_keycloak.yml` specifically was among the
+84 processed (not skipped), then move to the remaining plan items below
+(VSO decision note, Final Gates grep block).
 Objective progress metric is the k3s burn-down grep in §V — it now returns zero
 hits under `ansible/` for `*.yml`, `*.j2`, and `*.cfg`.
 
 ## Progress log
+
+- [x] 2026-07-29: Final Gates run — plan complete.
+  Cliff ran all five §V gate commands directly in the Vagrant VM from
+  `/vagrant/project-armory`. `k3s` residue, dual-platform selector residue
+  (`target_platform`/`edge_kind`/`httproute`/`BackendTLSPolicy`),
+  headlamp/delve/VSO remnants, and systemd/firewalld host-management code all
+  returned zero hits under `ansible/`. The `dnf` gate returned exactly the one
+  expected survivor, `roles/openbao/tasks/install.yml:24` (controller-side
+  `openssl` install), with nothing else to justify. This closes out the
+  isolation plan; see "Current position" above.
+
+- [x] 2026-07-29: Wrote the two outstanding decision records.
+  [0010](../decisions/0010-remove-vso-playbook-materialized-secrets.md)
+  documents why VSO was removed entirely (the Phase-0 install/wiring split
+  was unworkable, and the rotator's OpenBao→Secret sync leg depended on VSO)
+  in favor of the playbook materializing Secrets itself, with rotation
+  reduced to "re-run `site.yml --tags keycloak`."
+  [0011](../decisions/0011-abandon-steer-by-inventory.md) documents
+  abandoning `main`'s "steer by inventory, never fork roles" rule for this
+  branch — a deliberate one-way door trading merge-cleanliness with `main`
+  for a smaller, unconditional OpenShift-only codebase.
+
+- [x] 2026-07-28: Abandoned the lint wrapper/`ansible.cfg`; fixed the real
+  baseline down to one finding.
+  Cliff questioned why a wrapper script was needed at all and ran the plain
+  `ansible-lint -c .ansible-lint playbooks/site.yml playbooks/bootstrap.yml
+  roles` command from README.md directly — it completed with no stall,
+  proving the wrapper and `ansible/scripts/run_local_ansible_lint.sh` /
+  `ansible/ansible.cfg` workarounds were unnecessary (the latter was also
+  silently ignored by Ansible's world-writable-cwd auto-discovery suppression
+  under `/vagrant`). Both files were removed. The plain run's real baseline:
+  164 failures / 1 warning, 84 of 93 files, `production` profile required but
+  `min` passed — 142 `var-naming[no-role-prefix]`, 13 `yaml` (line-length +
+  missing EOF newline), 5 `no-changed-when`, 2 `key-order[task]`, 1
+  `jinja[invalid]`, 1 `name[casing]`, 1 `meta-no-tags`.
+  Fixed and committed: all var-naming findings (grep-verified every rename
+  against cross-role consumers before and after — notably `certmanager_` →
+  `cert_manager_`, `armory_log_nolog` → per-role, and
+  `openbao_provisioner_token`/`openbao_root_token` →
+  `common_openbao_provisioner_token`/`common_openbao_root_token` since
+  `roles/common` owns loading them); all 13 yaml findings; all 5
+  no-changed-when (idempotent-by-guard OpenBao init/install/provisioner-token
+  commands now marked `changed_when: true` with a comment on why); both
+  key-order findings (block-level `when:` moved above `block:`); the
+  name[casing] finding; and meta-no-tags (galaxy tag `cert-manager` →
+  `certmanager`, no hyphen). Two genuinely cross-role `common_openbao_*_token`
+  facts keep their name via `# noqa: var-naming[no-role-prefix]` with an
+  explanatory comment rather than being force-renamed to fit the single-role
+  prefix rule.
+  Still open: a real `jinja[invalid]` bug at
+  `roles/readiness_check/tasks/check_keycloak.yml:333` (not a style finding),
+  and re-running the plain lint command to confirm the fixes actually clear
+  and introduced no regressions.
+  Side finding, not yet actioned: `roles/keycloak/tasks/teardown.yml` and
+  `roles/openbao/tasks/teardown.yml` are never invoked by any playbook or role
+  `main.yml` — the real teardown path is `playbooks/teardown_openshift.yml`.
+  Renamed their orphaned `teardown_role_target_namespaces` var per-role
+  anyway since it was zero-risk, but the files themselves are dead code.
+
+- [x] 2026-07-28: Confirmed the lint baseline is clean after the fixes.
+  Cliff re-ran the plain command:
+  `ansible-lint -c .ansible-lint playbooks/site.yml playbooks/bootstrap.yml
+  roles`. Result: `Passed: 0 failure(s), 0 warning(s) in 84 files processed of
+  93 encountered. Profile 'production' was required, and it passed.` Two
+  `[WARNING]` lines during syntax-check (`Falling back to Ansible unique
+  filter as Jinja2 one failed: 'keycloak_namespace'/'openbao_namespace' is
+  undefined`) are Ansible's own template-fallback behavior when rendering
+  `keycloak_teardown_target_namespaces`/`openbao_teardown_target_namespaces`
+  outside a real run, not an ansible-lint finding and not new. Still to
+  confirm: that `roles/readiness_check/tasks/check_keycloak.yml` (site of the
+  fixed `jinja[invalid]` bug) was actually among the 84 processed files, not
+  one of the 9 encountered-but-skipped — a quick `-v` grep, not a full re-run.
 
 - [x] 2026-07-28: Lint coverage root-cause isolation (input list vs encountered
   diff) and wrapper argument fix.
@@ -1016,11 +1132,17 @@ Record of what each row became (for audit; do not re-do):
 - `doc/configuration.md:50` — documents `edge_gateway_excluded_ifname_patterns`
   as a live tunable; the variable was deleted in slice 2. Drop the row (or
   replace it if a genuine OCP-relevant successor exists).
-- `ansible-lint`: fix findings introduced by this work only (handoff §9 stands).
+- `ansible-lint`: abandoned the local wrapper script/`ansible.cfg` — the plain
+  README command runs fine directly. Real baseline (164 failures/1 warning)
+  captured and nearly all fixed; see "Current position" above. Handoff §9's
+  "~340 findings, don't mass-fix" note is stale and needs updating once the
+  remaining jinja bug is resolved.
 - Docs: README deploy flow; `doc/architecture.md`; `doc/operations.md` gains the
   manual-rotation runbook (Phase 1.4) and `teardown_openshift.yml`; a
   `doc/decisions/` note recording: VSO removed (playbook-materialized secrets,
-  rotation out of scope) and "steer by inventory" superseded.
+  rotation out of scope) and "steer by inventory" superseded — ✅ complete
+  (2026-07-29): [0010](../decisions/0010-remove-vso-playbook-materialized-secrets.md)
+  and [0011](../decisions/0011-abandon-steer-by-inventory.md).
 
 ## §V — Validation gate (after every phase)
 
