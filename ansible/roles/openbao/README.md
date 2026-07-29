@@ -4,11 +4,11 @@
 Deploy OpenBao and configure it for PKI issuance, Kubernetes auth, and platform secret storage.
 
 ## Supported platforms
-- Fedora (all)
+- OpenShift
 
 ## Dependencies
 - Runtime dependencies:
-  - k3s cluster must be available.
+  - OpenShift cluster must be available.
   - Helm must be installed.
 - Cross-role dependencies:
   - Consumed by `envoy_proxy` (PKI issuer integration).

@@ -25,7 +25,7 @@ Quoting mistakes here are one of the most common time sinks during
 fact-finding. Rules that hold:
 
 - Use **double quotes** around the remote command:
-  `vagrant ssh -c "sudo k3s kubectl get pods -A"`.
+  `vagrant ssh -c "oc get pods -A"`.
 - Escape `$` as `\$` for anything that must expand **on the VM**, not the
   host: `vagrant ssh -c "TOK=\$(...); echo \$TOK"`. Unescaped `$VAR`
   is expanded by the host shell before vagrant ever runs.
