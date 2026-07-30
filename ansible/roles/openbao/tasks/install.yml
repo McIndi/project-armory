@@ -241,28 +241,15 @@
 
 # The chart runs OpenBao as a fixed non-root UID (100, fsGroup 1000). OpenShift's
 # default restricted-v2 SCC requires a UID from the namespace's assigned range and
-# so would reject that pod. Grant the OpenBao ServiceAccount the least-privileged
-# SCC that permits it: nonroot-v2 allows any non-root UID and any fsGroup, while
-# still forbidding root — unlike anyuid, which would permit it.
-#
-# The binding is a namespaced RoleBinding against a pre-existing cluster SCC, so
-# nothing cluster-scoped is created and no other workload gains anything. It is
-# applied before the release because RBAC subjects need not exist yet.
-- name: Allow the OpenBao ServiceAccount to run under a non-root SCC
-  ansible.builtin.import_role:
-    name: common
-    tasks_from: bind_scc.yml
-  vars:
-    common_scc_name: "{{ openbao_scc_name }}"
-    common_scc_service_account: "{{ openbao_service_account_name }}"
-    common_scc_namespace: "{{ openbao_namespace }}"
-    common_scc_kubeconfig_path: "{{ openbao_kubeconfig_path }}"
-  # Granting use of an SCC requires holding it, so a project-scoped account
-  # cannot make this binding for itself — bootstrap.yml does it instead.
-  when:
-    - (openbao_scc_name | default('') | trim | length) > 0
-    - not ansible_check_mode
-    - armory_privileged_tasks | default(true) | bool
+# so would reject that pod. This requires the nonroot-v2 SCC binding for the
+# OpenBao ServiceAccount, which this role does NOT create — granting use of an
+# SCC requires holding it, so a project-scoped account cannot make this binding
+# for itself. automation_rbac's bootstrap-time task is the sole place that
+# creates it; a second copy used to live here too, gated only on
+# openbao_scc_name being set (true on every site.yml run, unlike
+# armory_privileged_tasks), so it silently relied on bootstrap having already
+# created the identical object rather than actually being able to create it
+# itself under the scoped account.
 
 - name: Deploy OpenBao via Helm
   kubernetes.core.helm:
@@ -311,29 +298,14 @@
     - openbao_tls_enabled | bool
     - _openbao_tls_regenerate | default(false) | bool or _openbao_tls_secret_apply.changed | default(false)
 
-- name: Apply ClusterRoleBinding for OpenBao SA (token review)
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: rbac.authorization.k8s.io/v1
-      kind: ClusterRoleBinding
-      metadata:
-        name: openbao-tokenreview
-      roleRef:
-        apiGroup: rbac.authorization.k8s.io
-        kind: ClusterRole
-        name: system:auth-delegator
-      subjects:
-        - kind: ServiceAccount
-          name: openbao
-          namespace: "{{ openbao_namespace }}"
-    kubeconfig: "{{ openbao_kubeconfig_path }}"
-  # Cluster-scoped, and Kubernetes forbids granting a permission the granter does
-  # not hold — so where the playbook runs as a project-scoped account this is
-  # made once by bootstrap.yml instead.
-  when:
-    - not ansible_check_mode
-    - armory_privileged_tasks | default(true) | bool
+# The tex26-openbao-tokenreview ClusterRoleBinding (lets OpenBao validate
+# Kubernetes identities via system:auth-delegator) is NOT created here — it's
+# cluster-scoped and Kubernetes forbids granting a permission the granter does
+# not hold, so only automation_rbac's bootstrap-time task (which actually runs
+# under cluster-admin) can create it. A second copy used to live here too,
+# gated on armory_privileged_tasks — which is never true when this role
+# actually runs (bootstrap.yml never loads the openbao role), making it
+# permanently dead code.
 
 - name: Wait for OpenBao pod to be ready
   when: not ansible_check_mode

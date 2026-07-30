@@ -190,13 +190,20 @@ flowchart TD
 
 11. It binds the OpenBao ServiceAccount to the existing
     `system:auth-delegator` ClusterRole through ClusterRoleBinding
-    `openbao-tokenreview`. This lets OpenBao validate Kubernetes identities.
+    `tex26-openbao-tokenreview`. This lets OpenBao validate Kubernetes
+    identities. (A second, independent copy of this same binding used to
+    live in `openbao/tasks/install.yml` too, gated so it could never actually
+    run under the documented bootstrap/site.yml flow — removed as dead code.)
 
 12. It creates a namespaced RoleBinding from the OpenBao ServiceAccount to the
     existing `system:openshift:scc:nonroot-v2` ClusterRole. The chart pins
     non-root UID 100 and fsGroup 1000, which OpenShift's default
     `restricted-v2` allocation would reject. `nonroot-v2` permits those
-    non-root IDs without permitting root.
+    non-root IDs without permitting root. (A second copy of this binding used
+    to also live in `openbao/tasks/install.yml`, gated only on `openbao_scc_name`
+    being set — true on every `site.yml` run — rather than on running with
+    cluster-admin rights. It relied on this bootstrap-created object already
+    existing rather than being able to create it itself; removed.)
 
 13. It does **not** create a `cert-manager-tokenrequest` Role/RoleBinding —
     that was removed after live-cluster inspection showed cert-manager's own
@@ -1001,7 +1008,7 @@ flowchart TD
    out a live object the shared cert-manager controller depends on.
 
 5. Deletes copied Secret `openbao-ca` from `cert-manager`.
-6. Deletes ClusterRoleBinding `openbao-tokenreview`.
+6. Deletes ClusterRoleBinding `tex26-openbao-tokenreview`.
 7. Deletes the automation ClusterRoleBinding and ClusterRole.
 8. Deletes the registry pull Secret (`registry_pull_secret_name`, default
    `armory-registry-pull`) from every namespace listed in
@@ -1044,7 +1051,7 @@ assertion and all deletions are skipped.
 
 | Scope | Important generated objects |
 |---|---|
-| Cluster | Automation ClusterRole/Binding, `openbao-tokenreview`, two ClusterIssuers |
+| Cluster | Automation ClusterRole/Binding, `tex26-openbao-tokenreview`, two ClusterIssuers |
 | `cert-manager` | CA copy, automation CA-writer RBAC |
 | `kube-public` | Narrow automation reader Role/Binding |
 | `tex26-vault` | OpenBao Helm release, data/audit PVCs, TLS/CA/break-glass Secrets, watcher, audit CronJob |

@@ -115,7 +115,7 @@
             name: "{{ item.name }}"
       loop:
         - kind: ClusterRoleBinding
-          name: openbao-tokenreview
+          name: tex26-openbao-tokenreview
         - kind: ClusterRoleBinding
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}"
         - kind: ClusterRole

@@ -168,7 +168,7 @@
       apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRoleBinding
       metadata:
-        name: openbao-tokenreview
+        name: tex26-openbao-tokenreview
         labels:
           app.kubernetes.io/part-of: armory
       roleRef:
