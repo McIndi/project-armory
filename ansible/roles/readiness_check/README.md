@@ -23,7 +23,7 @@ Defined in `defaults/main.yml`:
 | `readiness_check_trace_boundary_enabled` | `true` | Verify the trace-context trust boundary via an ephemeral echo backend behind the Envoy edge. |
 | `readiness_check_connect_timeout` | `5` | TCP connection timeout in seconds. |
 | `readiness_check_connect_retries` | `2` | Number of retry attempts for network checks. |
-| `readiness_check_validate_tls` | `false` | Validate TLS certificate expiry and validity. |
+| `readiness_check_validate_tls` | `true` | Validate TLS certificate expiry and validity for public endpoints. |
 | `readiness_check_strict_tls_checks_enabled` | `true` | Strict TLS trust checks for service endpoints using explicit CA bundles. |
 | `readiness_check_validate_credentials` | `false` | Attempt to use stored credentials to verify they work. |
 | `readiness_check_fail_on_issues` | `true` | Fail at end of role if any critical issues detected. |

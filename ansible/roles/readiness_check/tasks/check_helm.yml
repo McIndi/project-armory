@@ -14,12 +14,12 @@
       {{ _readiness_check_results + [{
         'component': 'Helm',
         'check_name': 'Helm CLI available',
-        'status': 'pass' if _readiness_check_helm_version.rc in [0, 2, 127] else 'warn',
+        'status': 'pass' if _readiness_check_helm_version.rc in [0, 2] else 'fail',
         'detail': _readiness_check_helm_version.stdout
           if _readiness_check_helm_version.rc == 0
           else 'not installed (Helm CLI is required for chart deployment)',
         'error': _readiness_check_helm_version.stderr | default('')
-          if _readiness_check_helm_version.rc not in [0, 2, 127]
+          if _readiness_check_helm_version.rc not in [0, 2]
           else ''
       }] }}
   changed_when: false

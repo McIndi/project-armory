@@ -4,7 +4,6 @@ keycloak_enabled: false
 
 # ── General ───────────────────────────────────────────────────────────────────
 keycloak_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
-keycloak_work_dir: /opt/keycloak
 
 # ── Keycloak server (operatorless-only) ───────────────────────────────────────
 # The OpenShift-isolated branch always deploys Keycloak as a plain Deployment
@@ -59,11 +58,6 @@ keycloak_statefulset_rollout_timeout_seconds: 900
 keycloak_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://armory.local', true) }}"
 keycloak_public_host: "{{ keycloak_public_base_url | urlsplit('hostname') }}"
 keycloak_realm: armory
-
-# ── Public route ────────────────────────────────────────────────────────────────
-# Keycloak is reachable through the cluster ingress domain.
-keycloak_ingress_enabled: true
-keycloak_ingress_host: "{{ keycloak_public_host }}"
 
 # ── Realm seed: admin end-user (logs into the cluster-admin-equivalent role) ─
 # This is a realm user, distinct from the operator's master bootstrap admin.

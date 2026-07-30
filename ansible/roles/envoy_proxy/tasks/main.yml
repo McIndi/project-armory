@@ -27,17 +27,61 @@
             labels: "{{ armory_namespace_labels | default({'app.kubernetes.io/part-of': 'armory'}) }}"
       when: not ansible_check_mode
 
-    # Verifies the UPSTREAM leg (Keycloak, OpenBao). Both are issued by the same
-    # OpenBao PKI internal CA, so one bundle covers them.
-    - name: Mirror the OpenBao CA into the edge namespace
-      ansible.builtin.import_role:
-        name: common
-        tasks_from: copy_openbao_ca_secret.yml
-      vars:
-        common_kubeconfig_path: "{{ envoy_proxy_kubeconfig_path }}"
-        common_ca_secret_name: "{{ envoy_proxy_ca_secret_name }}"
-        common_ca_source_namespace: "{{ envoy_proxy_ca_source_namespace }}"
-        common_ca_target_namespace: "{{ envoy_proxy_namespace }}"
+    # Verifies the UPSTREAM leg (Keycloak, OpenBao). The two are issued by
+    # different CAs (see envoy_proxy_openbao_pki_internal_mount comment in
+    # defaults), so this builds a combined bundle rather than mirroring a
+    # single secret.
+    - name: Read OpenBao bootstrap CA secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ envoy_proxy_ca_secret_name }}"
+        namespace: "{{ envoy_proxy_ca_source_namespace }}"
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+      register: _envoy_proxy_openbao_ca_secret
+      when: not ansible_check_mode
+
+    - name: Assert OpenBao bootstrap CA secret exists
+      ansible.builtin.assert:
+        that:
+          - (_envoy_proxy_openbao_ca_secret.resources | default([]) | length) > 0
+        fail_msg: >-
+          Secret '{{ envoy_proxy_ca_secret_name }}' not found in namespace
+          '{{ envoy_proxy_ca_source_namespace }}'. The openbao role must run
+          before envoy_proxy.
+      when: not ansible_check_mode
+
+    - name: Read OpenBao PKI internal issuer CA PEM (signs Keycloak's cert)
+      ansible.builtin.uri:
+        url: "{{ envoy_proxy_openbao_cluster_addr }}/v1/{{ envoy_proxy_openbao_pki_internal_mount }}/ca/pem"
+        method: GET
+        return_content: true
+        status_code: 200
+      register: _envoy_proxy_openbao_pki_internal_ca
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Apply combined CA trust bundle in the edge namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ envoy_proxy_ca_secret_name }}"
+            namespace: "{{ envoy_proxy_namespace }}"
+          data:
+            ca.crt: >-
+              {{
+                (
+                  (_envoy_proxy_openbao_ca_secret.resources[0].data['ca.crt'] | b64decode | trim)
+                  + "\n"
+                  + (_envoy_proxy_openbao_pki_internal_ca.content | trim)
+                  + "\n"
+                ) | b64encode
+              }}
+        kubeconfig: "{{ envoy_proxy_kubeconfig_path }}"
+      when: not ansible_check_mode
 
     # Serving certificate for the router's re-encrypt leg. Issued by the same
     # internal CA, so the Route can verify Envoy with the CA it already trusts.

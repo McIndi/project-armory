@@ -56,13 +56,23 @@
             verb: get
       changed_when: false
 
+    # `--as` requires the caller to hold `impersonate` rights on the target
+    # identity. During bootstrap.yml we're cluster-admin checking a DIFFERENT
+    # identity (the automation SA), so impersonation is correct and necessary.
+    # During site.yml's own preflight we're already authenticated AS that SA
+    # (armory_privileged_tasks: false) — self-impersonating would require an
+    # `impersonate` grant this account deliberately does not have, and every
+    # check would fail on the impersonation itself rather than the resource
+    # being tested. Omit --as in that case; the active identity IS the one
+    # being checked.
     - name: Check each permission against the API server
       ansible.builtin.command:
         cmd: >-
           {{ kubectl_bin }} auth can-i {{ item.verb }}
           {{ item.resource }}{{ ('.' + item.group) if (item.group | length) > 0 else '' }}
           {{ ('--namespace ' + item.namespace) if (item.namespace | length) > 0 else '--all-namespaces' }}
-          --as=system:serviceaccount:{{ automation_rbac_sa_namespace }}:{{ automation_rbac_sa_name }}
+          {{ ('--as=system:serviceaccount:' + automation_rbac_sa_namespace + ':' + automation_rbac_sa_name)
+             if (armory_privileged_tasks | default(true) | bool) else '' }}
       environment:
         KUBECONFIG: "{{ automation_rbac_kubeconfig_path }}"
       loop: "{{ _automation_rbac_ns_checks + _automation_rbac_cluster_checks + _automation_rbac_foreign_checks }}"

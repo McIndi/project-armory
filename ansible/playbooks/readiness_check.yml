@@ -14,3 +14,18 @@
         - readiness_check
         - post_deploy
       when: not ansible_check_mode
+  post_tasks:
+    # Keycloak and trace-boundary checks open their own port-forward tunnels;
+    # site.yml reaps them via this same helper, but a standalone run has no
+    # other play to do it. Runs even if a check above failed.
+    - name: Reap port-forward tunnels opened for internal HTTPS callers
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: stop_port_forwards.yml
+        apply:
+          tags:
+            - always
+            - port_forward_cleanup
+      tags:
+        - always
+        - port_forward_cleanup

@@ -94,9 +94,8 @@ openbao_ready_wait_timeout: 600s
 # OpenBao UI and public route defaults. Edge TLS terminates at the Envoy
 # gateway (consolidated armory-tls cert); the gateway re-encrypts to the
 # OpenBao HTTPS listener, validated against the server CA.
-# Keep disabled by default; development inventory opts in.
+# Keep disabled by default; the OpenShift inventory opts in.
 openbao_ui_enabled: false
-openbao_ingress_enabled: "{{ openbao_ui_enabled }}"
 openbao_ingress_host: >-
   {{ lookup('ansible.builtin.env', 'ARMORY_OPENBAO_HOST')
   | default('openbao.' + (lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN')
@@ -246,13 +245,6 @@ openbao_pki_internal_allowed_domains_combined: "{{ openbao_pki_internal_allowed_
 # Default 8760h is approximately 1 year.
 openbao_pki_cert_ttl: "8760h"
 
-# Backward-compatible aliases retained for existing variable references.
-openbao_pki_mount: "{{ openbao_pki_external_mount }}"
-openbao_pki_common_name: "{{ openbao_pki_root_common_name }}"
-openbao_pki_ttl: "{{ openbao_pki_root_ttl }}"
-openbao_pki_cert_role: "{{ openbao_pki_external_cert_role }}"
-openbao_pki_allowed_domains: "{{ openbao_pki_external_allowed_domains }}"
-
 # Namespace where cert-manager runs.
 openbao_certmanager_namespace: cert-manager
 
@@ -274,6 +266,7 @@ openbao_provisioner_token_display_name: ansible-provisioner
 openbao_provisioner_kv_prefixes:
   - keycloak
   - openbao
+  - registry
 
 # Audit device settings. When enabled, a `file` audit device is mounted on a
 # dedicated PVC. WARNING: OpenBao blocks all requests if no enabled audit

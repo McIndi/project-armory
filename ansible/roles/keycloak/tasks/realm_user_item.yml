@@ -46,6 +46,11 @@
         password: "{{ _keycloak_realm_user_password }}"
     status_code: [200, 204]
   no_log: "{{ not (keycloak_log_nolog | default(false) | bool) }}"
+  # Store only on first creation. The build above reuses any existing value,
+  # so a re-store would write an identical-data KV version every run and
+  # create unnecessary churn in the source of truth (matches the DB /
+  # realm-admin / bootstrap-admin credential handling in tasks/main.yml).
+  when: (_keycloak_realm_user_creds_current.status | default(404)) != 200
 
 - name: Look up realm user in Keycloak
   ansible.builtin.uri:

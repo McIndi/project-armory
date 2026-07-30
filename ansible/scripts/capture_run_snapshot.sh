@@ -29,7 +29,11 @@ if [[ -f /vagrant/.env ]]; then
 fi
 
 KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/config}"
-K8S_CLI="${KUBECTL_BIN:-kubectl}"
+K8S_CLI="${KUBECTL_BIN:-oc}"
+
+# Matches inventories/openshift/group_vars/all.yml; override if yours differ.
+OPENBAO_NAMESPACE="${OPENBAO_NAMESPACE:-tex26-vault}"
+KEYCLOAK_NAMESPACE="${KEYCLOAK_NAMESPACE:-tex26-oidc}"
 
 log() {
   printf '%s\n' "$*" >> "${OUTFILE}"
@@ -98,14 +102,14 @@ run_cmd "All statefulsets" "${K8S_CLI} get sts -A --kubeconfig ${KUBECONFIG_PATH
 run_cmd "All jobs and cronjobs" "${K8S_CLI} get jobs,cronjobs -A --kubeconfig ${KUBECONFIG_PATH}"
 run_cmd "Helm releases" "helm list -A --kubeconfig ${KUBECONFIG_PATH}"
 
-run_cmd "OpenBao pod identity" "${K8S_CLI} get pod -n openbao -l app.kubernetes.io/name=openbao --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
-run_cmd "Keycloak pod identity" "${K8S_CLI} get pod -n keycloak keycloak-0 --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
+run_cmd "OpenBao pod identity" "${K8S_CLI} get pod -n ${OPENBAO_NAMESPACE} -l app.kubernetes.io/name=openbao --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
+run_cmd "Keycloak pod identity" "${K8S_CLI} get pod -n ${KEYCLOAK_NAMESPACE} -l app.kubernetes.io/name=keycloak --kubeconfig ${KUBECONFIG_PATH} -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,START:.status.startTime' --no-headers"
 
 run_cmd "OpenBao CA certificate fingerprint" "if [[ -f /opt/openbao/tls/ca.crt ]]; then openssl x509 -in /opt/openbao/tls/ca.crt -noout -fingerprint -sha256 -serial -enddate; else echo 'missing: /opt/openbao/tls/ca.crt'; exit 1; fi"
 run_cmd "OpenBao server certificate fingerprint" "if [[ -f /opt/openbao/tls/tls.crt ]]; then openssl x509 -in /opt/openbao/tls/tls.crt -noout -fingerprint -sha256 -serial -enddate; else echo 'missing: /opt/openbao/tls/tls.crt'; exit 1; fi"
 
-hash_jsonpath_field "openbao" "openbao-ca" ".data.ca\\.crt" "openbao/openbao-ca ca.crt"
-hash_jsonpath_field "openbao" "openbao-server-tls" ".data.tls\\.crt" "openbao/openbao-server-tls tls.crt"
+hash_jsonpath_field "${OPENBAO_NAMESPACE}" "openbao-ca" ".data.ca\\.crt" "${OPENBAO_NAMESPACE}/openbao-ca ca.crt"
+hash_jsonpath_field "${OPENBAO_NAMESPACE}" "openbao-server-tls" ".data.tls\\.crt" "${OPENBAO_NAMESPACE}/openbao-server-tls tls.crt"
 
 run_cmd "Recent cluster events" "${K8S_CLI} get events -A --sort-by=.lastTimestamp --kubeconfig ${KUBECONFIG_PATH} | tail -n 200"
 

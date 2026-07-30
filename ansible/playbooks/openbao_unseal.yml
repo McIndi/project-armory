@@ -9,6 +9,41 @@
         - env_guard
         - preflight
   tasks:
+    # Standalone use (e.g. after an OpenBao pod restart) has no earlier role in
+    # this play to open the controller's path to OpenBao, unlike site.yml where
+    # the openbao role's install.yml already did this. Establish it here too.
+    - name: Make the OpenBao service reachable from the controller
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: prepare_internal_https_caller_dns.yml
+        apply:
+          tags:
+            - openbao
+            - openbao_unseal
+      vars:
+        common_internal_https_dns_kubeconfig_path: "{{ openbao_kubeconfig_path }}"
+        common_internal_https_dns_service_name: "{{ openbao_release_name }}"
+        common_internal_https_dns_service_namespace: "{{ openbao_namespace }}"
+        common_internal_https_dns_fqdn: "{{ openbao_tls_server_name }}"
+      tags:
+        - openbao
+        - openbao_unseal
+
+    # Restores the break-glass files from the cluster Secret mirror if the
+    # controller doesn't have them locally (e.g. an ephemeral workstation).
+    # No-op when they're already present.
+    - name: Restore OpenBao break-glass files if missing locally
+      ansible.builtin.include_role:
+        name: openbao
+        tasks_from: break_glass_restore.yml
+        apply:
+          tags:
+            - openbao
+            - openbao_unseal
+      tags:
+        - openbao
+        - openbao_unseal
+
     - name: Run OpenBao unseal tasks only
       ansible.builtin.include_role:
         name: openbao
@@ -20,3 +55,15 @@
       tags:
         - openbao
         - openbao_unseal
+  post_tasks:
+    - name: Reap port-forward tunnels opened for internal HTTPS callers
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: stop_port_forwards.yml
+        apply:
+          tags:
+            - always
+            - port_forward_cleanup
+      tags:
+        - always
+        - port_forward_cleanup

@@ -18,9 +18,11 @@ credentials and a declarative bootstrap of the `armory` realm.
   certificate and Keycloak connects with `sslmode=verify-full`.
 6. Deploys Keycloak as a `Deployment` + `Service` using `--import-realm`, with
   internal HTTPS and TLS material from cert-manager.
-7. Applies an own `HTTPRoute` attached to the edge Gateway, plus a
-   `BackendTLSPolicy` validating the re-encrypt hop against the mirrored
-   serving CA (`keycloak-backend-ca`).
+
+This role does not create its own Route or Ingress. External exposure is an
+`envoy_proxy_upstreams` entry in the OpenShift inventory: the `envoy_proxy`
+role creates the Route and re-encrypts to Keycloak's Service as one of
+several upstreams behind the shared edge.
 
 ## Credentials
 - **Keycloak master admin** is generated in OpenBao and materialized as
@@ -35,8 +37,8 @@ credentials and a declarative bootstrap of the `armory` realm.
   `https://<service>.<namespace>.svc.cluster.local:8443`.
 - Callers must build an explicit trust bundle that includes both the OpenBao root
   CA and the issuer CA from the OpenBao internal PKI mount (default: `pki-int`).
-- The role's rotator setup follows this via the shared
-  `common/tasks/prepare_internal_https_caller.yml` helper.
+- Realm admin-API callers (user/group/event reconciliation) follow this via
+  the shared `common/tasks/prepare_internal_https_caller.yml` helper.
 
 ## Activation
 Staged off by default. Enable **globally** (inventory/group_vars or extra-vars) so
@@ -59,7 +61,6 @@ ansible-playbook playbooks/site.yml --tags keycloak_install
 | `keycloak_realm` | `armory` | Armory's own realm. |
 | `keycloak_deployment_name` | `keycloak` | Drives the Keycloak deployment name and the derived service name. |
 | `keycloak_public_base_url` | `$ARMORY_PUBLIC_BASE_URL` / `https://armory.local` | Issuer + ingress host. |
-| `keycloak_route_gateway_name` / `_namespace` | `armory` / `envoy-gateway-system` | HTTPRoute parentRef (group_vars). |
 | `keycloak_pg_image` | `quay.io/sclorg/postgresql-16-c9s` | Backing DB. |
 | `keycloak_pg_tls_enabled` | `true` | Enable Postgres TLS + Keycloak verify-full DB connection. |
 | `keycloak_pg_tls_verify_mode` | `verify-full` | JDBC SSL verification mode enforced by Keycloak. |

@@ -10,9 +10,11 @@ readiness_check_keycloak_enabled: true
 readiness_check_connect_timeout: 5
 readiness_check_connect_retries: 2
 
-# TLS/HTTPS validation. Set to false (default) because the ingress uses a
-# self-signed CA; the readiness check verifies connectivity, not CA trust chain.
-readiness_check_validate_tls: false
+# TLS/HTTPS validation for public endpoints (Keycloak well-known, OpenBao UI).
+# The OpenShift router serves these behind a publicly trusted Let's Encrypt
+# wildcard, so the chain should validate; set false only to isolate a TLS
+# failure from a connectivity one while debugging.
+readiness_check_validate_tls: true
 readiness_check_insecure_skip_verify: false
 
 # Strict TLS trust checks for service endpoints using explicit CA bundles.
@@ -53,18 +55,8 @@ readiness_check_openbao_external_clusterissuer_name: "{{ cert_manager_openbao_ex
 readiness_check_openbao_internal_clusterissuer_name: "{{ cert_manager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
-readiness_check_ingress_http_port: 80
 readiness_check_ingress_https_port: 443
-readiness_check_ingress_http_probe_url: "http://{{ readiness_check_edge_probe_ip }}:{{ readiness_check_ingress_http_port }}"
 readiness_check_ingress_probe_url: "https://{{ readiness_check_edge_probe_ip }}:{{ readiness_check_ingress_https_port }}"
-readiness_check_http_redirect_status_codes:
-  - 301
-  - 302
-  - 307
-  - 308
-readiness_check_http_redirect_hosts:
-  - "{{ readiness_check_public_domain }}"
-readiness_check_ingress_http_policy: "{{ ingress_http_policy | default('redirect-only') }}"
 
 # ── Trace-context trust boundary verification ─────────────────────────────────
 # Deploys an ephemeral header-echo backend behind the gateway, sends a forged
@@ -95,12 +87,6 @@ readiness_check_trace_forensic_header: "{{ envoy_proxy_trace_forensic_header | d
 # Deliberately recognizable forged identifiers.
 readiness_check_trace_forged_trace_id: "11111111111111111111111111111111"
 readiness_check_trace_forged_traceparent: "00-{{ readiness_check_trace_forged_trace_id }}-2222222222222222-01"
-readiness_check_http_disabled_expected_errors:
-  - connection refused
-  - failed to connect
-  - no route to host
-  - timed out
-  - timeout
 
 # Keycloak settings
 readiness_check_keycloak_namespace: keycloak

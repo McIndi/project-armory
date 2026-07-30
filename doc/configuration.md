@@ -55,7 +55,7 @@ Authoritative list: each role's `defaults/main.yml`. Frequently relevant:
 | `openbao_audit_enabled` (openbao) | `true` | File audit device on dedicated PVC |
 | `openbao_audit_storage_size` (openbao) | `2Gi` | Audit PVC size |
 | `openbao_audit_rotate_cron_schedule` / `..._rotate_keep` (openbao) | `17 2 * * *` / 7 | In-cluster CronJob rotation cadence and retention |
-| `openbao_ui_enabled` / `openbao_ingress_enabled` (openbao) | `false` / `{{ openbao_ui_enabled }}` | Feature flag and ingress toggle for OpenBao UI exposure |
+| `openbao_ui_enabled` (openbao) | `false` | Feature flag for OpenBao UI exposure |
 | `openbao_ingress_host` / `openbao_ingress_tls_secret_name` (openbao) | `openbao.<domain>` / `openbao-ui-tls` | OpenBao UI ingress host and cert secret |
 | `openbao_ingress_tls_issuer_name` (openbao) | `openbao-pki-external` | cert-manager ClusterIssuer used by ingress-shim |
 | `openbao_oidc_client_id` / `openbao_oidc_secret_path` (openbao_oidc) | `openbao` / `openbao/ui-oidc` | Keycloak client id and OpenBao KV path for persisted client secret |

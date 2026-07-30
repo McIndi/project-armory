@@ -13,6 +13,20 @@
       | default(readiness_check_openbao_addr, true)).split('://')[1].split(':')[0] }}
   changed_when: false
 
+# When this role runs standalone (playbooks/readiness_check.yml), no earlier
+# role in that play has opened the controller's path to OpenBao, unlike
+# site.yml where the openbao role's install.yml already did this. Establish it
+# here too; a no-op (fast, idempotent) when the tunnel is already open.
+- name: Make the OpenBao service reachable from the controller
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: prepare_internal_https_caller_dns.yml
+  vars:
+    common_internal_https_dns_kubeconfig_path: "{{ readiness_check_kubeconfig_path }}"
+    common_internal_https_dns_service_name: "{{ openbao_release_name | default('openbao') }}"
+    common_internal_https_dns_service_namespace: "{{ openbao_namespace | default('openbao') }}"
+    common_internal_https_dns_fqdn: "{{ _readiness_check_openbao_host }}"
+
 - name: Add OpenBao HTTPS scheme check to results
   ansible.builtin.set_fact:
     _readiness_check_results: >-

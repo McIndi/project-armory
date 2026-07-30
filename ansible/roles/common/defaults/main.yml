@@ -1,13 +1,12 @@
 ---
-# Fallback path to OpenBao init keys (Ansible-vault encrypted YAML).
-common_openbao_init_keys_file: /opt/openbao/init-keys.yml
-
-# Fallback path to vault password file used to decrypt init keys.
-common_openbao_vault_pass_file: /opt/openbao/.vault-pass
-
-# Fallback path for the provisioner token file when the openbao role's
-# defaults are not in scope (consumer roles including this loader).
-common_openbao_provisioner_token_file: /opt/openbao/provisioner-token.yml
+# Fallback paths for OpenBao's on-controller state, used when a play hasn't
+# loaded the openbao role's own defaults (e.g. standalone readiness/unseal
+# playbooks). Derived from openbao_work_dir — set at the inventory level, so
+# it's in scope regardless of which roles the play actually runs — rather than
+# a second hardcoded path that can drift from the openbao role's own default.
+common_openbao_init_keys_file: "{{ openbao_work_dir | default('/opt/openbao') }}/init-keys.yml"
+common_openbao_vault_pass_file: "{{ openbao_work_dir | default('/opt/openbao') }}/.vault-pass"
+common_openbao_provisioner_token_file: "{{ openbao_work_dir | default('/opt/openbao') }}/provisioner-token.yml"
 
 common_log_nolog: "{{ lookup('ansible.builtin.env', 'ARMORY_LOG_NOLOG') | default('false', true) | bool }}"
 

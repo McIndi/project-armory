@@ -30,11 +30,17 @@ envoy_proxy_tls_duration: "8760h"
 envoy_proxy_tls_renew_before: "720h"
 envoy_proxy_tls_mount_path: /etc/envoy/tls
 
-# CA used to verify the UPSTREAM leg (Keycloak, OpenBao). Both are issued by the
-# OpenBao PKI internal CA, so one bundle covers them.
+# CA trust bundle for the UPSTREAM leg (Keycloak, OpenBao). The two upstreams
+# are issued by different CAs: OpenBao's own listener cert is signed by the
+# controller-generated bootstrap CA (openbao_tls_ca_secret_name), while
+# Keycloak's cert is issued via the OpenBao PKI internal mount (pki-int),
+# which chains to OpenBao's own internally-generated root — a separate CA.
+# The bundle below combines both so either upstream verifies correctly.
 envoy_proxy_ca_secret_name: openbao-ca
 envoy_proxy_ca_source_namespace: "{{ openbao_namespace | default('openbao') }}"
 envoy_proxy_ca_mount_path: /etc/envoy/ca
+envoy_proxy_openbao_cluster_addr: "{{ openbao_cluster_addr | default('https://openbao.openbao.svc.cluster.local:8200') }}"
+envoy_proxy_openbao_pki_internal_mount: "{{ openbao_pki_internal_mount | default('pki-int') }}"
 
 # ── Trace boundary ────────────────────────────────────────────────────────────
 # Envoy starts a FRESH trace on every inbound request rather than joining one the
@@ -55,6 +61,7 @@ envoy_proxy_trace_forensic_header: x-external-traceparent
 envoy_proxy_trace_strip_headers:
   - traceparent
   - tracestate
+  - baggage
   - b3
   - x-b3-traceid
   - x-b3-spanid
