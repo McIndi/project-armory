@@ -1010,8 +1010,25 @@ flowchart TD
    - `tex26-automation`
 
 The play intentionally does not uninstall or modify the shared cert-manager
-operator. It also does not remove controller-local OpenBao keys, the installed
-controller trust anchor, Helm plugins, or stale port-forward processes.
+operator, and it does not remove controller-local OpenBao break-glass keys
+under `~/.armory/openbao` (they are the only way to recover an OpenBao
+instance that outlives this run).
+
+After the cluster deletions, a `post_tasks` block undoes the remaining
+controller-local side effects:
+
+10. Removes `/etc/pki/ca-trust/source/anchors/openbao-ca.crt` and re-runs
+    `update-ca-trust` if it was present, undoing the trust-anchor install from
+    `openbao/tasks/install.yml`.
+11. Runs the same `common/tasks/stop_port_forwards.yml` cleanup used by
+    `site.yml`'s post-task, killing any leftover `port-forward` processes and
+    removing loopback `/etc/hosts` aliases for `*.svc.cluster.local`.
+12. Uninstalls the `helm-diff` plugin if present.
+
+It deliberately leaves the `helm` package itself installed: the `helm` role
+only installs it when missing, so a controller may have had it before this
+project ever ran, and removing a system package teardown didn't necessarily
+install is out of scope.
 
 In check mode, explicit confirmation is still required, while the administrator
 assertion and all deletions are skipped.

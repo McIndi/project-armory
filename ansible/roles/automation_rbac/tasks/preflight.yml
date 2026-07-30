@@ -45,6 +45,12 @@
         label: "{{ item.resources | first }}"
       changed_when: false
 
+    # The kube-public check below MUST include the resource name: the grant it
+    # tests (automation_rbac_kube_public_rules) is restricted via resourceNames
+    # to one object. Kubernetes RBAC never grants the unscoped "any configmap"
+    # case for a resourceNames-restricted rule, so a can-i query without the
+    # name would correctly report "no" for a permission the account actually
+    # has — a false failure, not a real gap.
     - name: Expand the foreign-namespace permission checklist
       ansible.builtin.set_fact:
         _automation_rbac_foreign_checks:
@@ -52,10 +58,12 @@
             group: ""
             resource: secrets
             verb: create
+            resource_name: ""
           - namespace: "{{ automation_rbac_kube_public_namespace }}"
             group: ""
             resource: configmaps
             verb: get
+            resource_name: kube-root-ca.crt
       changed_when: false
 
     # `--as` requires the caller to hold `impersonate` rights on the target
@@ -71,7 +79,7 @@
       ansible.builtin.command:
         cmd: >-
           {{ kubectl_bin }} auth can-i {{ item.verb }}
-          {{ item.resource }}{{ ('.' + item.group) if (item.group | length) > 0 else '' }}
+          {{ item.resource }}{{ ('.' + item.group) if (item.group | length) > 0 else '' }}{{ ('/' + item.resource_name) if (item.resource_name | default('') | length) > 0 else '' }}
           {{ ('--namespace ' + item.namespace) if (item.namespace | length) > 0 else '--all-namespaces' }}
           {{ ('--as=system:serviceaccount:' + automation_rbac_sa_namespace + ':' + automation_rbac_sa_name)
              if (armory_privileged_tasks | default(true) | bool) else '' }}

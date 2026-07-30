@@ -153,3 +153,53 @@
             name: "{{ item }}"
       loop: "{{ teardown_target_namespaces | unique }}"
       when: not ansible_check_mode
+
+  post_tasks:
+    # Controller-local state from openbao/tasks/install.yml, common/tasks/
+    # prepare_internal_https_caller.yml, and helm/tasks/main.yml. None of this
+    # touches the cluster, so it needs no cluster-admin session, but it is still
+    # part of what this project changed and a genuine decommission should undo
+    # it on the same run as the cluster deletion above.
+    - name: Remove the OpenBao CA from the controller's trust store
+      ansible.builtin.file:
+        path: /etc/pki/ca-trust/source/anchors/openbao-ca.crt
+        state: absent
+      register: _teardown_ca_anchor_removed
+      become: true
+      when: not ansible_check_mode
+
+    - name: Refresh the controller trust store after removing the OpenBao CA
+      ansible.builtin.command:
+        cmd: update-ca-trust
+      changed_when: false
+      become: true
+      when:
+        - not ansible_check_mode
+        - _teardown_ca_anchor_removed.changed | default(false)
+
+    - name: Reap controller-side port-forward tunnels and loopback aliases
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: stop_port_forwards.yml
+      when: not ansible_check_mode
+
+    - name: Check for the helm-diff plugin installed for this project
+      ansible.builtin.command: helm plugin list
+      register: _teardown_helm_plugin_list
+      changed_when: false
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Remove the helm-diff plugin
+      ansible.builtin.command:
+        cmd: helm plugin uninstall diff
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - _teardown_helm_plugin_list.rc | default(1) == 0
+        - "'diff' in _teardown_helm_plugin_list.stdout"
+
+    # helm itself is deliberately left installed: helm/tasks/main.yml only
+    # installs it when absent, so a pre-existing controller may have had it
+    # before this project ever ran. Uninstalling a system package this
+    # playbook didn't necessarily install is out of scope for teardown.
