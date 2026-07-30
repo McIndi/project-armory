@@ -56,7 +56,7 @@ Inside the VM:
 
 ```bash
 cd /vagrant/project-armory
-# cp .env.example .env    # first run only
+# cp .env.openshift.example .env    # first run only
 find ./log -type f ! -name ".empty" -delete
 set -a; source .env; set +a
 cd ansible
@@ -81,14 +81,14 @@ Examples from the workstation:
 
 ```bash
 # Realm admin password (Keycloak namespace from openshift inventory default)
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
 # Keycloak bootstrap admin username/password
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
 
 # Keycloak database password
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; kubectl get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
+vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
 ```
 
 Authoritative source of truth remains OpenBao KV paths configured by the

@@ -3,8 +3,11 @@
 Three layers of configuration, from broadest to narrowest:
 
 1. **`.env`** — environment for the Ansible CLI itself plus a small set of
-   cross-cutting values. Copied from `.env.example`, sourced before every
-   run. The `env_guard` role refuses to run if it isn't loaded.
+   cross-cutting values. Copied from `.env.openshift.example` (the template
+   for this branch's actual target — the OpenShift inventory), sourced before
+   every run. The `env_guard` role refuses to run if it isn't loaded.
+   `.env.example` is a separate, older template for a k3s-based deployment
+   this branch no longer supports; don't use it here.
 2. **`ansible/inventories/openshift/group_vars/all.yml`** — deployment toggles
    that multiple roles must agree on.
 3. **Role defaults** (`ansible/roles/<role>/defaults/main.yml`) — per-role
@@ -17,18 +20,29 @@ invisible to other roles.
 
 ## .env
 
+Values from `.env.openshift.example` — the template this branch actually
+uses. Most host/domain values that mattered on k3s now come from
+`inventories/openshift/group_vars/all.yml` instead (they derive from the
+cluster's apps domain); `.env` only carries what Ansible itself needs plus
+cluster access.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `ARMORY_ENV_SOURCED` | `armory2-env-loaded-v1` | Sentry checked by `env_guard`; do not change |
 | `ARMORY_LOG_NOLOG` | `false` | `true` disables `no_log` redaction (prints secrets; debugging only) |
 | `ARMORY_PROJECT_ROOT` | `/vagrant/project-armory` | Repo mount point in the VM; all paths derive from it |
 | `ARMORY_ANSIBLE_ROOT` | `${ARMORY_PROJECT_ROOT}/ansible` | Where playbooks run from |
-| `ARMORY_PUBLIC_DOMAIN` | `armory.local` | External domain; drives ingress hosts, PKI allowed domains, cert role names |
-| `ARMORY_PUBLIC_BASE_URL` | `https://armory.local` | Base URL consumed by OIDC redirect configuration |
-| `ARMORY_OPENBAO_HOST` | `openbao.armory.local` | OpenBao UI ingress hostname |
-| `ARMORY_EDGE_EXTRA_SAN_HOSTS` | empty | Optional comma-separated extra DNS SANs appended to the consolidated edge certificate |
+| `KUBECONFIG` | `${HOME}/.kube/config` | The controller runs outside the cluster; produced by `oc login`. The OpenShift inventory reads it |
+| `ANSIBLE_INVENTORY` | `inventories/openshift/hosts.yml` | The line that actually selects OpenShift — pointing this at a k3s-era inventory fails against this cluster |
+| `ARMORY_PUBLIC_DOMAIN` | `apps.example.com` | The cluster's real apps domain. Names the OpenBao external PKI cert role; public TLS itself comes from the router's Let's Encrypt wildcard, so that issuer is largely vestigial here, but the name should still reflect the real domain |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
-| `ANSIBLE_*` | see `.env.example` | Controller-side Ansible behavior (log path, callback, ssh/pipelining, etc.); local runs in `/vagrant` should set `ANSIBLE_CONFIG=/vagrant/project-armory/ansible/ansible.cfg` because `/vagrant` is world-writable |
+| `ARMORY_PUBLIC_BASE_URL`, `ARMORY_OPENBAO_HOST`, `ARMORY_HEADLAMP_HOST`, `ARMORY_EDGE_GATEWAY_IP` | — | Not used on OpenShift. Kept only so any code that still does a lookup on them doesn't trip over one being entirely absent; the real values come from the inventory (`keycloak_public_base_url`, `openbao_ingress_host`), Headlamp isn't deployed on this branch, and there's no node edge to bind an IP to |
+| `ANSIBLE_*` (remaining) | see `.env.openshift.example` | Controller-side Ansible behavior (log path, callback, retries, etc.) |
+
+There is no `ansible.cfg` — Ansible behavior comes entirely from the
+`ANSIBLE_*` vars above, which is why `set -a` before sourcing `.env` matters:
+without it they're set in your shell but never exported to the
+`ansible-playbook` child process.
 
 ## group_vars/all.yml
 
