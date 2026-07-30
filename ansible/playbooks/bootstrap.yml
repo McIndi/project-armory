@@ -9,7 +9,6 @@
 #   * grant OpenBao the right to review Kubernetes identities, and to run under
 #     a non-root security profile — Kubernetes forbids granting a permission the
 #     granter does not hold, so the account cannot do these for itself
-#   * let cert-manager mint a token for itself
 #   * create the automation account's permissions; the scoped playbook now
 #     materializes its own namespace Secrets directly instead of relying on VSO
 #

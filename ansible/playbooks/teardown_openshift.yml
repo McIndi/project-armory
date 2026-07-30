@@ -60,6 +60,13 @@
         - "{{ cert_manager_openbao_external_clusterissuer_name | default('tex26-openbao-pki-external') }}"
       when: not ansible_check_mode
 
+    # cert-manager-tokenrequest is NOT armory's — confirmed live on cluster:
+    # it's cert-manager's own Helm-labeled Role/RoleBinding (native TokenRequest
+    # self-auth support), byte-for-byte the same rule armory used to create
+    # redundantly under the same name. Deleting it here briefly took out a
+    # live object the shared cert-manager controller depends on. Armory no
+    # longer creates it (roles/cert_manager/tasks/main.yml), so teardown must
+    # not delete it either.
     - name: Delete namespace-scoped RBAC grants outside armory namespaces
       kubernetes.core.k8s:
         kubeconfig: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
@@ -76,12 +83,6 @@
           namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
         - kind: Role
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-ca-writer"
-          namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
-        - kind: RoleBinding
-          name: "{{ cert_manager_release_name | default('cert-manager') }}-tokenrequest"
-          namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
-        - kind: Role
-          name: "{{ cert_manager_release_name | default('cert-manager') }}-tokenrequest"
           namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
         - kind: RoleBinding
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}-root-ca-reader"

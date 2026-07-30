@@ -5,8 +5,8 @@ cert_manager_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansib
 # Namespace for cert-manager installation.
 cert_manager_namespace: cert-manager
 
-# ServiceAccount name stem used by the cert-manager TokenRequest RBAC and
-# ClusterIssuer ambient Kubernetes auth configuration.
+# ServiceAccount name stem used by ClusterIssuer ambient Kubernetes auth
+# configuration.
 cert_manager_release_name: cert-manager
 
 # OpenBao in-cluster API address used by cert-manager issuer integration.

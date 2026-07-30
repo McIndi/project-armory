@@ -110,10 +110,13 @@ least privilege, not cluster-admin:
   (`automation_rbac_namespace_rules`, `automation_rbac_cluster_rules`) that
   `roles/automation_rbac/tasks/preflight.yml` checks against before any work
   starts, so a grant and its check cannot drift apart.
-- Three grants it cannot make for itself (OpenBao's token-review binding,
-  OpenBao's SCC binding, cert-manager's self-token Role) are applied instead
-  by `bootstrap.yml`, run once as cluster-admin — see
-  [architecture.md](architecture.md#role-execution-order).
+- Two grants it cannot make for itself (OpenBao's token-review binding,
+  OpenBao's SCC binding) are applied instead by `bootstrap.yml`, run once as
+  cluster-admin — see [architecture.md](architecture.md#role-execution-order).
+  (A third grant, letting cert-manager mint a token for itself, used to be
+  applied here too, but turned out to be redundant with what cert-manager's
+  own install already provides natively under the same object name — armory
+  no longer manages it.)
 - `site.yml`'s preflight is a sample, not an exhaustive check of every
   verb×resource combination: it checks one combination per declared rule.
   Since RBAC grants a rule's resources and verbs atomically once bound, this

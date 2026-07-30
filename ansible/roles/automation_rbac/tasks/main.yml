@@ -194,9 +194,8 @@
     - (openbao_scc_name | default('') | trim | length) > 0
     - not ansible_check_mode
 
-- name: Allow cert-manager to mint a token for itself
-  ansible.builtin.import_role:
-    name: cert_manager
-    tasks_from: rbac.yml
-  vars:
-    cert_manager_kubeconfig_path: "{{ automation_rbac_kubeconfig_path }}"
+# cert-manager's own install already provides its own TokenRequest
+# self-authentication RBAC natively (cert-manager-tokenrequest Role/
+# RoleBinding) — armory used to create a redundant copy here under the same
+# name, which briefly deleted the live cert-manager-owned object on every
+# bootstrap/teardown cycle. See roles/cert_manager/tasks/main.yml.

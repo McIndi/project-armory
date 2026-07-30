@@ -6,14 +6,15 @@
 
 - name: Run cert-manager orchestration with diagnostics
   block:
-    # Creating a Role that grants token minting requires holding that permission,
-    # so a project-scoped account cannot make this grant for itself. Where the
-    # playbook runs as one, bootstrap.yml applies it instead.
-    - name: Cert-manager TokenRequest RBAC
-      ansible.builtin.import_tasks: rbac.yml
-      when: armory_privileged_tasks | default(true) | bool
-      tags: [cert_manager, cert_manager_rbac]
-
+    # cert-manager v1.15+ already ships its own cert-manager-tokenrequest
+    # Role/RoleBinding natively (self-service TokenRequest for ambient
+    # Kubernetes auth). Armory previously created a redundant copy under the
+    # same name here, which briefly deleted the live, cert-manager-owned
+    # object on every bootstrap/teardown cycle before cert-manager's own
+    # reconciler put it back. Confirmed via live-cluster inspection that the
+    # existing Role/RoleBinding already grants exactly what's needed
+    # (serviceaccounts/token create, resourceNames: [cert-manager]) — nothing
+    # to create here.
     - name: ClusterIssuer provisioning
       ansible.builtin.import_tasks: issuer.yml
       tags: [cert_manager, cert_manager_issuer]

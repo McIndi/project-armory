@@ -198,9 +198,13 @@ flowchart TD
     `restricted-v2` allocation would reject. `nonroot-v2` permits those
     non-root IDs without permitting root.
 
-13. It creates Role and RoleBinding `cert-manager-tokenrequest` in the shared
-    cert-manager namespace. These let the cert-manager ServiceAccount mint a
-    token for itself when authenticating to OpenBao's Kubernetes auth method.
+13. It does **not** create a `cert-manager-tokenrequest` Role/RoleBinding —
+    that was removed after live-cluster inspection showed cert-manager's own
+    install already ships that exact grant natively (Helm-labeled,
+    `app.kubernetes.io/name: cert-manager`). Armory's previous copy under the
+    same name briefly deleted the live, cert-manager-owned object on every
+    bootstrap/teardown cycle before cert-manager's own controller reconciled
+    it back.
 
 14. The post-task includes `automation_rbac/tasks/preflight.yml`. That helper
     expands the RBAC rule matrices into namespaced, cluster-scoped, and
@@ -518,14 +522,13 @@ rotated files.
 This branch does not install cert-manager. It reuses the cluster's shared
 OpenShift cert-manager installation.
 
-The role:
+The role no longer manages any TokenRequest RBAC for cert-manager — see the
+note under bootstrap item 13 above. What it actually does:
 
-1. Skips TokenRequest RBAC because `armory_privileged_tasks` is false; bootstrap
-   already applied it.
-2. Copies Secret `openbao-ca` from `tex26-vault` to the shared
+1. Copies Secret `openbao-ca` from `tex26-vault` to the shared
    `cert-manager` namespace. This CA verifies the HTTPS connection from
    cert-manager to the OpenBao server.
-3. Renders and applies two ClusterIssuers:
+2. Renders and applies two ClusterIssuers:
 
    - `tex26-openbao-pki-internal`, signing through
      `pki-int/sign/armory-internal`.
@@ -990,8 +993,12 @@ flowchart TD
 4. Deletes namespaced RoleBindings and Roles in shared namespaces:
 
    - Automation CA-writer access in `cert-manager`.
-   - cert-manager TokenRequest permission in `cert-manager`.
    - Automation root-CA reader access in `kube-public`.
+
+   It does **not** touch `cert-manager-tokenrequest` — that object belongs to
+   cert-manager's own install (confirmed via its Helm labels), not armory;
+   an earlier version of this playbook deleted it here, which briefly took
+   out a live object the shared cert-manager controller depends on.
 
 5. Deletes copied Secret `openbao-ca` from `cert-manager`.
 6. Deletes ClusterRoleBinding `openbao-tokenreview`.
@@ -1038,7 +1045,7 @@ assertion and all deletions are skipped.
 | Scope | Important generated objects |
 |---|---|
 | Cluster | Automation ClusterRole/Binding, `openbao-tokenreview`, two ClusterIssuers |
-| `cert-manager` | CA copy, automation CA-writer RBAC, cert-manager TokenRequest RBAC |
+| `cert-manager` | CA copy, automation CA-writer RBAC |
 | `kube-public` | Narrow automation reader Role/Binding |
 | `tex26-vault` | OpenBao Helm release, data/audit PVCs, TLS/CA/break-glass Secrets, watcher, audit CronJob |
 | `tex26-oidc` | PostgreSQL StatefulSet/PVC, Keycloak Deployment, Services, Certificates, credential/import Secrets, admin-event CronJob |
