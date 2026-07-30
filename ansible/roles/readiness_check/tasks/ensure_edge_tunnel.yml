@@ -1,0 +1,42 @@
+---
+# Shared by check_openbao_ui.yml, check_trace_boundary_envoy.yml, and
+# check_keycloak.yml — all three reach the edge Envoy through the same
+# (namespace, service, port) target, so at most one tunnel is ever needed.
+# Probes first and skips opening a duplicate: a second port-forward on an
+# already-bound local port fails to bind, and being async/poll:0 that failure
+# goes unchecked, silently leaving an extra dead background process per call.
+
+- name: Check whether the edge tunnel is already open
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ readiness_check_edge_probe_port }}"
+    timeout: 1
+    state: started
+  register: _readiness_check_edge_tunnel_probe
+  changed_when: false
+  failed_when: false
+  when: readiness_check_edge_probe_via_port_forward | bool
+
+- name: Open a tunnel to the edge Envoy
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} port-forward
+      --address 127.0.0.1
+      --namespace {{ readiness_check_edge_namespace }}
+      svc/{{ readiness_check_edge_service_name }}
+      {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
+  environment:
+    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
+  async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
+  poll: 0
+  changed_when: true
+  when:
+    - readiness_check_edge_probe_via_port_forward | bool
+    - _readiness_check_edge_tunnel_probe is failed
+
+- name: Wait for the edge tunnel to accept connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ readiness_check_edge_probe_port | int }}"
+    timeout: "{{ common_port_forward_ready_timeout_seconds | default(30) }}"
+  when: readiness_check_edge_probe_via_port_forward | bool

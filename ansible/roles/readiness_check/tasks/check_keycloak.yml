@@ -84,31 +84,9 @@
   retries: "{{ readiness_check_keycloak_well_known_retries | default(30) }}"
   delay: "{{ readiness_check_keycloak_well_known_delay | default(6) }}"
 
-- name: Open a tunnel to the edge Envoy for the Keycloak ingress fallback
-  ansible.builtin.command:
-    cmd: >-
-      {{ kubectl_bin }} port-forward
-      --address 127.0.0.1
-      --namespace {{ readiness_check_edge_namespace }}
-      svc/{{ readiness_check_edge_service_name }}
-      {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
-  environment:
-    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
-  async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
-  poll: 0
-  changed_when: true
-  when:
-    - "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
-    - readiness_check_edge_probe_via_port_forward | bool
-
-- name: Wait for the edge tunnel to accept Keycloak fallback connections
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: "{{ readiness_check_edge_probe_port | int }}"
-    timeout: "{{ common_port_forward_ready_timeout_seconds | default(30) }}"
-  when:
-    - "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
-    - readiness_check_edge_probe_via_port_forward | bool
+- name: Ensure the edge tunnel is open for the Keycloak ingress fallback
+  ansible.builtin.include_tasks: ensure_edge_tunnel.yml
+  when: "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
 
 - name: Alias the Keycloak public hostname to the edge tunnel
   ansible.builtin.lineinfile:

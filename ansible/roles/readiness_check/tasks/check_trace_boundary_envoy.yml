@@ -75,27 +75,8 @@
 # Reach Envoy from the off-cluster controller. The probe hostname is aliased to
 # loopback so the request carries the right Host/SNI and lands on the probe's
 # virtual host, exactly as a real client's would.
-- name: Open a tunnel to the edge Envoy
-  ansible.builtin.command:
-    cmd: >-
-      {{ kubectl_bin }} port-forward
-      --address 127.0.0.1
-      --namespace {{ readiness_check_edge_namespace }}
-      svc/{{ readiness_check_edge_service_name }}
-      {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
-  environment:
-    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
-  async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
-  poll: 0
-  changed_when: true
-  when: readiness_check_edge_probe_via_port_forward | bool
-
-- name: Wait for the edge tunnel to accept connections
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: "{{ readiness_check_edge_probe_port | int }}"
-    timeout: "{{ common_port_forward_ready_timeout_seconds | default(30) }}"
-  when: readiness_check_edge_probe_via_port_forward | bool
+- name: Ensure the edge tunnel is open
+  ansible.builtin.include_tasks: ensure_edge_tunnel.yml
 
 - name: Ensure the trace probe host resolves to the edge locally
   ansible.builtin.lineinfile:
