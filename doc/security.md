@@ -58,9 +58,9 @@ Communication paths:
 | Path | Transport | Certificate source |
 |---|---|---|
 | Workstation → Route (Keycloak, OpenBao UI, registry) | HTTPS | OpenShift router's Let's Encrypt wildcard (cluster-managed, not armory's) |
-| Route → Envoy edge | HTTPS (re-encrypt) | `openbao-pki-internal` |
+| Route → Envoy edge | HTTPS (re-encrypt) | `tex26-openbao-pki-internal` |
 | Envoy edge → Keycloak / OpenBao upstream | HTTPS (re-encrypt) | Combined trust bundle: OpenBao's own bootstrap CA (signs OpenBao's listener) + the `pki-int` issuer CA (signs Keycloak's) — these are two distinct CAs, not one |
-| Keycloak → PostgreSQL | TLS `verify-full` (`keycloak_pg_tls_enabled`) | `openbao-pki-internal` |
+| Keycloak → PostgreSQL | TLS `verify-full` (`keycloak_pg_tls_enabled`) | `tex26-openbao-pki-internal` |
 | cert-manager / Ansible → OpenBao | HTTPS (8200) | OpenBao's own bootstrap CA, generated on the controller and copied into consumer namespaces as needed |
 | Workstation HTTP (port 80) | Closed (`ingress_http_policy: disabled`) or redirect-only | — |
 

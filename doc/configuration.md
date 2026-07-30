@@ -70,8 +70,7 @@ Authoritative list: each role's `defaults/main.yml`. Frequently relevant:
 | `openbao_audit_storage_size` (openbao) | `2Gi` | Audit PVC size |
 | `openbao_audit_rotate_cron_schedule` / `..._rotate_keep` (openbao) | `17 2 * * *` / 7 | In-cluster CronJob rotation cadence and retention |
 | `openbao_ui_enabled` (openbao) | `false` | Feature flag for OpenBao UI exposure |
-| `openbao_ingress_host` / `openbao_ingress_tls_secret_name` (openbao) | `openbao.<domain>` / `openbao-ui-tls` | OpenBao UI ingress host and cert secret |
-| `openbao_ingress_tls_issuer_name` (openbao) | `openbao-pki-external` | cert-manager ClusterIssuer used by ingress-shim |
+| `openbao_ingress_host` (openbao) | `openbao.<domain>` | OpenBao UI public hostname. Exposure itself isn't a dedicated Ingress/Route — it's an entry in `envoy_proxy_upstreams`, sharing the same Route + Envoy edge as Keycloak; TLS issuer is `envoy_proxy_tls_issuer_name` |
 | `openbao_oidc_client_id` / `openbao_oidc_secret_path` (openbao_oidc) | `openbao` / `openbao/ui-oidc` | Keycloak client id and OpenBao KV path for persisted client secret |
 | `openbao_oidc_redirect_uris` (openbao_oidc) | UI callback pair | Required redirect URI list for OpenBao UI OIDC login |
 | `keycloak_deployment_name` (keycloak) | `keycloak` | Deployment identity root; service defaults to `<name>-service` |
