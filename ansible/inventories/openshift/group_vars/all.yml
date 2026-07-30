@@ -140,6 +140,12 @@ openbao_tls_server_name: "openbao.{{ openbao_namespace }}.svc.cluster.local"
 openbao_api_addr: "https://{{ openbao_tls_server_name }}:8200"
 openbao_cluster_addr: "https://{{ openbao_tls_server_name }}:8200"
 
+# automation_rbac's bootstrap-time SCC-binding task reads this to grant
+# OpenBao's ServiceAccount use of the SCC (bootstrap.yml's play never loads
+# the openbao role, so that role's own default is out of scope there — this
+# silently skipped the grant until it was moved here).
+openbao_scc_name: nonroot-v2
+
 # The server certificate must carry the new name, or every TLS check fails.
 openbao_tls_sans:
   - "DNS:openbao"
