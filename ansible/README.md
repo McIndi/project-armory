@@ -972,7 +972,8 @@ flowchart TD
     C --> D[Delete RBAC in shared namespaces]
     D --> E[Delete copied cert-manager CA Secret]
     E --> F[Delete Armory cluster RBAC]
-    F --> G[Delete Armory namespaces]
+    F --> G[Delete registry pull secrets in consumer namespaces]
+    G --> H[Delete Armory namespaces]
 ```
 
 ### Step-by-step
@@ -995,7 +996,12 @@ flowchart TD
 5. Deletes copied Secret `openbao-ca` from `cert-manager`.
 6. Deletes ClusterRoleBinding `openbao-tokenreview`.
 7. Deletes the automation ClusterRoleBinding and ClusterRole.
-8. Deletes, waits for, and deduplicates this namespace list:
+8. Deletes the registry pull Secret (`registry_pull_secret_name`, default
+   `armory-registry-pull`) from every namespace listed in
+   `registry_pull_secret_namespaces` that is not one of the 5 armory
+   namespaces. Those consumer namespaces are not armory-owned and are never
+   deleted by this playbook, so the secret would otherwise be orphaned.
+9. Deletes, waits for, and deduplicates this namespace list:
 
    - `tex26-oidc`
    - `tex26-vault`

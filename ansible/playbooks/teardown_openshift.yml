@@ -121,6 +121,25 @@
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}"
       when: not ansible_check_mode
 
+    # The registry role can mirror its pull secret into arbitrary consumer
+    # namespaces outside the 5 armory-managed ones (registry_pull_secret_namespaces).
+    # Those namespaces are never deleted by this playbook, so the secret must be
+    # removed explicitly or it is orphaned by teardown.
+    - name: Delete registry pull secrets from consuming namespaces outside armory's own
+      kubernetes.core.k8s:
+        kubeconfig: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ registry_pull_secret_name | default('armory-registry-pull') }}"
+            namespace: "{{ item }}"
+      loop: "{{ registry_pull_secret_namespaces | default([]) }}"
+      when:
+        - not ansible_check_mode
+        - item not in teardown_target_namespaces
+
     - name: Delete armory namespaces
       kubernetes.core.k8s:
         kubeconfig: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
