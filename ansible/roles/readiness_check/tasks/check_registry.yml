@@ -1,0 +1,168 @@
+---
+# Validate the optional in-cluster OCI registry workload, storage, and auth.
+
+- name: Read registry Deployment health
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ readiness_check_registry_deployment_name }}"
+    namespace: "{{ readiness_check_registry_namespace }}"
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_registry_deployment_info
+  changed_when: false
+  failed_when: false
+
+- name: Add registry Deployment health check to results
+  ansible.builtin.set_fact:
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
+        'component': 'Registry',
+        'check_name': 'Deployment replicas ready',
+        'status': 'pass'
+          if (_readiness_check_registry_ready_replicas > 0
+              and _readiness_check_registry_ready_replicas
+                  == _readiness_check_registry_desired_replicas)
+          else 'fail',
+        'detail': (_readiness_check_registry_ready_replicas | string)
+          + '/' + (_readiness_check_registry_desired_replicas | string)
+          + ' replicas ready',
+        'error': _readiness_check_registry_deployment_info.msg | default('')
+      }] }}
+  vars:
+    _readiness_check_registry_deployment: >-
+      {{ _readiness_check_registry_deployment_info.resources
+         | default([]) | first | default({}) }}
+    _readiness_check_registry_ready_replicas: >-
+      {{ (_readiness_check_registry_deployment.status
+          | default({})).readyReplicas | default(0) | int }}
+    _readiness_check_registry_desired_replicas: >-
+      {{ (_readiness_check_registry_deployment.status
+          | default({})).replicas | default(0) | int }}
+  changed_when: false
+
+- name: Read registry PVC status
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ readiness_check_registry_pvc_name }}"
+    namespace: "{{ readiness_check_registry_namespace }}"
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  register: _readiness_check_registry_pvc_info
+  changed_when: false
+  failed_when: false
+
+- name: Add registry PVC status check to results
+  ansible.builtin.set_fact:
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
+        'component': 'Registry',
+        'check_name': 'PersistentVolumeClaim bound',
+        'status': 'pass'
+          if _readiness_check_registry_pvc_phase == 'Bound'
+          else 'fail',
+        'detail': readiness_check_registry_pvc_name
+          + ' phase=' + _readiness_check_registry_pvc_phase,
+        'error': _readiness_check_registry_pvc_info.msg | default('')
+      }] }}
+  vars:
+    _readiness_check_registry_pvc: >-
+      {{ _readiness_check_registry_pvc_info.resources
+         | default([]) | first | default({}) }}
+    _readiness_check_registry_pvc_phase: >-
+      {{ (_readiness_check_registry_pvc.status
+          | default({})).phase | default('NotFound') }}
+  changed_when: false
+
+- name: Verify the registry rejects unauthenticated requests
+  ansible.builtin.uri:
+    url: "https://{{ readiness_check_registry_host }}/v2/"
+    method: GET
+    validate_certs: true
+    timeout: "{{ readiness_check_connect_timeout }}"
+    status_code: 401
+  register: _readiness_check_registry_unauthenticated
+  changed_when: false
+  failed_when: false
+
+- name: Add registry unauthenticated request check to results
+  ansible.builtin.set_fact:
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
+        'component': 'Registry',
+        'check_name': 'Unauthenticated requests rejected',
+        'status': 'pass'
+          if (_readiness_check_registry_unauthenticated.status
+              | default(-1)) == 401
+          else 'fail',
+        'detail': 'HTTP '
+          + ((_readiness_check_registry_unauthenticated.status
+              | default(-1)) | string),
+        'error': _readiness_check_registry_unauthenticated.msg | default('')
+      }] }}
+  changed_when: false
+
+- name: Ensure the OpenBao provisioner token is available for registry checks
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: load_openbao_provisioner_token.yml
+  when: not ansible_check_mode
+
+- name: Read registry credentials from OpenBao
+  ansible.builtin.uri:
+    url: >-
+      {{ readiness_check_registry_openbao_api_addr }}/v1/{{
+      readiness_check_registry_openbao_kv_mount }}/data/{{
+      readiness_check_registry_openbao_path }}
+    method: GET
+    headers:
+      X-Vault-Token: "{{ common_openbao_provisioner_token }}"
+    status_code: [200, 404]
+  register: _readiness_check_registry_credentials
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (readiness_check_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode
+
+- name: Verify an authenticated registry request succeeds
+  ansible.builtin.uri:
+    url: "https://{{ readiness_check_registry_host }}/v2/"
+    method: GET
+    url_username: >-
+      {{ _readiness_check_registry_credentials.json.data.data.username
+         | default('') }}
+    url_password: >-
+      {{ _readiness_check_registry_credentials.json.data.data.password
+         | default('') }}
+    force_basic_auth: true
+    validate_certs: true
+    timeout: "{{ readiness_check_connect_timeout }}"
+    status_code: 200
+  register: _readiness_check_registry_authenticated
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (readiness_check_log_nolog | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - (_readiness_check_registry_credentials.status | default(-1)) == 200
+
+- name: Add registry authenticated request check to results
+  ansible.builtin.set_fact:
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
+        'component': 'Registry',
+        'check_name': 'Authenticated request succeeds',
+        'status': 'pass'
+          if (_readiness_check_registry_authenticated.status
+              | default(-1)) == 200
+          else 'fail',
+        'detail': 'HTTP '
+          + ((_readiness_check_registry_authenticated.status
+              | default(-1)) | string),
+        'error': (_readiness_check_registry_authenticated.msg | default(''))
+          if (_readiness_check_registry_credentials.status
+              | default(-1)) == 200
+          else 'Registry credentials were not found in OpenBao'
+      }] }}
+  changed_when: false
+  no_log: "{{ not (readiness_check_log_nolog | default(false) | bool) }}"
+  when: not ansible_check_mode

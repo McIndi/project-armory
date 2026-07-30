@@ -330,22 +330,6 @@
     name: common
     tasks_from: load_openbao_root_token.yml
 
-- name: Read OpenBao external issuer CA PEM for OIDC discovery trust
-  ansible.builtin.uri:
-    url: "{{ openbao_oidc_ca_pem_url }}"
-    method: GET
-    headers:
-      X-Vault-Token: "{{ common_openbao_root_token }}"
-    status_code: 200
-    return_content: true
-  register: _openbao_oidc_ca_pem_result
-  changed_when: false
-
-- name: Set OpenBao OIDC discovery CA PEM fact
-  ansible.builtin.set_fact:
-    _openbao_oidc_discovery_ca_pem: "{{ _openbao_oidc_ca_pem_result.content | default('') | trim }}"
-  no_log: "{{ not (openbao_oidc_log_nolog | default(false) | bool) }}"
-
 - name: Configure OpenBao OIDC auth backend
   ansible.builtin.uri:
     url: "{{ openbao_oidc_api_addr }}/v1/auth/{{ openbao_oidc_auth_mount }}/config"
@@ -355,7 +339,6 @@
     body_format: json
     body:
       oidc_discovery_url: "{{ openbao_oidc_discovery_url }}"
-      oidc_discovery_ca_pem: "{{ _openbao_oidc_discovery_ca_pem }}"
       oidc_client_id: "{{ openbao_oidc_client_id }}"
       oidc_client_secret: "{{ openbao_oidc_effective_client_secret }}"
       default_role: "{{ openbao_oidc_default_role_name }}"

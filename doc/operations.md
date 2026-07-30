@@ -42,8 +42,9 @@ ansible-playbook playbooks/readiness_check.yml
 Runs automatically at the end of `site.yml` and on demand. Checks per
 component: deployment/pod health, TLS posture (HTTPS endpoints, plaintext
 rejection, certificate trust, `skipTLSVerify` off), OpenBao seal status and
-audit device, ingress reachability, and OIDC endpoints. Failures print a
-per-check table; a `warn`
+audit device, ingress reachability, OIDC endpoints, registry authentication and
+storage, and OpenBao-backed ClusterIssuer readiness. Failures print a per-check
+table; a `warn`
 is informational, a `fail` indicates the deployed state diverges from the
 configured policy.
 

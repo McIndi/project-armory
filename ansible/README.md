@@ -264,14 +264,14 @@ used temporarily.
 
 The `helm` role:
 
-1. Runs `helm version --short`.
-2. Runs `helm plugin list`.
-3. Installs `helm-diff` from its GitHub repository if a plugin named `diff` is
+1. Checks whether `helm` is already available.
+2. Installs the Fedora `helm` package with `dnf` only when it is missing.
+3. Runs `helm version --short`.
+4. Runs `helm plugin list`.
+5. Installs `helm-diff` from its GitHub repository if a plugin named `diff` is
    not listed.
 
-This role does not install the Helm CLI despite the task block's name. Helm must
-already exist on the controller. The diff plugin supports the
-`kubernetes.core.helm` workflow used later.
+The diff plugin supports the `kubernetes.core.helm` workflow used later.
 
 ### 4. OpenBao
 

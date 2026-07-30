@@ -1,0 +1,49 @@
+---
+# Validate that each OpenBao-backed cert-manager ClusterIssuer is usable.
+
+- name: Read cert-manager ClusterIssuers
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: ClusterIssuer
+    name: "{{ item }}"
+    kubeconfig: "{{ _readiness_check_kubeconfig_path }}"
+  loop: "{{ readiness_check_cluster_issuer_names }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _readiness_check_cluster_issuers
+  changed_when: false
+  failed_when: false
+
+- name: Add cert-manager ClusterIssuer checks to results
+  ansible.builtin.set_fact:
+    _readiness_check_results: >-
+      {{ _readiness_check_results + [{
+        'component': 'cert-manager',
+        'check_name': 'ClusterIssuer Ready: ' + item.item,
+        'status': 'pass'
+          if (_readiness_check_issuer_ready_conditions | length) > 0
+          else 'fail',
+        'detail': item.item + ': '
+          + (_readiness_check_issuer_ready_condition.message
+             | default('Ready condition not found')),
+        'error': item.msg | default('')
+      }] }}
+  vars:
+    _readiness_check_issuer: >-
+      {{ item.resources | default([]) | first | default({}) }}
+    _readiness_check_issuer_conditions: >-
+      {{ (_readiness_check_issuer.status | default({})).conditions
+         | default([]) }}
+    _readiness_check_issuer_ready_conditions: >-
+      {{ _readiness_check_issuer_conditions
+         | selectattr('type', 'equalto', 'Ready')
+         | selectattr('status', 'equalto', 'True')
+         | list }}
+    _readiness_check_issuer_ready_condition: >-
+      {{ _readiness_check_issuer_conditions
+         | selectattr('type', 'equalto', 'Ready')
+         | first | default({}) }}
+  loop: "{{ _readiness_check_cluster_issuers.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: false

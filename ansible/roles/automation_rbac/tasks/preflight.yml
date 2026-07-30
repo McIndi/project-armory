@@ -1,13 +1,15 @@
 ---
-# Verify the automation account actually holds every permission the playbook
-# needs, BEFORE the run starts.
+# Sample one namespace/resource/verb combination from each RBAC rule the
+# automation account needs, BEFORE the run starts.
 #
 # Without this, a missing grant surfaces as a failure partway through a deploy,
-# indistinguishable from a genuine bug in the thing that failed. This turns it
-# into a single up-front error naming the exact verb, resource and namespace.
+# indistinguishable from a genuine bug in the thing that failed. This turns a
+# denied sample into an up-front error naming the exact verb, resource and
+# namespace.
 #
-# It expands the same permission matrix that generates the Roles, so a grant and
-# its check cannot drift apart.
+# It expands the same rule lists that generate the Roles, so a declared rule and
+# its sample cannot drift apart. It does not detect out-of-band edits within a
+# live Role or variation within a resourceNames-scoped rule.
 
 - name: Verify the automation account's permissions
   when: not ansible_check_mode

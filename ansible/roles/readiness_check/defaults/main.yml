@@ -5,6 +5,8 @@
 readiness_check_helm_enabled: true
 readiness_check_openbao_enabled: true
 readiness_check_keycloak_enabled: true
+readiness_check_registry_enabled: true
+readiness_check_cert_manager_enabled: true
 
 # Network connectivity defaults
 readiness_check_connect_timeout: 5
@@ -54,9 +56,23 @@ readiness_check_certmanager_namespace: cert-manager
 readiness_check_openbao_external_clusterissuer_name: "{{ cert_manager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
 readiness_check_openbao_internal_clusterissuer_name: "{{ cert_manager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
 readiness_check_public_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
-readiness_check_public_base_url: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_BASE_URL') | default('https://' + readiness_check_public_domain, true) }}"
-readiness_check_ingress_https_port: 443
-readiness_check_ingress_probe_url: "https://{{ readiness_check_edge_probe_ip }}:{{ readiness_check_ingress_https_port }}"
+
+# Registry settings
+readiness_check_registry_namespace: "{{ registry_namespace | default('armory-registry') }}"
+readiness_check_registry_deployment_name: "{{ registry_name | default('registry') }}"
+readiness_check_registry_host: "{{ registry_host | default('registry.' + readiness_check_public_domain) }}"
+readiness_check_registry_htpasswd_secret_name: "{{ registry_htpasswd_secret_name | default('registry-htpasswd') }}"
+readiness_check_registry_pvc_name: "{{ readiness_check_registry_deployment_name }}-data"
+readiness_check_registry_openbao_api_addr: >-
+  {{ registry_openbao_api_addr
+     | default('https://openbao.openbao.svc.cluster.local:8200') }}
+readiness_check_registry_openbao_kv_mount: "{{ registry_openbao_kv_mount | default('secret') }}"
+readiness_check_registry_openbao_path: "{{ registry_openbao_path | default('registry/credentials') }}"
+
+# cert-manager settings
+readiness_check_cluster_issuer_names:
+  - "{{ cert_manager_openbao_internal_clusterissuer_name | default('openbao-pki-internal') }}"
+  - "{{ cert_manager_openbao_external_clusterissuer_name | default('openbao-pki-external') }}"
 
 # ── Trace-context trust boundary verification ─────────────────────────────────
 # Deploys an ephemeral header-echo backend behind the gateway, sends a forged
@@ -94,9 +110,13 @@ readiness_check_keycloak_deployment_name: keycloak
 readiness_check_keycloak_service_name: keycloak-service
 
 readiness_check_keycloak_realm: armory
-readiness_check_keycloak_url: "{{ readiness_check_public_base_url }}/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
+readiness_check_keycloak_public_host: >-
+  {{ armory_keycloak_host
+     | default('keycloak.' + readiness_check_public_domain) }}
+readiness_check_keycloak_url: >-
+  https://{{ readiness_check_keycloak_public_host }}/realms/{{
+  readiness_check_keycloak_realm }}/.well-known/openid-configuration
 readiness_check_keycloak_readiness_timeout: 30
-readiness_check_keycloak_host_header: "{{ readiness_check_public_domain }}"
 readiness_check_keycloak_admin_secret_name: keycloak-bootstrap-admin
 # Fallback list mirrors the keycloak role's seeded defaults so these checks
 # still run from the standalone readiness_check.yml playbook, where keycloak

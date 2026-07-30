@@ -41,6 +41,40 @@
       ansible.builtin.include_tasks: check_keycloak.yml
       when: readiness_check_keycloak_enabled | default(false) | bool
 
+    - name: Check registry readiness
+      ansible.builtin.include_tasks:
+        file: check_registry.yml
+        apply:
+          tags:
+            - readiness
+            - readiness_check
+            - post_deploy
+            - readiness_registry
+      when:
+        - readiness_check_registry_enabled | default(false) | bool
+        - registry_enabled | default(false) | bool
+      tags:
+        - readiness
+        - readiness_check
+        - post_deploy
+        - readiness_registry
+
+    - name: Check cert-manager ClusterIssuer readiness
+      ansible.builtin.include_tasks:
+        file: check_cert_manager.yml
+        apply:
+          tags:
+            - readiness
+            - readiness_check
+            - post_deploy
+            - readiness_cert_manager
+      when: readiness_check_cert_manager_enabled | default(true) | bool
+      tags:
+        - readiness
+        - readiness_check
+        - post_deploy
+        - readiness_cert_manager
+
     # ── Report and fail decision ─────────────────────────────────────────
 
     - name: Render readiness report

@@ -6,6 +6,28 @@
 
 - name: Install and validate Helm with diagnostics
   block:
+    - name: Check whether Helm is already installed
+      tags:
+        - helm
+        - helm_install
+      ansible.builtin.command: helm version --short
+      register: helm_preflight_check
+      changed_when: false
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Install Helm via dnf
+      tags:
+        - helm
+        - helm_install
+      ansible.builtin.dnf:
+        name: helm
+        state: present
+      become: true
+      when:
+        - not ansible_check_mode
+        - (helm_preflight_check.rc | default(1)) != 0
+
     - name: Check Helm version
       tags:
         - helm

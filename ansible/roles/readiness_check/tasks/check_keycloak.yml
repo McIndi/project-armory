@@ -84,12 +84,50 @@
   retries: "{{ readiness_check_keycloak_well_known_retries | default(30) }}"
   delay: "{{ readiness_check_keycloak_well_known_delay | default(6) }}"
 
-- name: Check Keycloak well-known endpoint via ingress fallback when DNS fails
+- name: Open a tunnel to the edge Envoy for the Keycloak ingress fallback
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} port-forward
+      --address 127.0.0.1
+      --namespace {{ readiness_check_edge_namespace }}
+      svc/{{ readiness_check_edge_service_name }}
+      {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
+  environment:
+    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
+  async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
+  poll: 0
+  changed_when: true
+  when:
+    - "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
+    - readiness_check_edge_probe_via_port_forward | bool
+
+- name: Wait for the edge tunnel to accept Keycloak fallback connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ readiness_check_edge_probe_port | int }}"
+    timeout: "{{ common_port_forward_ready_timeout_seconds | default(30) }}"
+  when:
+    - "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
+    - readiness_check_edge_probe_via_port_forward | bool
+
+- name: Alias the Keycloak public hostname to the edge tunnel
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_keycloak_public_host | regex_escape }}\s*$'
+    line: "{{ readiness_check_edge_probe_ip }} {{ readiness_check_keycloak_public_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
+
+- name: Check Keycloak well-known endpoint via edge tunnel fallback when DNS fails
   ansible.builtin.uri:
-    url: "{{ readiness_check_ingress_probe_url }}/realms/{{ readiness_check_keycloak_realm }}/.well-known/openid-configuration"
+    url: >-
+      https://{{ readiness_check_keycloak_public_host }}:{{
+      readiness_check_edge_probe_port }}/realms/{{
+      readiness_check_keycloak_realm }}/.well-known/openid-configuration
     method: GET
-    headers:
-      Host: "{{ readiness_check_keycloak_host_header }}"
     validate_certs: false
     follow_redirects: none
     timeout: "{{ readiness_check_keycloak_readiness_timeout }}"
@@ -97,6 +135,14 @@
   register: _readiness_check_keycloak_https_fallback
   changed_when: false
   failed_when: false
+  when: "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
+
+- name: Remove the Keycloak fallback hosts entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_keycloak_public_host | regex_escape }}\s*$'
+    state: absent
+  become: true
   when: "'name resolution' in ((_readiness_check_keycloak_https.msg | default('')) | lower)"
 
 - name: Add Keycloak HTTPS check to results

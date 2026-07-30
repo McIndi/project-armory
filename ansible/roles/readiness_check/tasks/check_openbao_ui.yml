@@ -13,12 +13,49 @@
   changed_when: false
   failed_when: false
 
-- name: Check OpenBao UI HTTPS connectivity via ingress endpoint fallback when DNS fails
+- name: Open a tunnel to the edge Envoy for the OpenBao UI ingress fallback
+  ansible.builtin.command:
+    cmd: >-
+      {{ kubectl_bin }} port-forward
+      --address 127.0.0.1
+      --namespace {{ readiness_check_edge_namespace }}
+      svc/{{ readiness_check_edge_service_name }}
+      {{ readiness_check_edge_probe_port }}:{{ readiness_check_edge_port }}
+  environment:
+    KUBECONFIG: "{{ _readiness_check_kubeconfig_path }}"
+  async: "{{ common_port_forward_ttl_seconds | default(7200) }}"
+  poll: 0
+  changed_when: true
+  when:
+    - "'name resolution' in ((_readiness_check_openbao_ui_https.msg | default('')) | lower)"
+    - readiness_check_edge_probe_via_port_forward | bool
+
+- name: Wait for the edge tunnel to accept OpenBao UI fallback connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ readiness_check_edge_probe_port | int }}"
+    timeout: "{{ common_port_forward_ready_timeout_seconds | default(30) }}"
+  when:
+    - "'name resolution' in ((_readiness_check_openbao_ui_https.msg | default('')) | lower)"
+    - readiness_check_edge_probe_via_port_forward | bool
+
+- name: Alias the OpenBao public hostname to the edge tunnel
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_openbao_ui_host | regex_escape }}\s*$'
+    line: "{{ readiness_check_edge_probe_ip }} {{ readiness_check_openbao_ui_host }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: "'name resolution' in ((_readiness_check_openbao_ui_https.msg | default('')) | lower)"
+
+- name: Check OpenBao UI HTTPS connectivity via edge tunnel fallback when DNS fails
   ansible.builtin.uri:
-    url: "{{ readiness_check_ingress_probe_url }}"
+    url: >-
+      https://{{ readiness_check_openbao_ui_host }}:{{
+      readiness_check_edge_probe_port }}
     method: GET
-    headers:
-      Host: "{{ readiness_check_openbao_ui_host }}"
     validate_certs: false
     follow_redirects: none
     timeout: "{{ readiness_check_openbao_api_timeout }}"
@@ -26,6 +63,14 @@
   register: _readiness_check_openbao_ui_https_fallback
   changed_when: false
   failed_when: false
+  when: "'name resolution' in ((_readiness_check_openbao_ui_https.msg | default('')) | lower)"
+
+- name: Remove the OpenBao UI fallback hosts entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ readiness_check_openbao_ui_host | regex_escape }}\s*$'
+    state: absent
+  become: true
   when: "'name resolution' in ((_readiness_check_openbao_ui_https.msg | default('')) | lower)"
 
 - name: Add OpenBao UI HTTPS connectivity check to results

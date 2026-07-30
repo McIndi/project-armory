@@ -142,11 +142,16 @@ projects, create the account and its grants, install VSO, and make three grants 
 OpenBao's token-review binding, OpenBao's SCC binding, cert-manager's self-token
 Role. It asserts it really is an admin session first.
 
-`site.yml` does everything else as `tex26-automation`. A **preflight checks all
-57 permissions** before any work starts and fails naming the exact verb/resource/
-namespace. It expands the same matrix that generates the Roles, so grants and
-checks cannot drift. **Expect the first bootstrap to reveal one or two
-permissions I missed** — the preflight will name them; adding a rule to
+`site.yml` does everything else as `tex26-automation`. Before any work starts,
+a preflight samples one namespace/resource/verb combination from each rule in
+the namespaced, cluster-scoped, and foreign-namespace permission lists. It fails
+with the exact sampled permission when a check is denied. The checks expand the
+same rule lists used to generate the Roles, so a declared rule and its check
+cannot drift apart, and each Role grants a rule's resources and verbs
+atomically. This sampling does not detect an out-of-band edit to one resource or
+verb in the live Role, or variation within a `resourceNames`-scoped rule.
+**Expect the first bootstrap to reveal one or two rules I missed** — the
+preflight will name them; adding a rule to
 `roles/automation_rbac/defaults/main.yml` is a one-line fix.
 
 ## 7. Unverified assumptions
