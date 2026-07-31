@@ -151,11 +151,20 @@
           name: "{{ automation_rbac_sa_name | default('tex26-automation') }}"
       when: not ansible_check_mode
 
-    # The registry role can mirror its pull secret into arbitrary consumer
-    # namespaces outside the 5 armory-managed ones (registry_pull_secret_namespaces).
-    # Those namespaces are never deleted by this playbook, so the secret must be
-    # removed explicitly or it is orphaned by teardown.
-    - name: Delete registry pull secrets from consuming namespaces outside armory's own
+    # The registry role can mirror pull secrets into consumer namespaces that
+    # later disappear from inventory. Discover and remove by ownership label +
+    # exact name so teardown clears historical secrets, not only current config.
+    - name: Discover armory-owned registry pull secrets across namespaces
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
+        api_version: v1
+        kind: Secret
+        label_selectors:
+          - app.kubernetes.io/part-of=armory
+      register: _teardown_registry_pull_secret_inventory
+      when: not ansible_check_mode
+
+    - name: Delete discovered armory-owned registry pull secrets by exact name
       kubernetes.core.k8s:
         kubeconfig: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
         state: absent
@@ -163,12 +172,17 @@
           apiVersion: v1
           kind: Secret
           metadata:
-            name: "{{ registry_pull_secret_name | default('armory-registry-pull') }}"
-            namespace: "{{ item }}"
-      loop: "{{ registry_pull_secret_namespaces | default([]) }}"
-      when:
-        - not ansible_check_mode
-        - item not in teardown_target_namespaces
+            name: "{{ item.metadata.name }}"
+            namespace: "{{ item.metadata.namespace }}"
+      loop: >-
+        {{
+          (_teardown_registry_pull_secret_inventory.resources | default([]))
+          | selectattr('metadata.name', 'equalto', registry_pull_secret_name | default('armory-registry-pull'))
+          | list
+        }}
+      loop_control:
+        label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"
+      when: not ansible_check_mode
 
     - name: Delete armory namespaces
       kubernetes.core.k8s:
