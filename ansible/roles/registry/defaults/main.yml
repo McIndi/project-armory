@@ -28,7 +28,7 @@ registry_port: 5000
 
 # Public hostname. MUST sit under the apps domain, or the router will not have a
 # certificate for it and node pulls will fail with an x509 error.
-registry_host: "registry.{{ armory_apps_domain | default('apps.example.com') }}"
+registry_host: "registry.{{ armory_apps_domain | default('armory.local', true) }}"
 
 # --- Storage -----------------------------------------------------------------
 registry_storage_class: "{{ armory_storage_class | default('') }}"

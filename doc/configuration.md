@@ -34,7 +34,7 @@ cluster access.
 | `ARMORY_ANSIBLE_ROOT` | `${ARMORY_PROJECT_ROOT}/ansible` | Where playbooks run from |
 | `KUBECONFIG` | `${HOME}/.kube/config` | The controller runs outside the cluster; produced by `oc login`. The OpenShift inventory reads it |
 | `ANSIBLE_INVENTORY` | `inventories/openshift/hosts.yml` | The line that actually selects OpenShift — pointing this at a k3s-era inventory fails against this cluster |
-| `ARMORY_PUBLIC_DOMAIN` | `apps.example.com` | The cluster's real apps domain. Names the OpenBao external PKI cert role; public TLS itself comes from the router's Let's Encrypt wildcard, so that issuer is largely vestigial here, but the name should still reflect the real domain |
+| `ARMORY_PUBLIC_DOMAIN` | `apps.example.com` | The cluster's real apps domain. Feeds `armory_apps_domain` in `group_vars/all.yml`, which every public Route hostname derives from, and names the OpenBao external PKI cert role; public TLS itself comes from the router's Let's Encrypt wildcard, so that issuer is largely vestigial here, but the name should still reflect the real domain |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
 | `ARMORY_PUBLIC_BASE_URL`, `ARMORY_OPENBAO_HOST`, `ARMORY_HEADLAMP_HOST`, `ARMORY_EDGE_GATEWAY_IP` | — | Not used on OpenShift. Kept only so any code that still does a lookup on them doesn't trip over one being entirely absent; the real values come from the inventory (`keycloak_public_base_url`, `openbao_ingress_host`), Headlamp isn't deployed on this branch, and there's no node edge to bind an IP to |
 | `ANSIBLE_*` (remaining) | see `.env.openshift.example` | Controller-side Ansible behavior (log path, callback, retries, etc.) |
@@ -49,7 +49,7 @@ without it they're set in your shell but never exported to the
 | Variable | Current | Purpose |
 |---|---|---|
 | `armory_privileged_tasks` | `false` | Keeps cluster-scoped privilege grants in `bootstrap.yml`; `site.yml` runs scoped |
-| `armory_apps_domain` | cluster-specific | Shared apps domain used to derive public hosts |
+| `armory_apps_domain` | `$ARMORY_PUBLIC_DOMAIN` / `armory.local` | Shared apps domain used to derive public hosts (`armory_keycloak_host`, `armory_openbao_host`, `armory_registry_host`, `readiness_check_public_domain`) |
 | `keycloak_enabled` | `true` | Enables standalone Keycloak deployment |
 | `keycloak_public_base_url` | `https://<armory_keycloak_host>` | Canonical external Keycloak URL for issuer/redirects |
 | `keycloak_pg_tls_enabled` | `true` | Keycloak↔Postgres TLS with `sslmode=verify-full` |

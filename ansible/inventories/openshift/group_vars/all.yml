@@ -80,7 +80,7 @@ openbao_unseal_watcher_enabled: true
 # wildcard cert for *.apps.<domain>, which RHCOS nodes trust out of the box —
 # that is what lets us front an in-namespace registry without any cluster-wide
 # trust configuration.
-armory_apps_domain: apps.example.com
+armory_apps_domain: "{{ lookup('ansible.builtin.env', 'ARMORY_PUBLIC_DOMAIN') | default('armory.local', true) }}"
 armory_keycloak_host: "keycloak.{{ armory_apps_domain }}"
 armory_openbao_host: "openbao.{{ armory_apps_domain }}"
 armory_registry_host: "registry.{{ armory_apps_domain }}"

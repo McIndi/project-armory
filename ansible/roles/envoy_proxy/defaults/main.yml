@@ -96,7 +96,7 @@ envoy_proxy_route_annotations: {}
 # trace boundary, leaving a hole in the audit trail that nothing would report.
 #
 #   - name: keycloak
-#     host: keycloak.apps.example.com
+#     host: keycloak.armory.local
 #     service_fqdn: keycloak-service.keycloak.svc.cluster.local
 #     port: 8443
 #     tls: true       # re-encrypt and verify the backend (default)

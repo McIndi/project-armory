@@ -1192,23 +1192,24 @@ workflow is treated as a reliable fresh deployment.
 
 ### Public endpoint and readiness drift
 
-9. **`.env.example` still supplies k3s-era public values.**
+9. **RESOLVED — `.env.example` k3s-era public values.**
 
-   It exports `ARMORY_PUBLIC_DOMAIN=armory.local`,
-   `ARMORY_PUBLIC_BASE_URL=https://armory.local`, and
-   `ARMORY_OPENBAO_HOST=openbao.armory.local`. The OpenShift inventory correctly
-   overrides Keycloak's deployment URL, but readiness defaults still read the
-   environment for their public URL and OpenBao UI host. Unless a local `.env`
-   was manually corrected, readiness probes the wrong endpoints.
+    `.env.example` was removed from the repo entirely; `.env.openshift.example`
+    is now the only template, and its `ARMORY_PUBLIC_DOMAIN` doubles as the
+    source for `armory_apps_domain` (see finding 10), so there's no longer a
+    second file that can drift out of sync with the OpenShift inventory.
 
-10. **The external PKI role also derives from `ARMORY_PUBLIC_DOMAIN`.**
+10. **RESOLVED — the external PKI role and `armory_apps_domain` now share one
+    source.**
 
-    The OpenShift inventory defines `armory_apps_domain` but does not explicitly
-    override `openbao_pki_external_allowed_domains` or the external certificate
-    role name. With the example environment, the external ClusterIssuer is
-    configured for `armory.local`. Current Route workloads use the internal
-    issuer and router certificates, so this is mostly dormant, but the published
-    external ClusterIssuer is misleading and unusable for the apps domain.
+    `armory_apps_domain` (`inventories/openshift/group_vars/all.yml`) reads
+    `ARMORY_PUBLIC_DOMAIN` via the same `lookup('ansible.builtin.env', ...)`
+    pattern already used by `openbao_pki_external_allowed_domains` and
+    `openbao_pki_external_cert_role`. Setting `ARMORY_PUBLIC_DOMAIN` in `.env`
+    now drives the apps domain, the derived Route hosts
+    (`armory_keycloak_host`, `armory_openbao_host`, `armory_registry_host`),
+    and the external PKI role/allowed-domains together — they can no longer
+    disagree.
 
 11. **The ingress fallback is a local-edge assumption.**
 
