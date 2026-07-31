@@ -9,7 +9,22 @@
   hosts: all
   gather_facts: false
   vars:
-    teardown_target_namespaces:
+    # Source of truth is automation_rbac_managed_namespaces. If it is not set
+    # in inventory/extra-vars, load it from the role defaults in pre_tasks.
+    teardown_target_namespaces: >-
+      {{
+        automation_rbac_managed_namespaces
+        if (automation_rbac_managed_namespaces is defined)
+        else [
+          keycloak_namespace | default('tex26-oidc'),
+          openbao_namespace | default('tex26-vault'),
+          envoy_proxy_namespace | default('tex26-gateway'),
+          registry_namespace | default('tex26-oci-registry'),
+          automation_rbac_sa_namespace | default('tex26-automation')
+        ]
+      }}
+
+    teardown_expected_namespaces:
       - "{{ keycloak_namespace | default('tex26-oidc') }}"
       - "{{ openbao_namespace | default('tex26-vault') }}"
       - "{{ envoy_proxy_namespace | default('tex26-gateway') }}"
@@ -17,6 +32,20 @@
       - "{{ automation_rbac_sa_namespace | default('tex26-automation') }}"
 
   pre_tasks:
+    - name: Load automation_rbac defaults for namespace source-of-truth
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/automation_rbac/defaults/main.yml"
+      when: automation_rbac_managed_namespaces is not defined
+
+    - name: Fail if teardown namespace inventory and role inputs drift
+      ansible.builtin.assert:
+        that:
+          - (teardown_target_namespaces | unique | sort) == (teardown_expected_namespaces | unique | sort)
+        fail_msg: >-
+          Teardown namespace drift detected. Keep teardown and
+          automation_rbac_managed_namespaces aligned before running delete.
+        success_msg: Teardown namespace set is aligned.
+
     - name: Require explicit teardown confirmation
       ansible.builtin.assert:
         that:
