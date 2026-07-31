@@ -52,7 +52,7 @@ requires. Two non-idempotent areas remain after the OpenBao PKI/TLS fix:
   `kubernetes.core` is NOT installed** (only referenced in `galaxy_tags`). The
   dependency-free posture is deliberate (`doc/handoffs/migration_opentofu_to_helm.md`
   §2); revisiting it is now sanctioned (`doc/simplification-opportunities.md` #2).
-- Ansible runs inside the Vagrant VM (`vagrant ssh`, repo at `/vagrant`).
+- Ansible runs on the workstation (`ansible-playbook`, repo at `~/project-armory`).
 - Per `backlog.md`: **do not pin versions during dev** — install latest upstream.
 
 ## Global rules for every stage
@@ -86,13 +86,13 @@ purely mechanical.
 
 **In scope — dependencies:**
 - New `ansible/requirements.yml` with `collections: [kubernetes.core]` (unpinned).
-- `Vagrantfile` provision shell: `ansible-galaxy collection install -r
+- Provision shell: `ansible-galaxy collection install -r
   ansible/requirements.yml` and the Python `kubernetes` lib (required by the `k8s`
   module, **not** the `helm` module). Install it **system-wide / root-importable**
-  (e.g. dnf `python3-kubernetes`), **not** `pip install --user` as `vagrant`: tasks
+  (e.g. dnf `python3-kubernetes`), **not** `pip install --user` in the shell: tasks
   run under global `ANSIBLE_BECOME=True`, so the module's interpreter is root's
   `/usr/bin/python3` and a per-user install is invisible (this bit Stage 3). The
-  `Vagrantfile` is gitignored by repo convention; the VM's provisioning contract
+  the provisioning file is gitignored by repo convention; the workstation provisioning contract
   (resources + installed prerequisites) is documented in the tracked `README.md`.
 - `ansible/roles/helm/tasks/main.yml`: after the binary install, install the
   `helm-diff` plugin idempotently (`helm plugin list` → install when absent; use
@@ -118,17 +118,17 @@ purely mechanical.
   escalating to root, which can read the root-owned `0600`
   `/etc/rancher/k3s/k3s.yaml`. **`kubernetes.core` modules cannot rely on this:**
   they read file args (`kubeconfig`) in a controller-side action plugin as the
-  unprivileged `vagrant` user *before* escalation, so a root-only kubeconfig fails
+  unprivileged controller user *before* escalation, so a root-only kubeconfig fails
   with `[Errno 13] Permission denied` even under global become (confirmed in
   Stage 1 — see ADR 0008 "Why not `become: true`").
 - **Resolution (implemented + validated):** make the canonical kubeconfig itself
-  group-readable by `vagrant` via the k3s installer env in
+  group-readable by the controller user via the k3s installer env in
   `roles/k3s/tasks/install.yml` — `K3S_KUBECONFIG_MODE: "0640"` and
-  `K3S_KUBECONFIG_GROUP: "vagrant"`, leaving `/etc/rancher/k3s/k3s.yaml` as
-  `root:vagrant 0640`. k3s re-applies these every time it (re)writes the file, so
-  it stays correct durably across restarts. Exposure is `{root, vagrant}` — no
+  `K3S_KUBECONFIG_GROUP: "controller"`, leaving `/etc/rancher/k3s/k3s.yaml` as
+  `root:controller 0640`. k3s re-applies these every time it (re)writes the file, so
+  it stays correct durably across restarts. Exposure is `{root, controller}` — no
   broader than a private copy. Chosen over copying the file to
-  `~vagrant/.kube/config`: one versioned, authoritative source of truth with no
+  `~/.kube/config`: one versioned, authoritative source of truth with no
   stale-copy footgun. **Every** `kubernetes.core.*` task sets `kubeconfig:` to
   `/etc/rancher/k3s/k3s.yaml` (directly or via `k3s_kubeconfig_path`); **no
   `become:`**. Legacy `command` tasks keep using the same path via global become
@@ -141,10 +141,10 @@ purely mechanical.
 lib + the kubeconfig/auth decision unblock Stage 3+.
 
 **Verify:** `ansible-galaxy collection list | grep kubernetes.core`;
-`python3 -c "import kubernetes"` (as the `vagrant` runtime user, not just root);
+`python3 -c "import kubernetes"` (as the controller runtime user, not just root);
 `helm plugin list | grep diff`; ADR 0008 written and 0006 marked superseded;
 AGENTS.md residual-command allowlist present; `README.md` documents the VM
-resource + prerequisite requirements provisioned by Vagrant.
+resource + prerequisite requirements provisioned by the workstation bootstrap.
 
 ---
 
@@ -159,8 +159,8 @@ Prove the `kubernetes.core.helm` pattern on the simplest role before fanning out
   `values_files: [.../cert-manager-values.yaml]` (keep the rendered file),
   `wait: true`.
 - **`kubeconfig` (auth contract):** `/etc/rancher/k3s/k3s.yaml` — made
-  group-readable by `vagrant` via the k3s `K3S_KUBECONFIG_MODE: "0640"` /
-  `K3S_KUBECONFIG_GROUP: "vagrant"` installer env (see Stage 0 contract / ADR 0008).
+  group-readable by the controller user via the k3s `K3S_KUBECONFIG_MODE: "0640"` /
+  `K3S_KUBECONFIG_GROUP: "controller"` installer env (see Stage 0 contract / ADR 0008).
   **No `become:`**.
 - **Delete `changed_when: true`** — the module reports change natively.
 - **`chart_version` (gotcha):** `certmanager_chart_version` defaults to `""`

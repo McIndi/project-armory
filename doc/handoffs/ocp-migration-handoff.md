@@ -21,7 +21,7 @@ State as of the end of the design/build phase. **Nothing has been deployed.**
 |---|---|
 | Repos | `C:\Users\cliff\focus\ocp-garrison\project-armory` and `…\project-garrison` |
 | Branch | `ocp-deployment` in **both** (18 commits in armory) |
-| Controller | the `ocp-garrison` Vagrant VM; repos mount at `/vagrant/...` |
+| Controller | the `ocp-garrison` Fedora 44 workstation; repos live under `~/project-armory/...` |
 | Armory | migration complete, unverified |
 | Garrison | **not started** |
 

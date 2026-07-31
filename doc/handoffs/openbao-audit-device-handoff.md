@@ -8,7 +8,7 @@ Scope: enable a `file` audit device in OpenBao, backed by a dedicated PVC, with
 host-driven log rotation and a readiness assertion. No other roles change.
 Preconditions: `site.yml` deploys and `readiness_check.yml` passes on main.
 Deployment model: **fresh rebuild only.** This is a demonstration environment;
-validation is performed on a clean `vagrant destroy -f && vagrant up` followed
+validation is performed on a clean workstation checkout followed
 by a full `site.yml` run. No migration path for existing deployments is needed
 or provided.
 Backlog ref: `backlog.md` → "Enable an OpenBao audit device".
@@ -162,7 +162,7 @@ ansible-lint -c .ansible-lint playbooks/site.yml roles/
 Final validation is a from-scratch rebuild (host, repo root):
 
 ```bash
-vagrant destroy -f && vagrant up
+fresh checkout and redeploy
 ```
 
 Then inside the VM:

@@ -118,13 +118,13 @@ task must **provision and then `wait` for the StatefulSet to be Ready** (poll
 the pod / a `pg_isready` probe) **before** §1.4 runs the Helm release. Reason:
 the chart's `pre-install` migrate hook (§1.3) connects to Postgres on install;
 Helm hook weights do **not** wait for a separately-managed StatefulSet to be
-Ready, so provisioning + waiting here is what makes the first `vagrant up`
+Ready, so provisioning + waiting here is what makes the first clean deploy
 deterministic. The chart therefore contains no DB resources.
 
 **Event persistence — decided:** Delve events are **not** to persist across
 rebuilds. A standard local-path PVC is correct (it survives pod restarts/
 reschedules during a VM's life, which is good demo UX) and is destroyed with
-the VM on `vagrant destroy` like everything else. No backup/snapshot story, no
+the environment on teardown like everything else. No backup/snapshot story, no
 auto-unseal-style durability, and no decision record are needed — losing events
 on rebuild is the intended behavior.
 
@@ -418,7 +418,7 @@ ansible-lint -c .ansible-lint playbooks/site.yml roles/
 yamllint -c .yamllint .
 ```
 
-Behavior acceptance is a fresh rebuild: `vagrant destroy -f && vagrant up`,
+Behavior acceptance is a fresh rebuild on a clean checkout and target,
 full `site.yml`, a second run for idempotency, then `readiness_check.yml`.
 Phase-specific checks:
 

@@ -16,7 +16,7 @@ applied to this VM. Task 1 must actually set these values, not just codify an
 existing state.
 Preconditions: `site.yml` deploys and `readiness_check.yml` passes on main.
 Deployment model: **fresh rebuild only**, per this repo's standard practice —
-validate on a clean `vagrant destroy -f && vagrant up` + full `site.yml`. No
+validate on a clean workstation checkout + full `site.yml`. No
 migration path needed.
 Backlog ref: none yet — add one line to `backlog.md` under "Pending" when this
 lands, mirroring the audit-device entry's style.
@@ -299,7 +299,7 @@ yamllint -c .yamllint .
 Final validation is a from-scratch rebuild (host, repo root):
 
 ```bash
-vagrant destroy -f && vagrant up
+fresh checkout and redeploy
 ```
 
 Then inside the VM:

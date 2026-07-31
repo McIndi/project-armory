@@ -30,7 +30,7 @@ cluster access.
 |---|---|---|
 | `ARMORY_ENV_SOURCED` | `armory2-env-loaded-v1` | Sentry checked by `env_guard`; do not change |
 | `ARMORY_LOG_NOLOG` | `false` | `true` disables `no_log` redaction (prints secrets; debugging only) |
-| `ARMORY_PROJECT_ROOT` | `/vagrant/project-armory` | Repo mount point in the VM; all paths derive from it |
+| `ARMORY_PROJECT_ROOT` | `${HOME}/project-armory` | Repo root on the Fedora 44 workstation; use `/opt/project-armory` if you install it there |
 | `ARMORY_ANSIBLE_ROOT` | `${ARMORY_PROJECT_ROOT}/ansible` | Where playbooks run from |
 | `KUBECONFIG` | `${HOME}/.kube/config` | The controller runs outside the cluster; produced by `oc login`. The OpenShift inventory reads it |
 | `ANSIBLE_INVENTORY` | `inventories/openshift/hosts.yml` | The line that actually selects OpenShift — pointing this at a k3s-era inventory fails against this cluster |

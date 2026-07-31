@@ -21,7 +21,7 @@ Before running a playbook, source the repository environment:
 
 ```bash
 set -a
-source /vagrant/.env
+source ~/project-armory/.env
 set +a
 cd "${ARMORY_ANSIBLE_ROOT}"
 ```

@@ -170,7 +170,7 @@ Keycloak HTTPS check to results`) untouched — it already reads
 `_readiness_check_keycloak_https_fallback` generically.
 
 **Verify:** `--syntax-check` passes. To actually exercise the fallback branch
-in Vagrant, temporarily break DNS resolution for the Keycloak hostname (e.g.
+on the workstation, temporarily break DNS resolution for the Keycloak hostname (e.g.
 point it at a bogus IP in `/etc/hosts` before the run) and confirm the
 fallback path reaches Envoy and reports `pass`/`warn` correctly, then remove
 the manual override.

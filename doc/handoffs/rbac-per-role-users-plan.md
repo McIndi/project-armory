@@ -172,7 +172,7 @@ keycloak role alongside the import.
   Backlog" row), `doc/configuration.md` (new vars), `doc/operations.md`
   (how to log in as each role to Headlamp/kubectl).
 - Full run: `ansible-playbook playbooks/site.yml` then
-  `playbooks/readiness_check.yml` green in the Vagrant VM.
+  `playbooks/readiness_check.yml` green on the workstation.
 
 ## Verification recipe (all pieces)
 

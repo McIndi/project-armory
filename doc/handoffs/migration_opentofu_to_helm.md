@@ -196,11 +196,11 @@ File: `tasks/teardown.yml` — replace both `tofu destroy` with `helm uninstall`
 5. Delete `opentofu` role + site.yml block once all four are converted and green.
 6. Update teardown playbook + READMEs + docs.
 
-Convert and validate **one role per PR** (or per `vagrant up --provision` cycle with that
+Convert and validate **one role per PR** (or per clean deploy cycle with that
 role's tag). Don't big-bang all four.
 
 ## 6. Validation per role
-- Greenfield: `vagrant destroy -f && vagrant up` → role deploys clean (no prior tofu state).
+- Greenfield: clean checkout and redeploy → role deploys clean (no prior tofu state).
 - Idempotency: re-run `ansible-playbook ... --tags <role>` → second run shows the release
   already `deployed`, no errors.
 - In-place adopt: on a VM that previously deployed via tofu, run the converted role →
@@ -227,4 +227,4 @@ role's tag). Don't big-bang all four.
   the half-up Keycloak StatefulSet stays patchable. Preserve by omitting `--atomic` on pass 1.
 - **Local chart refs** (VSO hardened chart): pass directory as chart ref, no `--repo`.
 - **In-place adoption** is the one genuinely novel path — validate before rolling to any
-  long-lived environment. Fresh `vagrant up` is unaffected.
+  long-lived environment. Fresh deploys are unaffected.

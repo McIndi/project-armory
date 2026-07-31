@@ -14,7 +14,7 @@ Preconditions: `site.yml` deploys and `readiness_check.yml` passes on main
 (including the audit-device work from
 `doc/handoffs/openbao-audit-device-handoff.md`).
 Deployment model: **fresh rebuild only.** Validation is a clean
-`vagrant destroy -f && vagrant up` + full `site.yml`. No migration path for
+fresh checkout + full `site.yml`. No migration path for
 existing deployments is needed or provided.
 Backlog ref: `backlog.md` → "Stop using the OpenBao root token…".
 
@@ -413,7 +413,7 @@ ansible-lint -c .ansible-lint playbooks/site.yml roles/
 Final validation is a from-scratch rebuild (host, repo root):
 
 ```bash
-vagrant destroy -f && vagrant up
+fresh checkout and redeploy
 ```
 
 Then inside the VM:

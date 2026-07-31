@@ -3,14 +3,16 @@
 Runbook for deploying, validating, and operating the stack. Background on how
 the pieces fit together is in [architecture.md](architecture.md).
 
-Unless stated otherwise, commands run **inside the VM** (`vagrant ssh`) with
-the environment sourced:
+Unless stated otherwise, commands run on a Fedora 44 workstation with the
+repository cloned at `~/project-armory` or `/opt/project-armory` and the
+environment sourced:
 
 ```bash
-cd /vagrant/project-armory
+cd ~/project-armory
+# or: cd /opt/project-armory
 # cp .env.openshift.example .env   # first time only — see configuration.md
 set -a; source .env; set +a
-cd "${ARMORY_ANSIBLE_ROOT}"
+cd ansible
 ```
 
 There is no `ansible.cfg`; nothing sets a default inventory, so every
@@ -73,10 +75,10 @@ Use the helper to capture a broad, compare-friendly state snapshot before or
 after any deploy/readiness run (including failed runs):
 
 ```bash
-bash /vagrant/project-armory/ansible/scripts/capture_run_snapshot.sh
+bash ansible/scripts/capture_run_snapshot.sh
 ```
 
-Output files are written under `/vagrant/project-armory/log/run-snapshots/`
+Output files are written under `~/project-armory/log/run-snapshots/`
 with a unique timestamped filename (`run-snapshot-<UTC timestamp>.log`). If a
 file with the same timestamp already exists, the script appends an index
 suffix.
@@ -122,8 +124,8 @@ OpenBao UI login notes:
 
 ## Retrieve generated credentials
 
-Run from the workstation (`vagrant ssh -c ...`) or drop the wrapper inside
-the VM. Source of truth is always OpenBao; Ansible writes the required
+Run from the workstation after sourcing `.env`. Source of truth is always
+OpenBao; Ansible writes the required
 Kubernetes Secrets directly after updating KV (no VSO sync controller).
 
 | Purpose | OpenBao path | k8s Secret (ns `tex26-oidc`) |
@@ -136,19 +138,19 @@ Kubernetes Secrets directly after updating KV (no VSO sync controller).
 
 ```bash
 # Realm admin (OpenBao UI login)
-vagrant ssh default -c "oc get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+oc get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo
 
 # Realm operator / viewer (OpenBao UI logins) via OpenBao KV — uses the scoped
 # ansible-provisioner token (root is break-glass only). OpenBao state lives
 # under ~/.armory/openbao on the controller (openbao_work_dir), owned by
 # whichever user ran the playbook.
-vagrant ssh default -c "TOK=\$(sudo ansible-vault decrypt --vault-password-file ~/.armory/openbao/.vault-pass --output - ~/.armory/openbao/provisioner-token.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"provisioner_token\"])'); BAO=\$(oc get svc -n tex26-vault openbao -o jsonpath='{.spec.clusterIP}'); for U in operator viewer; do echo \"==> \$U\"; oc run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n tex26-vault --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-users/\$U | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'; done"
+TOK=\$(sudo ansible-vault decrypt --vault-password-file ~/.armory/openbao/.vault-pass --output - ~/.armory/openbao/provisioner-token.yml | python3 -c 'import sys,yaml;print(yaml.safe_load(sys.stdin)[\"provisioner_token\"])'); BAO=\$(oc get svc -n tex26-vault openbao -o jsonpath='{.spec.clusterIP}'); for U in operator viewer; do echo \"==> \$U\"; oc run baoq-\$RANDOM --rm -i --restart=Never --image=curlimages/curl -n tex26-vault --quiet -- -sk -H \"X-Vault-Token: \$TOK\" https://\$BAO:8200/v1/secret/data/keycloak/realm-users/\$U | python3 -c 'import sys,json;d=json.load(sys.stdin)[\"data\"][\"data\"];print(\"username:\",d[\"username\"]);print(\"password:\",d[\"password\"])'; done
 
 # Master bootstrap admin
-vagrant ssh default -c "oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo
 
 # DB credentials
-vagrant ssh default -c "oc get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
+oc get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
 ## Password rotation
@@ -256,19 +258,18 @@ cluster-scoped RBAC/issuers/secrets without mutating shared cert-manager):
 ansible-playbook -i inventories/openshift playbooks/teardown_openshift.yml -e teardown_confirm=true
 ```
 
-Full rebuild from scratch (workstation, repo root) — the standard validation
-path for changes:
+Full rebuild from scratch (clean checkout and fresh OpenShift target) — the
+standard validation path for changes:
 
 ```bash
-vagrant destroy -f && vagrant up
-# then inside the VM: cp .env.openshift.example .env, source it, and run
-# bootstrap.yml then site.yml as above
+# then rerun bootstrap.yml and site.yml as above
 ```
 
 ## Troubleshooting
 
 - **`env_guard` fails immediately**: `.env` not sourced. `set -a; source
-  /vagrant/project-armory/.env; set +a` and verify
+  ~/project-armory/.env; set +a` or `set -a; source /opt/project-armory/.env;
+  set +a` and verify
   `test "${ARMORY_ENV_SOURCED:-}" = "armory2-env-loaded-v1"`.
 - **OpenBao tasks fail with connection errors**: pod restarted and is sealed.
   Run `ansible-playbook -i inventories/openshift playbooks/openbao_unseal.yml`.
@@ -281,7 +282,7 @@ vagrant destroy -f && vagrant up
   console and `log/ansible.log`; rotate anything exposed and set it back.
 - **Helm upgrade rejected with StatefulSet immutable-field error**: a chart
   change touched `volumeClaimTemplates` or similar. The supported path is a
-  fresh rebuild (`vagrant destroy -f && vagrant up`).
+  fresh checkout and redeploy against a clean OpenShift target.
 - **`site.yml`'s RBAC preflight fails**: it names the exact missing
   verb/resource/namespace. Re-run `playbooks/bootstrap.yml` as cluster-admin
   to (re)apply grants, or add the missing rule to

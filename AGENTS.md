@@ -8,37 +8,36 @@ Orientation: [doc/architecture.md](doc/architecture.md). Commands:
 
 ## Execution model
 
-Everything runs inside the Vagrant VM; the repo is mounted at `/vagrant`.
+Everything runs on a Fedora 44 workstation; keep the repo at
+`~/project-armory` or `/opt/project-armory`.
 Before any ansible command, source the environment:
 
 ```bash
-set -a; source /vagrant/.env; set +a
+set -a; source ~/project-armory/.env; set +a
 cd "${ARMORY_ANSIBLE_ROOT}"
 ```
 
 The `env_guard` role fails fast if this wasn't done. There is no
 `ansible.cfg`; all Ansible settings come from `ANSIBLE_*` vars in `.env`.
 
-## `vagrant ssh -c` quoting
+## Shell quoting for remote commands
 
-Quoting mistakes here are one of the most common time sinks during
-fact-finding. Rules that hold:
+Quoting mistakes are one of the most common time sinks during fact-finding.
+Rules that hold:
 
-- Use **double quotes** around the remote command:
-  `vagrant ssh -c "oc get pods -A"`.
-- Escape `$` as `\$` for anything that must expand **on the VM**, not the
-  host: `vagrant ssh -c "TOK=\$(...); echo \$TOK"`. Unescaped `$VAR`
-  is expanded by the host shell before vagrant ever runs.
+- Use **double quotes** around the remote command payload.
+- Escape `$` as `\$` for anything that must expand on the remote shell, not
+  the workstation.
 - Avoid nesting single quotes inside jsonpath/jq expressions inside the
   double-quoted command; prefer `-o jsonpath={.status.phase}` (no quotes)
-  or move complex pipelines into a heredoc/script on the VM.
+  or move complex pipelines into a heredoc/script on the remote host.
 - Non-login shell: user-level PATH additions (e.g. `~/.local/bin`,
   where pip puts `ansible-lint`) are missing. Wrap with
   `bash -lc '...'` if a tool isn't found.
-- Long multi-step debugging: `vagrant ssh` interactively or write a script
-  to `/vagrant/` and execute it, instead of stacking escapes.
-- Each `vagrant ssh -c` has ~1–2s connection overhead; batch related
-  commands with `;` into one call.
+- Long multi-step debugging: use a script in the repo or execute commands
+  directly on the workstation instead of stacking escapes.
+- Batch related commands with `;` into one call when the shell context is the
+  same.
 
 ## Code conventions
 
@@ -81,10 +80,10 @@ ansible-lint -c .ansible-lint playbooks/site.yml roles/
 yamllint -c .yamllint .
 ```
 
-The acceptance path for behavior changes is a fresh rebuild
-(`vagrant destroy -f && vagrant up`, then full `site.yml` + a second run for
-idempotency + `readiness_check.yml`). There is no migration/upgrade support
-for existing deployments during development.
+The acceptance path for behavior changes is a fresh deploy to a clean cluster,
+then full `site.yml` + a second run for idempotency + `readiness_check.yml`.
+There is no migration/upgrade support for existing deployments during
+development.
 
 ## Documentation rules
 

@@ -178,7 +178,7 @@ The playbook handles all ordering and dependencies. With `keycloak_enabled: true
 globally and BeeAI removed:
 
 ```bash
-cd /vagrant/project-armory/ansible          # .env sourced → inventory + become auto
+cd ~/project-armory/ansible          # .env sourced → inventory + become auto
 ansible-playbook --syntax-check playbooks/site.yml
 ansible-playbook playbooks/site.yml          # full converge: …→ vso → keycloak → headlamp → readiness
 ```

@@ -26,7 +26,8 @@ identity and secrets foundation.
 ## Environment requirements
 
 Project Armory targets an OpenShift cluster. This repo is commonly developed and
-validated from the provided Vagrant VM and local Ansible checks.
+validated from a Fedora 44 workstation and local Ansible checks. Clone the repo
+to `~/project-armory` or `/opt/project-armory` and use that path consistently.
 
 Runtime prerequisites:
 
@@ -43,21 +44,14 @@ cd ansible
 ansible-galaxy collection install -r requirements.yml
 ```
 
-## Quickstart (Vagrant workflow)
+## Quickstart (Fedora 44 workstation workflow)
 
 From the workstation:
 
 ```bash
-vagrant up
-vagrant ssh default
-```
-
-Inside the VM:
-
-```bash
-cd /vagrant/project-armory
-# cp .env.openshift.example .env    # first run only
-find ./log -type f ! -name ".empty" -delete
+cd ~/project-armory
+# or: cd /opt/project-armory
+cp .env.openshift.example .env    # first run only
 set -a; source .env; set +a
 cd ansible
 
@@ -81,14 +75,17 @@ Examples from the workstation:
 
 ```bash
 # Realm admin password (Keycloak namespace from openshift inventory default)
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+cd ~/project-armory
+set -a; source .env; set +a
+cd ansible
+oc get secret -n tex26-oidc keycloak-realm-admin -o jsonpath='{.data.password}' | base64 -d; echo
 
 # Keycloak bootstrap admin username/password
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo"
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo"
+oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.username}' | base64 -d; echo
+oc get secret -n tex26-oidc keycloak-bootstrap-admin -o jsonpath='{.data.password}' | base64 -d; echo
 
 # Keycloak database password
-vagrant ssh default -c "cd /vagrant/project-armory/ansible; set -a; . /vagrant/project-armory/.env; set +a; oc get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo"
+oc get secret -n tex26-oidc keycloak-db-secret -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
 Authoritative source of truth remains OpenBao KV paths configured by the
@@ -106,8 +103,8 @@ Keycloak (realm `armory`):
 
 ## Common commands
 
-All commands below assume execution in `/vagrant/project-armory/ansible` with
-`.env` sourced.
+All commands below assume execution in `~/project-armory/ansible` or
+`/opt/project-armory/ansible` with `.env` sourced.
 
 ```bash
 # Local validation gates

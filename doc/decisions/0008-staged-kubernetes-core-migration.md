@@ -23,7 +23,7 @@ Accept runtime dependencies required for the module path:
 - Python `kubernetes` library for `kubernetes.core.k8s*`, installed
   **system-wide / root-importable** (e.g. dnf `python3-kubernetes`). Because tasks
   run under global `ANSIBLE_BECOME=True`, the module executes as **root**, so a
-  `pip install --user` under `vagrant` is invisible and fails with "Failed to
+  `pip install --user` under the controller user is invisible and fails with "Failed to
   import the required Python library (kubernetes)" (caught in Stage 3 — the helm
   module needed no Python lib, so it surfaced only at the first `k8s_info`).
 - Helm `diff` plugin for accurate `kubernetes.core.helm` no-op detection
@@ -33,9 +33,9 @@ Use an explicit module auth contract for all `kubernetes.core.k8s`,
 - pass `kubeconfig: "{{ <role>_kubeconfig_path }}"` (or the literal
   `/etc/rancher/k3s/k3s.yaml`) on each task; **no `become:`**
 - the canonical kubeconfig is made readable by the unprivileged runtime user
-  (`vagrant`) by the k3s installer env in `roles/k3s/tasks/install.yml`:
-  `K3S_KUBECONFIG_MODE: "0640"` and `K3S_KUBECONFIG_GROUP: "vagrant"`, leaving
-  `/etc/rancher/k3s/k3s.yaml` as `root:vagrant 0640`. k3s re-applies these every
+  (`controller`) by the k3s installer env in `roles/k3s/tasks/install.yml`:
+  `K3S_KUBECONFIG_MODE: "0640"` and `K3S_KUBECONFIG_GROUP: "controller"`, leaving
+  `/etc/rancher/k3s/k3s.yaml` as `root:controller 0640`. k3s re-applies these every
   time it (re)writes the file, so it is durable across restarts. (Note: the
   installer env only lands on a **clean** k3s install, so it applies via
   teardown/rebuild, not an in-place rerun.) Validated in Stage 1 and Stage 2.
@@ -50,12 +50,12 @@ same path fine as root, but the migrated `kubernetes.core.helm` task did not). T
 fix is a runtime-user-readable kubeconfig, not escalation.
 
 **Alternatives considered and rejected:**
-- *Copy the kubeconfig* to `~vagrant/.kube/config` (owner `vagrant`, `0600`): works,
+- *Copy the kubeconfig* to `~/.kube/config` (owner `controller`, `0600`): works,
   but creates a second copy that can drift from the live file — two sources of
   truth and a stale-copy footgun. The mode/group approach keeps one authoritative,
   versioned-config source.
 - *`--write-kubeconfig-mode 0644`*: world-readable cluster-admin credentials. The
-  `0640` + group `vagrant` variant gives the same `{root, vagrant}` exposure as the
+  `0640` + group `controller` variant gives the same `{root, controller}` exposure as the
   rejected copy without the over-broad permission.
 
 Residual `command` use remains allowed where there is no clean module mapping:
