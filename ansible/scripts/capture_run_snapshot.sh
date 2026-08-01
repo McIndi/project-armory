@@ -21,10 +21,10 @@ while [[ -e "${OUTFILE}" ]]; do
   INDEX=$((INDEX + 1))
 done
 
-if [[ -f /vagrant/.env ]]; then
+if [[ -f "${REPO_ROOT}/.env" ]]; then
   set -a
   # shellcheck source=/dev/null
-  source /vagrant/.env
+  source "${REPO_ROOT}/.env"
   set +a
 fi
 
