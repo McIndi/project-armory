@@ -10,7 +10,7 @@ environment sourced:
 ```bash
 cd ~/project-armory
 # or: cd /opt/project-armory
-# cp .env.openshift.example .env   # first time only — see configuration.md
+# cp .env.example .env   # first time only — see configuration.md
 set -a; source .env; set +a
 cd ansible
 ```

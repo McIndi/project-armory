@@ -1194,7 +1194,7 @@ workflow is treated as a reliable fresh deployment.
 
 9. **RESOLVED — `.env.example` k3s-era public values.**
 
-    `.env.example` was removed from the repo entirely; `.env.openshift.example`
+    `.env.example` was removed from the repo entirely; `.env.example`
     is now the only template, and its `ARMORY_PUBLIC_DOMAIN` doubles as the
     source for `armory_apps_domain` (see finding 10), so there's no longer a
     second file that can drift out of sync with the OpenShift inventory.

@@ -51,7 +51,7 @@ From the workstation:
 ```bash
 cd ~/project-armory
 # or: cd /opt/project-armory
-cp .env.openshift.example .env    # first run only
+cp .env.example .env    # first run only
 set -a; source .env; set +a
 cd ansible
 

@@ -3,7 +3,7 @@
 Three layers of configuration, from broadest to narrowest:
 
 1. **`.env`** — environment for the Ansible CLI itself plus a small set of
-   cross-cutting values. Copied from `.env.openshift.example` (the template
+   cross-cutting values. Copied from `.env.example` (the template
    for this branch's actual target — the OpenShift inventory), sourced before
    every run. The `env_guard` role refuses to run if it isn't loaded.
    `.env.example` is a separate, older template for a k3s-based deployment
@@ -20,7 +20,7 @@ invisible to other roles.
 
 ## .env
 
-Values from `.env.openshift.example` — the template this branch actually
+Values from `.env.example` — the template this branch actually
 uses. Most host/domain values that mattered on k3s now come from
 `inventories/openshift/group_vars/all.yml` instead (they derive from the
 cluster's apps domain); `.env` only carries what Ansible itself needs plus
@@ -37,7 +37,7 @@ cluster access.
 | `ARMORY_PUBLIC_DOMAIN` | `apps.example.com` | The cluster's real apps domain. Feeds `armory_apps_domain` in `group_vars/all.yml`, which every public Route hostname derives from, and names the OpenBao external PKI cert role; public TLS itself comes from the router's Let's Encrypt wildcard, so that issuer is largely vestigial here, but the name should still reflect the real domain |
 | `ARMORY_INTERNAL_PKI_ALLOWED_DOMAINS` | `svc.cluster.local` | DNS suffixes the internal PKI issuer may sign |
 | `ARMORY_PUBLIC_BASE_URL`, `ARMORY_OPENBAO_HOST`, `ARMORY_HEADLAMP_HOST`, `ARMORY_EDGE_GATEWAY_IP` | — | Not used on OpenShift. Kept only so any code that still does a lookup on them doesn't trip over one being entirely absent; the real values come from the inventory (`keycloak_public_base_url`, `openbao_ingress_host`), Headlamp isn't deployed on this branch, and there's no node edge to bind an IP to |
-| `ANSIBLE_*` (remaining) | see `.env.openshift.example` | Controller-side Ansible behavior (log path, callback, retries, etc.) |
+| `ANSIBLE_*` (remaining) | see `.env.example` | Controller-side Ansible behavior (log path, callback, retries, etc.) |
 
 There is no `ansible.cfg` — Ansible behavior comes entirely from the
 `ANSIBLE_*` vars above, which is why `set -a` before sourcing `.env` matters:

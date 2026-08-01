@@ -846,7 +846,7 @@ hits under `ansible/` for `*.yml`, `*.j2`, and `*.cfg`.
   the Phase 1 baseline.
   Deleted `ansible/roles/vso/` and `charts/vso-hardened/`, removed
   `vso_enabled` from both inventories, and removed `VSO_CHART_*` env plumbing
-  from `.env`, `.env.example`, and `.env.openshift.example`. Also removed the
+  from `.env`, `.env.example`, and `.env.example`. Also removed the
   now-dangling `include_role: name: vso` task from
   `playbooks/teardown_k3s_workloads.yml` so no playbook references a deleted
   role. Local validation in Vagrant: `ANSIBLE_ROLES_PATH=roles
