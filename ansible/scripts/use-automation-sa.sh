@@ -20,9 +20,32 @@ SA_NAMESPACE="${ARMORY_AUTOMATION_SA_NAMESPACE:-tex26-automation}"
 DURATION="${ARMORY_AUTOMATION_TOKEN_DURATION:-4h}"
 OUT="${ARMORY_AUTOMATION_KUBECONFIG:-${HOME}/.armory/automation.kubeconfig}"
 
-# Read from the CURRENT (admin) session before we switch away from it.
+# Read from the CURRENT (admin) session before we switch away from it. The
+# admin context may trust the cluster via an inline CA, a CA file path, or
+# (common on a dev/lab cluster with a self-signed router cert, e.g. behind
+# `oc login --insecure-skip-tls-verify`) no CA at all. Carry forward whichever
+# form is actually in use instead of assuming inline CA data always exists —
+# otherwise the generated kubeconfig silently falls back to strict
+# verification with an empty CA and every call fails with "certificate signed
+# by unknown authority".
 SERVER="$(oc whoami --show-server)"
 CA_DATA="$(oc config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+CA_FILE="$(oc config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority}')"
+INSECURE="$(oc config view --raw --minify -o jsonpath='{.clusters[0].cluster.insecure-skip-tls-verify}')"
+
+if [[ -z "${CA_DATA}" && -n "${CA_FILE}" && -f "${CA_FILE}" ]]; then
+  CA_DATA="$(base64 -w0 <"${CA_FILE}")"
+fi
+
+if [[ -n "${CA_DATA}" ]]; then
+  CLUSTER_TLS_LINE="      certificate-authority-data: ${CA_DATA}"
+elif [[ "${INSECURE}" == "true" ]]; then
+  CLUSTER_TLS_LINE="      insecure-skip-tls-verify: true"
+else
+  echo "ERROR: current oc session has neither a CA (inline or file) nor" >&2
+  echo "insecure-skip-tls-verify=true; cannot build a trusted automation kubeconfig." >&2
+  exit 1
+fi
 
 echo "Minting a ${DURATION} token for ${SA_NAMESPACE}:${SA_NAME} as $(oc whoami)..."
 TOKEN="$(oc create token "${SA_NAME}" -n "${SA_NAMESPACE}" --duration="${DURATION}")"
@@ -36,7 +59,7 @@ clusters:
   - name: armory
     cluster:
       server: ${SERVER}
-      certificate-authority-data: ${CA_DATA}
+${CLUSTER_TLS_LINE}
 users:
   - name: ${SA_NAME}
     user:
