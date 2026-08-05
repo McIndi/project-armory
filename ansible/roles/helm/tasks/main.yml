@@ -51,7 +51,7 @@
         - helm
         - helm_install
       ansible.builtin.command:
-        cmd: helm plugin install https://github.com/databus23/helm-diff --verify=false
+        cmd: helm plugin install https://github.com/databus23/helm-diff
       changed_when: true
       when:
         - not ansible_check_mode
