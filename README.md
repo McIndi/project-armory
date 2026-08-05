@@ -58,12 +58,20 @@ cd ansible
 # One-time privileged setup (cluster-admin context)
 ansible-playbook playbooks/bootstrap.yml
 
+# In the SAME shell, mint a short-lived token and switch KUBECONFIG
+# to the scoped automation ServiceAccount.
+source scripts/use-automation-sa.sh
+
 # Main deployment (scoped automation account)
 ansible-playbook playbooks/site.yml
 
 # Optional local run snapshot (audit artifact, not backup)
 bash scripts/capture_run_snapshot.sh
 ```
+
+If you stay in one SSH session, source `.env` once at the start of that
+session. Re-run `source scripts/use-automation-sa.sh` whenever the scoped token
+expires (default: 4h).
 
 ## Retrieve generated credentials
 

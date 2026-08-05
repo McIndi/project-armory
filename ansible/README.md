@@ -92,7 +92,9 @@ flowchart TD
 The expected lifecycle is:
 
 1. Run `bootstrap.yml` as a cluster administrator.
-2. Mint a short-lived token for the scoped automation ServiceAccount.
+2. In the same shell session, run `source scripts/use-automation-sa.sh` to
+   mint a short-lived token and switch `KUBECONFIG` to the scoped automation
+   ServiceAccount.
 3. Run `site.yml` with that scoped identity.
 4. Use `readiness_check.yml` for later validation and
    `openbao_unseal.yml` for manual recovery.
@@ -221,11 +223,13 @@ flowchart TD
 15. On success, the play prints the next command:
 
     ```bash
-    scripts/use-automation-sa.sh
+   source scripts/use-automation-sa.sh
     ```
 
-    The script uses `oc create token tex26-automation -n tex26-automation
-    --duration=4h` to obtain a short-lived credential for `site.yml`.
+   Sourcing (not executing) matters because it exports the new
+   `KUBECONFIG` into your current shell. The script uses
+   `oc create token tex26-automation -n tex26-automation --duration=4h` to
+   obtain a short-lived credential for `site.yml`.
 
 Check mode performs the administrator confirmation and environment validation,
 but nearly all bootstrap mutations and the RBAC preflight are explicitly
@@ -236,8 +240,13 @@ skipped.
 Run the deployment with the scoped automation identity:
 
 ```bash
+source scripts/use-automation-sa.sh
 ansible-playbook playbooks/site.yml
 ```
+
+If you keep one SSH session open, source `.env` once at session start and then
+re-source `scripts/use-automation-sa.sh` only when the automation token expires
+(default duration: 4h).
 
 The play gathers controller facts and executes roles in dependency order.
 
