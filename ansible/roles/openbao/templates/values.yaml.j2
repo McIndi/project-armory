@@ -83,6 +83,17 @@ server:
     create: true
     name: openbao
 
+  # The chart's own server-binding ClusterRoleBinding (system:auth-delegator)
+  # duplicates tex26-openbao-tokenreview, which bootstrap.yml already creates
+  # under cluster-admin (see the note in tasks/install.yml). Left at the chart
+  # default of true, the scoped tex26-automation identity that runs this Helm
+  # release can't even GET a cluster-scoped ClusterRoleBinding to reconcile it,
+  # so `helm upgrade -i` fails outright. Disabling it here stops the chart
+  # from trying to manage a cluster-scoped object it was never granted rights
+  # to touch; bootstrap's binding already covers the same auth-delegator need.
+  authDelegator:
+    enabled: false
+
 {% if openbao_tls_enabled | bool %}
   volumes:
     - name: openbao-server-tls
