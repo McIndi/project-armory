@@ -13,6 +13,17 @@
 # Sourcing (not executing) matters: it exports KUBECONFIG into your shell so the
 # playbook picks it up.
 
+# This file is meant to be `source`d (see usage above), not executed — that's
+# how KUBECONFIG reaches your shell. But `source` runs in the CURRENT shell,
+# not a subshell, so `set -euo pipefail` and any bare `exit` here would apply
+# to (and can kill) the interactive/SSH shell that sourced it: the very next
+# unrelated command that returns non-zero silently terminates that shell once
+# errexit has leaked into it, and `exit 1` below would end the session outright
+# instead of just this script. Scope strict-mode to this script's own body and
+# restore the caller's original options when done; use `return`, never `exit`.
+_use_automation_sa_prev_opts="$(set +o)"
+_use_automation_sa_prev_umask="$(umask)"
+trap 'eval "${_use_automation_sa_prev_opts}"; umask "${_use_automation_sa_prev_umask}"; trap - RETURN' RETURN
 set -euo pipefail
 
 SA_NAME="${ARMORY_AUTOMATION_SA_NAME:-tex26-automation}"
@@ -44,7 +55,7 @@ elif [[ "${INSECURE}" == "true" ]]; then
 else
   echo "ERROR: current oc session has neither a CA (inline or file) nor" >&2
   echo "insecure-skip-tls-verify=true; cannot build a trusted automation kubeconfig." >&2
-  exit 1
+  return 1
 fi
 
 echo "Minting a ${DURATION} token for ${SA_NAMESPACE}:${SA_NAME} as $(oc whoami)..."
