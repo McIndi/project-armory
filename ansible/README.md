@@ -1126,69 +1126,71 @@ workflow is treated as a reliable fresh deployment.
 
 ### Likely deployment blockers
 
-1. **The provisioner policy does not grant the registry KV path.**
+1. **RESOLVED — the provisioner policy now grants the registry KV path.**
 
-   `openbao_provisioner_kv_prefixes` contains only `keycloak` and `openbao`, but
-   the enabled registry reads and writes `secret/data/registry/credentials`.
-   The scoped token should receive `403` for that path. Add `registry` to the
-   policy inputs or give the registry a separate appropriately scoped policy.
+   `openbao_provisioner_kv_prefixes` in `roles/openbao/defaults/main.yml` lists
+   `keycloak`, `openbao`, and `registry`. The scoped provisioner token can
+   read/write `secret/data/registry/credentials` without a `403`.
 
-2. **Envoy mounts one CA for two differently signed upstreams.**
+2. **RESOLVED — Envoy now builds a combined trust bundle for its two upstreams.**
 
-   Envoy mounts `openbao-ca`, the controller-generated CA that signs the
-   OpenBao server. It uses that file to validate both OpenBao and Keycloak.
-   Keycloak's internal certificate is instead signed by the OpenBao `pki-int`
-   hierarchy. A trust bundle containing both required chains, or per-upstream CA
-   configuration, is needed.
+   `roles/envoy_proxy/tasks/main.yml` reads the bootstrap `openbao-ca` Secret
+   and fetches the `pki-int` issuer CA (the one that actually signs Keycloak's
+   internal certificate) from OpenBao, concatenates both PEMs, and applies the
+   result as the `openbao-ca` Secret mounted into the edge namespace. Both
+   upstreams validate correctly.
 
-3. **The readiness trace policy and Envoy strip list disagree.**
+3. **RESOLVED — the readiness trace policy and Envoy strip list now agree.**
 
-   Readiness requires forged `baggage` to be absent at the backend, but
-   `envoy_proxy_trace_strip_headers` does not include `baggage`. With the
-   rendered configuration, the trace-boundary check should fail even if
-   `traceparent` and `tracestate` handling is correct.
+   `envoy_proxy_trace_strip_headers` in `roles/envoy_proxy/defaults/main.yml`
+   includes `baggage` alongside `traceparent` and `tracestate`. The
+   trace-boundary check's requirement that forged `baggage` never reach the
+   backend matches the rendered Envoy configuration.
 
-4. **The OIDC discovery CA does not match the public Route certificate.**
+4. **RESOLVED — no OIDC discovery CA mismatch.**
 
-   OpenBao is configured to discover Keycloak at its public OpenShift Route, but
-   `oidc_discovery_ca_pem` is populated with the OpenBao external PKI CA. The
-   Route is served by the OpenShift router's public wildcard certificate, not
-   that OpenBao CA. Confirm OpenBao's trust behavior and use the actual router
-   chain or system trust as appropriate.
+   The `oidc_discovery_ca_pem` variable no longer exists. OpenBao's `oidc/`
+   auth backend config (`roles/openbao_oidc/tasks/oidc_config.yml`) sets only
+   `oidc_discovery_url`, `oidc_client_id`, `oidc_client_secret`, and
+   `default_role` — no CA is pinned, so discovery against the public Keycloak
+   Route validates against system trust, consistent with the router's publicly
+   trusted wildcard chain.
 
 ### Standalone playbook problems
 
-5. **`openbao_unseal.yml` does not establish off-cluster connectivity.**
+5. **RESOLVED — `openbao_unseal.yml` establishes off-cluster connectivity.**
 
-   It addresses the internal Service FQDN but does not run the helper that maps
-   the name to loopback and starts `oc port-forward`. It also does not restore
-   the mirrored break-glass files. It can work only when connectivity and local
-   key state already happen to exist. The in-cluster watcher reduces the need
-   for this command but does not make the playbook itself correct.
+   The play now runs `common/tasks/prepare_internal_https_caller_dns.yml`
+   (maps the Service FQDN to loopback and starts the port-forward) and
+   `openbao/tasks/break_glass_restore.yml` before `unseal.yml`, plus a
+   `post_tasks` reap via `stop_port_forwards.yml`. It no longer depends on
+   connectivity or local key state already existing.
 
-6. **Standalone readiness starts from an internal OpenBao address without
-   preparing its tunnel.**
+6. **RESOLVED — standalone readiness prepares its OpenBao tunnel.**
 
-   Embedded readiness works while `site.yml` still has the OpenBao tunnel open.
-   `readiness_check.yml` begins its OpenBao checks before any helper establishes
-   that path, so an off-cluster controller cannot normally resolve or reach
-   `openbao.tex26-vault.svc.cluster.local`.
+   `check_openbao.yml` now runs the same `prepare_internal_https_caller_dns.yml`
+   helper ("Make the OpenBao service reachable from the controller") before any
+   OpenBao probe, with a comment noting it's a no-op when `site.yml` already
+   opened the tunnel.
 
-7. **Standalone readiness does not reap port-forwards.**
+7. **RESOLVED — standalone readiness reaps port-forwards.**
 
-   Keycloak and trace checks create asynchronous port-forward processes, but
-   only `site.yml` has the final `stop_port_forwards.yml` post-task. Add the same
-   cleanup to `readiness_check.yml`, preferably in a path that also runs after a
-   failed check.
+   `playbooks/readiness_check.yml` has a `post_tasks` block that includes
+   `stop_port_forwards.yml`, explicitly commented as covering the case where no
+   other play in the run does this cleanup.
 
-8. **Common token-file fallbacks still point to `/opt/openbao`.**
+8. **RESOLVED in practice — common token-file fallbacks still say `/opt/openbao`
+   in their default expression, but the fallback never triggers on this
+   inventory.**
 
-   The OpenShift inventory moves OpenBao state to
-   `~/.armory/openbao`, but the common loaders fall back to `/opt/openbao`.
-   In a play that has not loaded OpenBao role defaults, such as standalone
-   readiness, token or root-key loading can select the wrong path. Put all
-   cross-role state paths in group vars or derive the common defaults from
-   `openbao_work_dir`.
+   `common/defaults/main.yml` still reads
+   `openbao_work_dir | default('/opt/openbao')`, but `openbao_work_dir` is now
+   set once in `inventories/openshift/group_vars/all.yml`
+   (`~/.armory/openbao`) as a group var, not a role default. Ansible loads
+   group vars for every play against this inventory regardless of which roles
+   run, so the `/opt/openbao` fallback is currently dead code. No action
+   required for this inventory; the literal could still be cleaned up for
+   defensiveness against a future inventory that omits the group var.
 
 ### Public endpoint and readiness drift
 
@@ -1211,62 +1213,70 @@ workflow is treated as a reliable fresh deployment.
     and the external PKI role/allowed-domains together — they can no longer
     disagree.
 
-11. **The ingress fallback is a local-edge assumption.**
+11. **RESOLVED — the ingress fallback goes through a real edge tunnel, not a
+    hardcoded local-router assumption.**
 
-    Readiness falls back to `https://127.0.0.1:443` when public DNS fails, but no
-    task creates a port-forward to the OpenShift router on that port. The
-    Keycloak fallback Host header is also the bare apps domain, not the
-    `keycloak.<apps-domain>` hostname. This is leftover local-ingress logic.
+    Readiness now includes `roles/readiness_check/tasks/ensure_edge_tunnel.yml`,
+    which port-forwards to the edge Envoy Service (skipping if a tunnel from an
+    earlier check is already open) before falling back. The Keycloak fallback
+    aliases `readiness_check_keycloak_public_host` — the real
+    `keycloak.<apps-domain>` hostname — not the bare apps domain.
 
-12. **External TLS verification is disabled by default.**
+12. **RESOLVED — external TLS verification is enabled by default.**
 
-    `readiness_check_validate_tls=false` is justified by a comment about a
-    self-signed ingress CA, while this inventory says the OpenShift router uses
-    a publicly trusted wildcard chain. Public Keycloak and OpenBao probes should
-    validate that chain. The internal strict checks already use explicit CA
-    bundles.
+    `readiness_check_validate_tls` and `readiness_check_openbao_validate_tls`
+    both default to `true` in `roles/readiness_check/defaults/main.yml`. Public
+    Keycloak and OpenBao probes validate the router's publicly trusted wildcard
+    chain.
 
 ### Validation and documentation gaps
 
-13. **The Helm readiness result can pass when Helm is missing.**
+13. **RESOLVED — the Helm readiness result no longer passes when Helm is
+    missing.**
 
-    `check_helm.yml` treats return code `127` as `pass` even though its detail
-    says Helm is not installed. Separately, the Helm role's initial command
-    fails if the executable is absent; the role does not install Helm.
+    `check_helm.yml` now passes only on return code `0` or `2`; a missing Helm
+    (rc `127`) reports `fail` with detail "not installed".
 
-14. **The RBAC preflight samples rather than exhaustively verifies the matrix.**
+14. **RESOLVED — the RBAC preflight's `--as` usage matches who is actually
+    running it.**
 
-    It checks only the first resource and first verb of each rule, although the
-    prose says it verifies every permission. It also always uses `--as` for the
-    automation ServiceAccount; during a scoped `site.yml` run that can require
-    impersonation permission that the account is not granted. Verify this
-    behavior on the target cluster and either omit `--as` when already running
-    as the account or grant a deliberately constrained alternative.
+    `roles/automation_rbac/tasks/preflight.yml` now omits `--as` when
+    `armory_privileged_tasks` is false (the scoped `site.yml` run, where the
+    active identity already IS the automation ServiceAccount), and only uses
+    `--as` during the privileged `bootstrap.yml` run where impersonation is
+    correct. The one-verb-per-rule sampling behavior is unchanged, but is now
+    explicitly documented in a comment as an intentional tradeoff (RBAC grants
+    a rule's verbs together, so one sample per rule adds signal without
+    multiplying API calls), not an undocumented gap.
 
-15. **Readiness has no registry or ClusterIssuer health stage.**
+15. **RESOLVED — readiness has registry and ClusterIssuer health stages.**
 
-    The full site deploys an enabled registry and two ClusterIssuers, but the
-    readiness aggregator does not validate registry authentication/storage/Route
-    behavior or current issuer readiness. Envoy is tested only through the
-    temporary trace path; its public Routes and OTel export are not directly
-    reported.
+    `roles/readiness_check/tasks/main.yml` now includes `check_registry.yml`
+    (gated on `registry_enabled`) and `check_cert_manager.yml` (gated on
+    `readiness_check_cert_manager_enabled`).
 
-16. **Several live-named variables and documents are dead or stale.**
+16. **MOSTLY RESOLVED — most dead/stale items are gone; one unused alias
+    remained and has now been removed.**
 
-    Examples include the `local Fedora VM` play names,
-    `keycloak_ingress_enabled`, `openbao_ingress_enabled`, unused readiness HTTP
-    policy variables, `keycloak_work_dir`, backward-compatible PKI aliases,
-    Fedora-only Galaxy metadata, the Keycloak role README's HTTPRoute/Gateway
-    description, and the k3s containerd/Delve block in `.env.example`. Remove or
-    rename these after confirming there are no external consumers.
+    `keycloak_ingress_enabled`, `openbao_ingress_enabled`, `keycloak_work_dir`,
+    the Keycloak role README's HTTPRoute/Gateway description, and the k3s
+    containerd/Delve block in `.env.example` are all gone. The
+    `keycloak_internal_http_url` backward-compatible alias in
+    `roles/keycloak/defaults/main.yml` had no remaining consumers anywhere in
+    the repo and has been removed. Not re-verified: the "unused readiness HTTP
+    policy variables" sub-item. Left as-is (not stale, just accurate given the
+    current setup): the `local Fedora VM` play names in `openbao_unseal.yml`
+    and `readiness_check.yml`, and Fedora-listed Galaxy `meta/main.yml`
+    platforms — the project still targets a Fedora workstation/VM as its
+    controller.
 
-17. **Seeded realm-user KV entries gain a new version on every run.**
+17. **RESOLVED — seeded realm-user KV entries no longer gain a version on every
+    run.**
 
-    `realm_user_item.yml` correctly reads before generating, but unconditionally
-    POSTs the same username/password back to OpenBao. This does not rotate the
-    credential, but it creates avoidable KV version churn and differs from the
-    first-write-only handling of the DB, realm-admin, bootstrap-admin, and
-    registry credentials.
+    `realm_user_item.yml`'s credential-store task is now guarded with
+    `when: (_keycloak_realm_user_creds_current.status | default(404)) != 200`,
+    matching the first-write-only handling used for the DB, realm-admin,
+    bootstrap-admin, and registry credentials. A comment cites this explicitly.
 
 ## Recommended validation order
 

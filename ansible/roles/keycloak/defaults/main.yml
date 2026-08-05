@@ -156,9 +156,6 @@ keycloak_internal_service_fqdn: "{{ keycloak_service_name }}.{{ keycloak_namespa
 # In-cluster Keycloak endpoint used by the realm-admin rotator CronJob.
 keycloak_internal_api_url: "https://{{ keycloak_internal_service_fqdn }}:{{ keycloak_service_https_port }}"
 
-# Backward-compatible alias retained for older template references.
-keycloak_internal_http_url: "{{ keycloak_internal_api_url }}"
-
 # PostgreSQL TLS (Keycloak -> Postgres) defaults.
 keycloak_pg_tls_enabled: false
 keycloak_pg_tls_verify_mode: verify-full
