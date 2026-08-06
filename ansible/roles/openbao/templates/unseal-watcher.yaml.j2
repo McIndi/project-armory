@@ -164,6 +164,9 @@ spec:
               cpu: 100m
               memory: 128Mi
           volumeMounts:
+            - name: watcher-script
+              mountPath: /app
+              readOnly: true
             - name: break-glass
               mountPath: /break-glass
               readOnly: true
@@ -171,6 +174,9 @@ spec:
               mountPath: /etc/openbao-ca
               readOnly: true
       volumes:
+        - name: watcher-script
+          configMap:
+            name: {{ openbao_unseal_watcher_name }}-script
         - name: break-glass
           secret:
             secretName: {{ openbao_break_glass_secret_name }}

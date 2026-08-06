@@ -25,6 +25,12 @@
           --vault-password-file {{ openbao_vault_pass_file }}
           --output -
           {{ openbao_init_keys_file }}
+      # ANSIBLE_VERBOSITY leaks from .env into this subprocess and, at
+      # verbosity >=3, ansible-vault prints a diagnostic banner ahead of the
+      # real content on stdout, breaking the from_yaml parse below (see
+      # roles/openbao/tasks/break_glass_mirror.yml for the full story).
+      environment:
+        ANSIBLE_VERBOSITY: "0"
       register: _openbao_decrypted
       no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       changed_when: false
@@ -68,6 +74,11 @@
           --vault-password-file {{ openbao_vault_pass_file }}
           --output -
           {{ openbao_init_keys_file }}
+      # See the comment on "Decrypt init-keys file" above: ANSIBLE_VERBOSITY
+      # leaking into this subprocess corrupts the stdout the from_yaml parse
+      # below depends on.
+      environment:
+        ANSIBLE_VERBOSITY: "0"
       register: _openbao_decrypted_for_token
       no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
       changed_when: false

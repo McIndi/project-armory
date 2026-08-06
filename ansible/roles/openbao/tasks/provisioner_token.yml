@@ -51,9 +51,16 @@
       --vault-password-file {{ openbao_vault_pass_file }}
       --output -
       {{ openbao_provisioner_token_file }}
+  # See roles/openbao/tasks/break_glass_mirror.yml for why this is pinned:
+  # ANSIBLE_VERBOSITY leaks from .env into this subprocess and, at verbosity
+  # >=3, ansible-vault prints a diagnostic banner ahead of the real content on
+  # stdout, breaking the from_yaml parse below.
+  environment:
+    ANSIBLE_VERBOSITY: "0"
   register: _openbao_provisioner_token_decrypt
   changed_when: false
   failed_when: false
+  become: true
   no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
@@ -135,6 +142,7 @@
     mode: "0400"
     owner: root
     group: root
+  become: true
   no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode
@@ -147,6 +155,7 @@
       --vault-password-file {{ openbao_vault_pass_file }}
       --output {{ openbao_provisioner_token_file }}
       {{ openbao_provisioner_token_file }}.plain
+  become: true
   no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"
   # Only runs when a new token was minted, so it always writes the token file.
   changed_when: true
@@ -158,6 +167,7 @@
   ansible.builtin.file:
     path: "{{ openbao_provisioner_token_file }}.plain"
     state: absent
+  become: true
   when:
     - not ansible_check_mode
     - not (_openbao_provisioner_token_valid | default(false))

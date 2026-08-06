@@ -56,6 +56,17 @@
           --vault-password-file {{ openbao_vault_pass_file }}
           --output -
           {{ openbao_init_keys_file }}
+      # ansible-vault is a CLI that honors ANSIBLE_VERBOSITY same as
+      # ansible-playbook itself. .env sets ANSIBLE_VERBOSITY=3 for the outer
+      # run, and that leaks into this subprocess's environment, so at that
+      # verbosity ansible-vault prints its own diagnostic banner (config file,
+      # module locations, python/jinja/pyyaml versions, ...) to stdout ahead
+      # of the decrypted content. That banner then gets captured alongside the
+      # real YAML below and breaks the from_yaml parse. Pin this one
+      # subprocess to verbosity 0 so stdout is always exactly the decrypted
+      # file, independent of whatever verbosity the outer run is using.
+      environment:
+        ANSIBLE_VERBOSITY: "0"
       register: _openbao_bg_decrypted
       changed_when: false
       no_log: "{{ not (openbao_log_nolog | default(false) | bool) }}"

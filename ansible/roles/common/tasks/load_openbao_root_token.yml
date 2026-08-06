@@ -8,8 +8,15 @@
       --vault-password-file {{ openbao_vault_pass_file | default(common_openbao_vault_pass_file) }}
       --output -
       {{ openbao_init_keys_file | default(common_openbao_init_keys_file) }}
+  # See roles/openbao/tasks/break_glass_mirror.yml for why this is pinned:
+  # ANSIBLE_VERBOSITY leaks from .env into this subprocess and, at verbosity
+  # >=3, ansible-vault prints a diagnostic banner ahead of the real content on
+  # stdout, breaking the from_yaml parse below.
+  environment:
+    ANSIBLE_VERBOSITY: "0"
   register: _common_openbao_init_keys_decrypted
   changed_when: false
+  become: true
   no_log: "{{ not (common_log_nolog | default(false) | bool) }}"
   when:
     - not ansible_check_mode

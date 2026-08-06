@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import yaml
@@ -23,6 +24,13 @@ import yaml
 
 def decrypt_file(vault_file: str, vault_pass_file: str) -> str:
     """Return the decrypted plaintext of an Ansible Vault-encrypted file."""
+    # ansible-vault is a CLI that honors ANSIBLE_VERBOSITY same as
+    # ansible-playbook. If this script is run from a shell where .env has
+    # been sourced (ANSIBLE_VERBOSITY=3), ansible-vault prints its own
+    # diagnostic banner (config file, module locations, python/jinja/pyyaml
+    # versions, ...) ahead of the decrypted content on stdout, which breaks
+    # the yaml.safe_load() below. Force it to 0 for this subprocess only.
+    env = dict(os.environ, ANSIBLE_VERBOSITY="0")
     result = subprocess.run(
         [
             "ansible-vault",
@@ -35,6 +43,7 @@ def decrypt_file(vault_file: str, vault_pass_file: str) -> str:
         ],
         capture_output=True,
         text=True,
+        env=env,
     )
     if result.returncode != 0:
         print(f"ERROR: ansible-vault decrypt failed:\n{result.stderr}", file=sys.stderr)
