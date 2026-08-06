@@ -12,7 +12,9 @@
 # live Role or variation within a resourceNames-scoped rule.
 
 - name: Verify the automation account's permissions
-  when: not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - automation_rbac_preflight_enabled | bool
   block:
     # Flatten the matrix into one check per (namespace, resource, verb). Only the
     # first verb of each rule is probed: RBAC grants a rule's verbs together, so

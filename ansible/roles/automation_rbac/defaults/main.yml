@@ -13,6 +13,8 @@
 # starts rather than a failure halfway through.
 
 automation_rbac_kubeconfig_path: "{{ armory_kubeconfig_path | default(lookup('ansible.builtin.env', 'KUBECONFIG'), true) }}"
+automation_rbac_preflight_disabled: "{{ lookup('ansible.builtin.env', 'ARMORY_AUTOMATION_RBAC_PREFLIGHT_DISABLED') | default('false', true) | bool }}"
+automation_rbac_preflight_enabled: "{{ not automation_rbac_preflight_disabled }}"
 
 # Where the ServiceAccount itself lives. Its own project, so it is not entangled
 # with any workload's namespace.

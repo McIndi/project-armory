@@ -219,6 +219,8 @@ flowchart TD
     expands the RBAC rule matrices into namespaced, cluster-scoped, and
     foreign-namespace checks, runs `oc auth can-i`, collects negative results,
     and fails with the exact missing entries.
+   Set `ARMORY_AUTOMATION_RBAC_PREFLIGHT_DISABLED=true` in `.env` to skip it
+   when you do not need to re-verify the matrix.
 
 15. On success, the play prints the next command:
 
@@ -270,6 +272,9 @@ Because the OpenShift inventory sets `armory_privileged_tasks: false`, the
 pre-task includes the same `automation_rbac` preflight used by bootstrap. Its
 intent is to stop before deployment if the ServiceAccount no longer has a
 required grant.
+
+Set `ARMORY_AUTOMATION_RBAC_PREFLIGHT_DISABLED=true` in `.env` to skip this
+preflight when the permission matrix has not changed.
 
 This task is tagged `always` and `rbac_preflight`, and is skipped in check mode.
 
